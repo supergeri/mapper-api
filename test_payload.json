@@ -1,0 +1,30 @@
+{
+  "ingest_json": {
+    "title": "Upper Body Push",
+    "exercises": [
+      {
+        "name": "DB Bench Press",
+        "sets": 3,
+        "reps": "8-10",
+        "rest": 60,
+        "equipment": ["dumbbell"],
+        "modifiers": ["flat"]
+      },
+      {
+        "name": "Incline DB Flye",
+        "sets": 3,
+        "reps": 12,
+        "rest": 75,
+        "equipment": ["dumbbell"],
+        "modifiers": ["incline"]
+      },
+      {
+        "name": "Push-ups",
+        "sets": 3,
+        "reps": 15,
+        "rest": 0
+      }
+    ]
+  }
+}
+

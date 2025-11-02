@@ -1,0 +1,18 @@
+- canonical: dumbbell_bench_press_flat
+  synonyms: ["db bench press","dumbbell bench","flat db press","flat dumbbell bench press"]
+  category: "chest_push"
+  equipment: ["dumbbell","bench"]
+  modifiers: ["flat"]
+
+- canonical: push_up
+  synonyms: ["push ups","push-ups","pushups"]
+  category: "chest_push"
+  equipment: []
+  modifiers: []
+
+- canonical: dumbbell_flye_incline
+  synonyms: ["incline db flye","incline dumbbell flye"]
+  category: "chest_push"
+  equipment: ["dumbbell","bench"]
+  modifiers: ["incline"]
+

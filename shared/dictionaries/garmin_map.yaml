@@ -1,0 +1,6 @@
+dumbbell_bench_press_flat: { name: "Dumbbell Bench Press" }
+
+push_up:                   { name: "Push-Up" }
+
+dumbbell_flye_incline:     { name: "Dumbbell Flye", modifiers: ["Incline"] }
+

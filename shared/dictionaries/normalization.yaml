@@ -1,0 +1,14 @@
+expand:
+  db: dumbbell
+  bb: barbell
+  kb: kettlebell
+  oh: overhead
+  rdls: romanian deadlift
+  rdl: romanian deadlift
+
+plural_to_singular:
+  flyes: flye
+  presses: press
+
+stopwords: ["with","and","on","machine","the"]
+
