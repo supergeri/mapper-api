@@ -140,17 +140,57 @@ workout-mapper/
 
 ## Testing
 
-Run tests with pytest:
+### Run tests once:
 
 ```bash
 pytest
 ```
 
-With coverage:
+### Run tests with coverage:
 
 ```bash
 pytest --cov=backend --cov=shared
 ```
+
+### Auto-run tests on file changes (Recommended for development):
+
+Install pytest-watch (already installed if you followed setup):
+```bash
+pip install pytest-watch
+```
+
+Run tests automatically whenever files change:
+```bash
+ptw  # or pytest-watch
+```
+
+This will watch for changes in `.py` files in `backend/`, `tests/`, and `shared/` directories and automatically rerun tests.
+
+You can also watch specific files/directories:
+```bash
+ptw backend/ tests/
+```
+
+Or run with additional pytest options:
+```bash
+ptw -- -v --tb=short
+```
+
+### Run tests before commits (Git hook):
+
+To automatically run tests before each commit (prevents broken code from being committed):
+
+1. Install pre-commit:
+```bash
+pip install pre-commit
+```
+
+2. Install the git hook:
+```bash
+pre-commit install
+```
+
+Now tests will run automatically before each commit. If tests fail, the commit will be blocked.
 
 ## Configuration
 
