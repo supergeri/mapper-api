@@ -1,0 +1,159 @@
+{
+  "blocks_json": {
+    "title": "pdated Strength Workout",
+    "source": "ai_generated",
+    "blocks": [
+      {
+        "label": "Big Lifts (Single Sets)",
+        "structure": null,
+        "rest_between_sec": null,
+        "time_work_sec": null,
+        "default_reps_range": null,
+        "default_sets": null,
+        "exercises": [
+          {
+            "name": "Marrs Bar Squat (SquatMax-MD + Voltras)",
+            "sets": 1,
+            "reps": null,
+            "reps_range": "6-8",
+            "duration_sec": null,
+            "rest_sec": null,
+            "distance_m": null,
+            "distance_range": null,
+            "type": "strength"
+          },
+          {
+            "name": "Flat Bench Press (dumbbells or bar)",
+            "sets": 1,
+            "reps": null,
+            "reps_range": "6-8",
+            "duration_sec": null,
+            "rest_sec": null,
+            "distance_m": null,
+            "distance_range": null,
+            "type": "strength"
+          }
+        ],
+        "supersets": []
+      },
+      {
+        "label": "Superset Cluster 1 – Rack Work",
+        "structure": "3 sets",
+        "rest_between_sec": null,
+        "time_work_sec": null,
+        "default_reps_range": null,
+        "default_sets": 3,
+        "exercises": [],
+        "supersets": [
+          {
+            "exercises": [
+              {
+                "name": "Landmine Press (using Jammer Arms or barbell in landmine slot) (per side)",
+                "sets": 3,
+                "reps": null,
+                "reps_range": "8-10",
+                "duration_sec": null,
+                "rest_sec": null,
+                "distance_m": null,
+                "distance_range": null,
+                "type": "strength"
+              },
+              {
+                "name": "Seal Row / Chest-Supported Dumbbell Row",
+                "sets": 3,
+                "reps": null,
+                "reps_range": "10-12",
+                "duration_sec": null,
+                "rest_sec": null,
+                "distance_m": null,
+                "distance_range": null,
+                "type": "strength"
+              }
+            ],
+            "rest_between_sec": 90
+          }
+        ]
+      },
+      {
+        "label": "Superset Cluster 2 – Dumbbells & Bands",
+        "structure": "3 sets",
+        "rest_between_sec": null,
+        "time_work_sec": null,
+        "default_reps_range": null,
+        "default_sets": 3,
+        "exercises": [],
+        "supersets": [
+          {
+            "exercises": [
+              {
+                "name": "Dumbbell RDLs",
+                "sets": 3,
+                "reps": null,
+                "reps_range": "8-10",
+                "duration_sec": null,
+                "rest_sec": null,
+                "distance_m": null,
+                "distance_range": null,
+                "type": "strength"
+              },
+              {
+                "name": "Band-Resisted Push-Ups",
+                "sets": 3,
+                "reps": null,
+                "reps_range": "8-12",
+                "duration_sec": null,
+                "rest_sec": null,
+                "distance_m": null,
+                "distance_range": null,
+                "type": "strength"
+              }
+            ],
+            "rest_between_sec": 75
+          }
+        ]
+      },
+      {
+        "label": "Superset Cluster 3 – Core & Torque Zone",
+        "structure": "3 sets",
+        "rest_between_sec": null,
+        "time_work_sec": null,
+        "default_reps_range": null,
+        "default_sets": 3,
+        "exercises": [],
+        "supersets": [
+          {
+            "exercises": [
+              {
+                "name": "Pure Torque Device Twists or Holds",
+                "sets": 3,
+                "reps": null,
+                "reps_range": null,
+                "duration_sec": 30,
+                "rest_sec": null,
+                "distance_m": null,
+                "distance_range": null,
+                "type": "interval"
+              },
+              {
+                "name": "Freak Athlete Hyper (Back Extensions)",
+                "sets": 3,
+                "reps": null,
+                "reps_range": "10-12",
+                "duration_sec": null,
+                "rest_sec": null,
+                "distance_m": null,
+                "distance_range": null,
+                "type": "strength"
+              }
+            ],
+            "rest_between_sec": 60
+          }
+        ]
+      }
+    ]
+  }
+}
+
+
+
+

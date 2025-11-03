@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "test": "pytest",
+    "test:watch": "ptw",
+    "test:cov": "pytest --cov=backend --cov=shared"
+  }
+}
+
+

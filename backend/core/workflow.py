@@ -62,7 +62,7 @@ def validate_workout_mapping(blocks_json: dict, confidence_threshold: float = 0.
             continue
         
         # Map to Garmin
-        garmin_name, description = map_exercise_to_garmin(
+        garmin_name, description, mapping_info = map_exercise_to_garmin(
             ex_name,
             ex_reps=ex_info.get("reps"),
             ex_distance_m=ex_info.get("distance_m")
@@ -71,9 +71,9 @@ def validate_workout_mapping(blocks_json: dict, confidence_threshold: float = 0.
         # Get suggestions
         suggestions = suggest_alternatives(ex_name, include_similar_types=True)
         
-        # Determine status
+        # Determine status - use confidence from mapping_info if available, otherwise from suggestions
         best_match = suggestions.get("best_match")
-        confidence = best_match["score"] if best_match else 0.0
+        confidence = mapping_info.get("confidence") if mapping_info.get("confidence") is not None else (best_match["score"] if best_match else 0.0)
         
         is_generic = garmin_name and garmin_name.lower() in ['push', 'carry', 'squat', 'plank', 'burpee']
         needs_review = (
