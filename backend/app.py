@@ -9,6 +9,7 @@ from backend.core.canonicalize import canonicalize
 from backend.adapters.cir_to_garmin_yaml import to_garmin_yaml
 
 from backend.adapters.blocks_to_hyrox_yaml import to_hyrox_yaml
+from backend.adapters.blocks_to_workoutkit import to_workoutkit
 
 from backend.core.exercise_suggestions import suggest_alternatives, find_similar_exercises, find_exercises_by_type, categorize_exercise
 
@@ -72,6 +73,16 @@ def auto_map_workout(p: BlocksPayload):
     yaml_output = to_hyrox_yaml(p.blocks_json)
     
     return {"yaml": yaml_output}
+
+
+@app.post("/map/to-workoutkit")
+
+def map_to_workoutkit(p: BlocksPayload):
+
+    """Convert blocks JSON to Apple WorkoutKit DTO format for creating workouts on Apple Watch."""
+    workoutkit_dto = to_workoutkit(p.blocks_json)
+    
+    return workoutkit_dto.model_dump()
 
 
 # Deprecated endpoints - use /map/auto-map instead
