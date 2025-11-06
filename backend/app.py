@@ -9,6 +9,7 @@ from backend.core.canonicalize import canonicalize
 from backend.adapters.cir_to_garmin_yaml import to_garmin_yaml
 
 from backend.adapters.blocks_to_hyrox_yaml import to_hyrox_yaml
+from backend.adapters.blocks_to_hiit_garmin_yaml import to_hiit_garmin_yaml, is_hiit_workout
 from backend.adapters.blocks_to_workoutkit import to_workoutkit
 from backend.adapters.blocks_to_zwo import to_zwo
 
@@ -70,8 +71,24 @@ def map_final(p: IngestPayload):
 
 def auto_map_workout(p: BlocksPayload):
 
-    """Automatically convert blocks JSON to Garmin YAML. Picks best exercise matches automatically - no user interaction needed."""
-    yaml_output = to_hyrox_yaml(p.blocks_json)
+    """Automatically convert blocks JSON to Garmin YAML. Picks best exercise matches automatically - no user interaction needed.
+    Automatically detects HIIT workouts and uses appropriate format."""
+    # Check if this is a HIIT workout
+    if is_hiit_workout(p.blocks_json):
+        yaml_output = to_hiit_garmin_yaml(p.blocks_json)
+    else:
+        yaml_output = to_hyrox_yaml(p.blocks_json)
+    
+    return {"yaml": yaml_output}
+
+
+@app.post("/map/to-hiit")
+
+def map_to_hiit(p: BlocksPayload):
+
+    """Convert blocks JSON to Garmin HIIT workout YAML format.
+    Use this endpoint specifically for HIIT workouts (for time, AMRAP, EMOM, etc.)."""
+    yaml_output = to_hiit_garmin_yaml(p.blocks_json)
     
     return {"yaml": yaml_output}
 

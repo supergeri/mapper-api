@@ -1,0 +1,134 @@
+{
+  "blocks_json": {
+    "title": "Jour 193",
+    "source": "image:Screenshot 2025-11-05 at 9.15.56 PM.png",
+    "blocks": [
+      {
+        "label": "Hyrox",
+        "structure": "for time (cap: 35 min)",
+        "rest_between_sec": null,
+        "time_work_sec": 2100,
+        "default_reps_range": null,
+        "default_sets": null,
+        "exercises": [],
+        "supersets": [
+          {
+            "exercises": [
+              {
+                "name": "1200 m Run",
+                "sets": null,
+                "reps": null,
+                "reps_range": null,
+                "duration_sec": null,
+                "rest_sec": null,
+                "distance_m": 1200,
+                "distance_range": null,
+                "type": "HIIT"
+              },
+              {
+                "name": "100 m KB Farmers (32/24kg)",
+                "sets": null,
+                "reps": null,
+                "reps_range": null,
+                "duration_sec": null,
+                "rest_sec": null,
+                "distance_m": 100,
+                "distance_range": null,
+                "type": "HIIT"
+              },
+              {
+                "name": "1000 m Run",
+                "sets": null,
+                "reps": null,
+                "reps_range": null,
+                "duration_sec": null,
+                "rest_sec": null,
+                "distance_m": 1000,
+                "distance_range": null,
+                "type": "HIIT"
+              },
+              {
+                "name": "80 Walking Lunges (30/20kg)",
+                "sets": null,
+                "reps": 80,
+                "reps_range": null,
+                "duration_sec": null,
+                "rest_sec": null,
+                "distance_m": null,
+                "distance_range": null,
+                "type": "HIIT"
+              },
+              {
+                "name": "800 m Run",
+                "sets": null,
+                "reps": null,
+                "reps_range": null,
+                "duration_sec": null,
+                "rest_sec": null,
+                "distance_m": 800,
+                "distance_range": null,
+                "type": "HIIT"
+              },
+              {
+                "name": "60 cals Row / Skireg",
+                "sets": null,
+                "reps": 60,
+                "reps_range": null,
+                "duration_sec": null,
+                "rest_sec": null,
+                "distance_m": null,
+                "distance_range": null,
+                "type": "HIIT"
+              },
+              {
+                "name": "600 m Run '",
+                "sets": null,
+                "reps": null,
+                "reps_range": null,
+                "duration_sec": null,
+                "rest_sec": null,
+                "distance_m": 600,
+                "distance_range": null,
+                "type": "HIIT"
+              },
+              {
+                "name": "40 Wall Balls (9/6kg)",
+                "sets": null,
+                "reps": 40,
+                "reps_range": null,
+                "duration_sec": null,
+                "rest_sec": null,
+                "distance_m": null,
+                "distance_range": null,
+                "type": "HIIT"
+              },
+              {
+                "name": "400 m Run \"",
+                "sets": null,
+                "reps": null,
+                "reps_range": null,
+                "duration_sec": null,
+                "rest_sec": null,
+                "distance_m": 400,
+                "distance_range": null,
+                "type": "HIIT"
+              },
+              {
+                "name": "20 Burpees",
+                "sets": null,
+                "reps": 20,
+                "reps_range": null,
+                "duration_sec": null,
+                "rest_sec": null,
+                "distance_m": null,
+                "distance_range": null,
+                "type": "HIIT"
+              }
+            ],
+            "rest_between_sec": null
+          }
+        ]
+      }
+    ]
+  }
+}
