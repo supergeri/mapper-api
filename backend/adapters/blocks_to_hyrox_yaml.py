@@ -103,11 +103,13 @@ def parse_exercise_name(ex_name: str) -> tuple[str, str, str]:
         original_desc = f"{desc_name} x{match.group(1)}"
         return base_name, reps_desc, original_desc
     
-    # Check for distance pattern like "200M SKI"
-    distance_match = re.search(r'(\d+)\s*M\s+(.+)', ex_name, re.IGNORECASE)
+    # Check for distance pattern like "200M SKI" or "100 m KB Farmers (32/24kg)"
+    distance_match = re.search(r'(\d+)\s*[Mm]\s+(.+)', ex_name, re.IGNORECASE)
     if distance_match:
         distance = f"{distance_match.group(1)}m"
         base_name = distance_match.group(2).strip()
+        # Remove weight specifications in parentheses like "(32/24kg)"
+        base_name = re.sub(r'\s*\([^)]+\)\s*$', '', base_name, flags=re.IGNORECASE).strip()
         original_desc = distance
         return base_name, "", original_desc
     
@@ -118,6 +120,8 @@ def clean_exercise_name(ex_name: str) -> str:
     """Clean exercise name for matching."""
     # Remove common prefixes and suffixes
     ex_name = ex_name.strip()
+    # Remove weight specifications in parentheses like "(32/24kg)" or "(9/6kg)"
+    ex_name = re.sub(r'\s*\([^)]+\)\s*', ' ', ex_name, flags=re.IGNORECASE)
     # Remove "X10", "X8" etc if still there (but keep words before numbers)
     ex_name = re.sub(r'\s+X\d+.*$', '', ex_name, flags=re.IGNORECASE)
     # Remove patterns like "X4 wb", "X6-10 0"
@@ -126,6 +130,8 @@ def clean_exercise_name(ex_name: str) -> str:
     ex_name = re.sub(r'[§©®™]', '', ex_name)
     # Remove trailing single characters/numbers
     ex_name = re.sub(r'\s+[0-9a-z]\s*$', '', ex_name, flags=re.IGNORECASE)
+    # Clean up extra spaces
+    ex_name = re.sub(r'\s+', ' ', ex_name).strip()
     return ex_name.strip()
 
 
@@ -182,7 +188,26 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
         "burpee broad jump": "Burpee",
         "farmer carry": "Farmer's Carry",
         "farmers carry": "Farmer's Carry",
+        "farmer's carry": "Farmer's Carry",
+        "kb farmers": "Farmer's Carry",
+        "kettlebell farmers": "Farmer's Carry",
+        "kb farmer": "Farmer's Carry",
+        "kettlebell farmer": "Farmer's Carry",
         "sled push": "Sled Push",
+        "walking lunge": "Walking Lunge",
+        "walking lunges": "Walking Lunge",
+        "lunge": "Walking Lunge",
+        "lunges": "Walking Lunge",
+        "row": "Row",
+        "rowing": "Row",
+        "skireg": "Ski Moguls",
+        "ski erg": "Ski Moguls",
+        "ski ergometer": "Ski Moguls",
+        "row / skireg": "Row",
+        "row/skireg": "Row",
+        "wall ball": "Wall Ball",
+        "wall balls": "Wall Ball",
+        "medicine ball wall ball": "Wall Ball",
         "hand release push ups": "Hand Release Push Up",
         "hand release push up": "Hand Release Push Up",
         # More specific mappings
