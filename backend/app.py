@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import FastAPI, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 import logging
@@ -549,6 +550,7 @@ class IngestFollowAlongRequest(BaseModel):
 
 class PushToGarminRequest(BaseModel):
     userId: str
+    scheduleDate: Optional[str] = None  # YYYY-MM-DD format, or None for immediate import
 
 
 class PushToAppleWatchRequest(BaseModel):
@@ -697,12 +699,35 @@ def push_to_garmin_endpoint(workout_id: str, request: PushToGarminRequest):
     
     try:
         with httpx.Client(timeout=30.0) as client:
+            # Import workout first
             response = client.post(
                 f"{garmin_url}/workouts/import",
                 json=garmin_payload
             )
             response.raise_for_status()
             garmin_data = response.json()
+            
+            # If scheduleDate is provided, schedule the workout
+            if request.scheduleDate:
+                from datetime import datetime
+                # Parse scheduleDate (YYYY-MM-DD) or use current date/time if not provided
+                try:
+                    schedule_date = request.scheduleDate
+                except:
+                    schedule_date = datetime.now().strftime("%Y-%m-%d")
+                
+                # Schedule the workout
+                schedule_payload = {
+                    "email": garmin_email,
+                    "password": garmin_password,
+                    "start_from": schedule_date,
+                    "workouts": [workout["title"]]
+                }
+                schedule_response = client.post(
+                    f"{garmin_url}/workouts/schedule",
+                    json=schedule_payload
+                )
+                schedule_response.raise_for_status()
         
         # Get the workout ID from Garmin (we need to fetch it by name)
         # For now, use the workout title as the ID
@@ -728,6 +753,140 @@ def push_to_garmin_endpoint(workout_id: str, request: PushToGarminRequest):
             "message": str(e)
         }
 
+
+
+@app.post("/workout/sync/garmin")
+def sync_workout_to_garmin(request: dict):
+    """
+    Sync a regular workout to Garmin Connect.
+    Takes workout structure and syncs via garmin-sync-api.
+    """
+    import httpx
+    import os
+    
+    # Get workout data from request
+    blocks_json = request.get("blocks_json")
+    workout_title = request.get("workout_title", "Workout")
+    schedule_date = request.get("schedule_date")
+    
+    if not blocks_json:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "Workout data is required"
+        }
+    
+    # Get Garmin credentials from environment
+    garmin_email = os.getenv("GARMIN_EMAIL")
+    garmin_password = os.getenv("GARMIN_PASSWORD")
+    
+    if not garmin_email or not garmin_password:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "Garmin credentials not configured. Set GARMIN_EMAIL and GARMIN_PASSWORD environment variables."
+        }
+    
+    # Convert workout blocks to Garmin format
+    # Extract exercises from blocks - format: [{"Exercise Name": "10 reps"}]
+    # The key should be the exercise name, value should be the reps/duration string
+    steps = []
+    for block in blocks_json.get("blocks", []):
+        for exercise in block.get("exercises", []):
+            exercise_name = exercise.get("name", "")
+            if not exercise_name:
+                continue  # Skip exercises without names
+            
+            reps = exercise.get("reps")
+            reps_range = exercise.get("reps_range")
+            duration = exercise.get("duration_sec")
+            
+            # Format: "10 reps" or "10-12 reps" or "60s"
+            if reps:
+                step_detail = f"{reps} reps"
+            elif reps_range:
+                step_detail = f"{reps_range} reps"
+            elif duration:
+                step_detail = f"{duration}s"
+            else:
+                step_detail = "10 reps"  # Default
+            
+            # Key is exercise name, value is the reps/duration string
+            steps.append({exercise_name: step_detail})
+        
+        # Also handle supersets
+        for superset in block.get("supersets", []):
+            for exercise in superset.get("exercises", []):
+                exercise_name = exercise.get("name", "")
+                if not exercise_name:
+                    continue
+                
+                reps = exercise.get("reps")
+                reps_range = exercise.get("reps_range")
+                duration = exercise.get("duration_sec")
+                
+                if reps:
+                    step_detail = f"{reps} reps"
+                elif reps_range:
+                    step_detail = f"{reps_range} reps"
+                elif duration:
+                    step_detail = f"{duration}s"
+                else:
+                    step_detail = "10 reps"
+                
+                steps.append({exercise_name: step_detail})
+    
+    # Map to Garmin format - steps should be a list
+    garmin_workouts = {
+        workout_title: steps
+    }
+    
+    # Call Garmin sync API
+    garmin_url = os.getenv("GARMIN_SERVICE_URL", "http://garmin-sync-api:8002")
+    
+    garmin_payload = {
+        "email": garmin_email,
+        "password": garmin_password,
+        "workouts": garmin_workouts,
+        "delete_same_name": False
+    }
+    
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            # Import workout
+            response = client.post(
+                f"{garmin_url}/workouts/import",
+                json=garmin_payload
+            )
+            response.raise_for_status()
+            
+            # If schedule_date is provided, schedule the workout
+            if schedule_date:
+                schedule_payload = {
+                    "email": garmin_email,
+                    "password": garmin_password,
+                    "start_from": schedule_date,
+                    "workouts": [workout_title]
+                }
+                schedule_response = client.post(
+                    f"{garmin_url}/workouts/schedule",
+                    json=schedule_payload
+                )
+                schedule_response.raise_for_status()
+            
+            return {
+                "success": True,
+                "status": "success",
+                "message": "Workout synced to Garmin successfully",
+                "garminWorkoutId": workout_title
+            }
+    except Exception as e:
+        logger.error(f"Failed to sync workout to Garmin: {e}")
+        return {
+            "success": False,
+            "status": "error",
+            "message": str(e)
+        }
 
 @app.post("/follow-along/{workout_id}/push/apple-watch")
 def push_to_apple_watch_endpoint(workout_id: str, request: PushToAppleWatchRequest):
