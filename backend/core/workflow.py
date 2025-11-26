@@ -4,6 +4,10 @@ Workflow functions for processing blocks JSON with exercise validation.
 from typing import List, Dict, Optional
 from backend.adapters.blocks_to_hyrox_yaml import map_exercise_to_garmin, to_hyrox_yaml
 from backend.core.exercise_suggestions import suggest_alternatives
+from backend.core.garmin_matcher import find_garmin_exercise, get_garmin_suggestions
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def extract_all_exercises_from_blocks(blocks_json: dict) -> List[Dict]:
@@ -45,6 +49,12 @@ def validate_workout_mapping(blocks_json: dict, confidence_threshold: float = 0.
     """
     Validate workout mapping and identify exercises that need review.
     Returns validation results with suggestions.
+    
+    Uses new exercise_name_matcher for robust fuzzy matching.
+    Applies thresholds:
+    - confidence >= 0.88 -> status = "valid"
+    - 0.40 <= confidence < 0.88 -> status = "needs_review"
+    - mapped_name is None or confidence < 0.40 -> status = "unmapped"
     """
     exercises = extract_all_exercises_from_blocks(blocks_json)
     
@@ -61,49 +71,66 @@ def validate_workout_mapping(blocks_json: dict, confidence_threshold: float = 0.
         if not ex_name:
             continue
         
-        # Map to Garmin
-        garmin_name, description, mapping_info = map_exercise_to_garmin(
-            ex_name,
-            ex_reps=ex_info.get("reps"),
-            ex_distance_m=ex_info.get("distance_m")
-        )
+        # Use new robust matcher to get mapped_name and confidence
+        mapped_name, confidence = find_garmin_exercise(ex_name, threshold=40)  # Low threshold to get suggestions
         
-        # Get suggestions
-        suggestions = suggest_alternatives(ex_name, include_similar_types=True)
+        # Get suggestions using the new matcher
+        suggestions_list = get_garmin_suggestions(ex_name, limit=5, score_cutoff=0.3)
+        suggestions = [{"name": name, "confidence": conf} for name, conf in suggestions_list]
         
-        # Determine status - use confidence from mapping_info if available, otherwise from suggestions
-        best_match = suggestions.get("best_match")
-        confidence = mapping_info.get("confidence") if mapping_info.get("confidence") is not None else (best_match["score"] if best_match else 0.0)
+        # Also get legacy suggestions for additional context
+        legacy_suggestions = suggest_alternatives(ex_name, include_similar_types=True)
         
-        is_generic = garmin_name and garmin_name.lower() in ['push', 'carry', 'squat', 'plank', 'burpee']
-        needs_review = (
-            not garmin_name or
-            confidence < confidence_threshold or
-            is_generic or
-            suggestions.get("needs_user_search", False)
-        )
+        # Determine status based on thresholds
+        if mapped_name is None or confidence < 0.40:
+            status = "unmapped"
+        elif confidence >= 0.88:
+            status = "valid"
+        else:  # 0.40 <= confidence < 0.88
+            status = "needs_review"
+        
+        # Get description from legacy mapper if available
+        description = ""
+        try:
+            _, description, _ = map_exercise_to_garmin(
+                ex_name,
+                ex_reps=ex_info.get("reps"),
+                ex_distance_m=ex_info.get("distance_m")
+            )
+        except Exception as e:
+            logger.debug(f"Could not get description for {ex_name}: {e}")
         
         ex_result = {
             "original_name": ex_name,
-            "mapped_to": garmin_name,
+            "mapped_name": mapped_name,  # Use mapped_name instead of mapped_to for consistency
+            "mapped_to": mapped_name,  # Keep for backward compatibility
             "confidence": confidence,
             "description": description,
             "block": ex_info["block"],
             "location": ex_info["location"],
-            "status": "needs_review" if needs_review else "valid",
-            "suggestions": {
-                "similar": suggestions.get("similar_exercises", [])[:5],
-                "by_type": suggestions.get("exercises_by_type", [])[:10],
-                "category": suggestions.get("category"),
-                "needs_user_search": suggestions.get("needs_user_search", False)
-            }
+            "status": status,
+            "suggestions": suggestions  # List of {name, confidence} tuples from new matcher
         }
         
-        if needs_review:
+        # Log mapping failures for debugging
+        if status == "unmapped":
+            logger.warning(
+                f"Unmapped exercise: '{ex_name}' (confidence: {confidence:.2f}, "
+                f"top suggestion: {suggestions[0]['name'] if suggestions else 'none'})"
+            )
+        elif status == "needs_review":
+            logger.debug(
+                f"Exercise needs review: '{ex_name}' -> '{mapped_name}' "
+                f"(confidence: {confidence:.2f})"
+            )
+        
+        # Categorize into results
+        if status == "unmapped":
+            results["unmapped_exercises"].append(ex_result)
+            results["needs_review"].append(ex_result)  # Also add to needs_review
+        elif status == "needs_review":
             results["needs_review"].append(ex_result)
-            if not garmin_name or suggestions.get("needs_user_search"):
-                results["unmapped_exercises"].append(ex_result)
-        else:
+        else:  # status == "valid"
             results["validated_exercises"].append(ex_result)
     
     # If there are unmapped exercises, can't proceed without user input

@@ -311,8 +311,10 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
             mapping_info["method"] = "substring_match"
     
     # Fallback 1: try fuzzy matching against Garmin exercise database
+    # Uses new exercise_name_matcher with alias matching + normalization
+    # Threshold 40 (0.40) matches unmapped threshold - only use matches >= 0.40 confidence
     if not garmin_name:
-        garmin_name, confidence = find_garmin_exercise(clean_name, threshold=70)
+        garmin_name, confidence = find_garmin_exercise(clean_name, threshold=40)
         if garmin_name:
             mapping_info["source"] = "garmin_database"
             mapping_info["confidence"] = confidence

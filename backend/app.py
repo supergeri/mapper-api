@@ -191,6 +191,22 @@ def validate_workout(p: BlocksPayload):
 
     """Validate workout mapping and identify exercises needing review."""
     validation = validate_workout_mapping(p.blocks_json)
+    
+    # Log unmapped exercises for debugging
+    unmapped = validation.get("unmapped_exercises", [])
+    if unmapped:
+        logger.warning(
+            f"Validation found {len(unmapped)} unmapped exercises out of {validation.get('total_exercises', 0)} total"
+        )
+        for ex in unmapped:
+            suggestions = ex.get("suggestions", [])
+            top_suggestion = suggestions[0] if suggestions else None
+            logger.debug(
+                f"Unmapped: '{ex.get('original_name')}' "
+                f"(confidence: {ex.get('confidence', 0):.2f}, "
+                f"top suggestion: {top_suggestion['name'] if top_suggestion else 'none'})"
+            )
+    
     return validation
 
 

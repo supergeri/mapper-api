@@ -4,6 +4,7 @@ Garmin exercise name matcher using official Garmin exercise database.
 import pathlib
 from rapidfuzz import fuzz, process
 from .normalize import normalize
+from backend.mapping.exercise_name_matcher import best_match, top_matches
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -27,67 +28,34 @@ def load_garmin_exercises():
 def find_garmin_exercise(raw_name: str, threshold: int = 80) -> tuple[str, float]:
     """
     Find best matching Garmin exercise name.
-    Returns (garmin_name, score) or (None, 0) if no good match.
+    Returns (garmin_name, confidence) where confidence is 0-1.
+    
+    Uses the new exercise_name_matcher for robust fuzzy matching.
     """
     exercises = load_garmin_exercises()
     if not exercises:
         return None, 0.0
     
-    # Normalize input
-    normalized_input = normalize(raw_name)
+    # Use the new robust matcher
+    mapped_name, confidence = best_match(raw_name, exercises)
     
-    # First, try exact match (after normalization)
-    for ex in exercises:
-        if normalize(ex) == normalized_input:
-            return ex, 1.0
-    
-    # Try partial exact match (input is substring of exercise name)
-    # Prefer shorter matches for generic terms
-    exact_matches = []
-    for ex in exercises:
-        ex_normalized = normalize(ex)
-        if normalized_input in ex_normalized or ex_normalized in normalized_input:
-            exact_matches.append((ex, len(ex)))
-    
-    if exact_matches:
-        # Prefer exact match, then shorter names (more generic)
-        exact_matches.sort(key=lambda x: (x[0].lower() != raw_name.lower(), len(x[0])))
-        return exact_matches[0][0], 0.95
-    
-    # Use rapidfuzz for fuzzy matching
-    # Get top matches to choose best one
-    results = process.extract(
-        normalized_input,
-        [normalize(ex) for ex in exercises],
-        scorer=fuzz.token_set_ratio,
-        limit=5
-    )
-    
-    if results:
-        # Find the best match, preferring:
-        # 1. Higher score
-        # 2. Shorter names (for generic inputs)
-        # 3. Exact word matches
-        
-        best_matches = []
-        for matched_normalized, score, idx in results:
-            if score < threshold:
-                continue
-            # Find original exercise name
-            for ex in exercises:
-                if normalize(ex) == matched_normalized:
-                    # Score based on length similarity
-                    length_penalty = abs(len(ex) - len(raw_name)) / max(len(ex), len(raw_name), 1)
-                    adjusted_score = (score / 100.0) * (1 - length_penalty * 0.2)
-                    best_matches.append((ex, adjusted_score, score / 100.0))
-                    break
-        
-        if best_matches:
-            # Sort by adjusted score, then by original length
-            best_matches.sort(key=lambda x: (-x[1], len(x[0])))
-            return best_matches[0][0], best_matches[0][2]
+    # Apply threshold (convert from 0-1 to 0-100 for comparison)
+    if mapped_name and confidence * 100 >= threshold:
+        return mapped_name, confidence
     
     return None, 0.0
+
+
+def get_garmin_suggestions(raw_name: str, limit: int = 5, score_cutoff: float = 0.3) -> list[tuple[str, float]]:
+    """
+    Get top matching Garmin exercise suggestions.
+    Returns list of (garmin_name, confidence) tuples sorted by confidence desc.
+    """
+    exercises = load_garmin_exercises()
+    if not exercises:
+        return []
+    
+    return top_matches(raw_name, exercises, limit=limit, score_cutoff=score_cutoff)
 
 
 def fuzzy_match_garmin(raw_name: str) -> str:
