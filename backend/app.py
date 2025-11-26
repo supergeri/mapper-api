@@ -2,12 +2,21 @@ from typing import Optional
 from fastapi import FastAPI, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 import logging
-import json
 import httpx
+import os
+import json
 
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
+
+# Garmin export debug flag
+GARMIN_EXPORT_DEBUG = os.getenv("GARMIN_EXPORT_DEBUG", "false").lower() == "true"
+
+if GARMIN_EXPORT_DEBUG:
+    logger.warning("=== GARMIN_EXPORT_DEBUG ACTIVE (mapper-api) ===")
+else:
+    logger.info("GARMIN_EXPORT_DEBUG is disabled (mapper-api)")
 
 from backend.adapters.ingest_to_cir import to_cir
 
@@ -15,12 +24,17 @@ from backend.core.canonicalize import canonicalize
 
 from backend.adapters.cir_to_garmin_yaml import to_garmin_yaml
 
-from backend.adapters.blocks_to_hyrox_yaml import to_hyrox_yaml
+from backend.adapters.blocks_to_hyrox_yaml import (
+    to_hyrox_yaml,
+    load_user_defaults,
+    map_exercise_to_garmin,
+)
 from backend.adapters.blocks_to_hiit_garmin_yaml import to_hiit_garmin_yaml, is_hiit_workout
 from backend.adapters.blocks_to_workoutkit import to_workoutkit
 from backend.adapters.blocks_to_zwo import to_zwo
 
 from backend.core.exercise_suggestions import suggest_alternatives, find_similar_exercises, find_exercises_by_type, categorize_exercise
+from backend.core.exercise_categories import add_category_to_exercise_name
 
 from backend.core.workflow import validate_workout_mapping, process_workout_with_validation
 
@@ -37,7 +51,6 @@ from backend.core.global_mappings import (
     get_popularity_stats
 )
 
-from backend.adapters.blocks_to_hyrox_yaml import load_user_defaults
 from backend.database import (
     save_workout,
     get_workouts,
@@ -53,9 +66,20 @@ from backend.follow_along_database import (
     update_follow_along_apple_watch_sync
 )
 
+# Feature flag for unofficial Garmin sync
+GARMIN_UNOFFICIAL_SYNC_ENABLED = os.getenv("GARMIN_UNOFFICIAL_SYNC_ENABLED", "false").lower() == "true"
+
 
 
 app = FastAPI()
+
+# Garmin export debug flag - log status at startup
+GARMIN_EXPORT_DEBUG = os.getenv("GARMIN_EXPORT_DEBUG", "false").lower() == "true"
+
+if GARMIN_EXPORT_DEBUG:
+    logger.warning("=== GARMIN_EXPORT_DEBUG ACTIVE (mapper-api) ===")
+else:
+    logger.info("GARMIN_EXPORT_DEBUG is disabled (mapper-api)")
 
 # Configure CORS to allow requests from the UI and iOS app
 app.add_middleware(
@@ -87,6 +111,46 @@ class BlocksPayload(BaseModel):
 
 
 
+@app.get("/debug/garmin-test")
+def test_garmin_debug():
+    """
+    Test endpoint to verify GARMIN_EXPORT_DEBUG logging is working.
+    Returns a simple message and triggers debug logs if enabled.
+    """
+    if GARMIN_EXPORT_DEBUG:
+        logger.warning("=== GARMIN_DEBUG_TEST_ENDPOINT ===")
+        print("=== GARMIN_EXPORT_STEP ===")
+        print(json.dumps({
+            "original_name": "Test Exercise",
+            "normalized_name": "test exercise",
+            "mapped_name": "Test Exercise",
+            "confidence": 1.0,
+            "garmin_name_final": "Test Exercise",
+            "sets": "N/A",
+            "reps": "10",
+            "target_type": "reps",
+            "target_value": "10"
+        }, indent=2))
+        
+        print("=== GARMIN_CATEGORY_ASSIGN ===")
+        print(json.dumps({
+            "garmin_name_before": "Test Exercise",
+            "assigned_category": "TEST",
+            "garmin_name_after": "Test Exercise [category: TEST]"
+        }, indent=2))
+        
+        return {
+            "status": "success",
+            "message": "GARMIN_EXPORT_DEBUG is ACTIVE - check Docker logs for debug output",
+            "debug_enabled": True
+        }
+    else:
+        return {
+            "status": "info",
+            "message": "GARMIN_EXPORT_DEBUG is disabled - set GARMIN_EXPORT_DEBUG=true to enable",
+            "debug_enabled": False
+        }
+
 @app.post("/map/final")
 
 def map_final(p: IngestPayload):
@@ -110,6 +174,47 @@ def auto_map_workout(p: BlocksPayload):
         yaml_output = to_hyrox_yaml(p.blocks_json)
     
     return {"yaml": yaml_output}
+
+
+@app.get("/debug/garmin-test")
+def test_garmin_debug():
+    """
+    Test endpoint to verify GARMIN_EXPORT_DEBUG logging is working.
+    Returns a simple message and triggers debug logs if enabled.
+    """
+    if GARMIN_EXPORT_DEBUG:
+        logger.warning("=== GARMIN_DEBUG_TEST_ENDPOINT ===")
+        print("=== GARMIN_EXPORT_STEP ===")
+        print(json.dumps({
+            "original_name": "Test Exercise",
+            "normalized_name": "test exercise",
+            "mapped_name": "Test Exercise",
+            "confidence": 1.0,
+            "garmin_name_final": "Test Exercise",
+            "sets": "N/A",
+            "reps": "10",
+            "target_type": "reps",
+            "target_value": "10"
+        }, indent=2))
+        
+        print("=== GARMIN_CATEGORY_ASSIGN ===")
+        print(json.dumps({
+            "garmin_name_before": "Test Exercise",
+            "assigned_category": "TEST",
+            "garmin_name_after": "Test Exercise [category: TEST]"
+        }, indent=2))
+        
+        return {
+            "status": "success",
+            "message": "GARMIN_EXPORT_DEBUG is ACTIVE - check Docker logs for debug output",
+            "debug_enabled": True
+        }
+    else:
+        return {
+            "status": "info",
+            "message": "GARMIN_EXPORT_DEBUG is disabled - set GARMIN_EXPORT_DEBUG=true to enable",
+            "debug_enabled": False
+        }
 
 
 @app.post("/map/to-hiit")
@@ -664,110 +769,228 @@ def get_follow_along_endpoint(
         }
 
 
+# Idempotency registry (in-memory — fine for dev)
+FOLLOW_ALONG_SYNC_CACHE = {}
+
+def has_synced_before(workout_id: str, user_id: str, title: str):
+    key = f"{user_id}:{workout_id}:{title}"
+    return FOLLOW_ALONG_SYNC_CACHE.get(key) is True
+
+def mark_synced(workout_id: str, user_id: str, title: str):
+    key = f"{user_id}:{workout_id}:{title}"
+    FOLLOW_ALONG_SYNC_CACHE[key] = True
+
 @app.post("/follow-along/{workout_id}/push/garmin")
 def push_to_garmin_endpoint(workout_id: str, request: PushToGarminRequest):
     """
-    Push follow-along workout to Garmin.
-    Maps workout steps to Garmin format and syncs via garmin-sync-api.
+    Push follow-along workout to Garmin via garmin-sync-api.
+
+    - Respects GARMIN_UNOFFICIAL_SYNC_ENABLED.
+    - Uses the same exercise mapping pipeline as YAML export
+      (map_exercise_to_garmin + add_category_to_exercise_name).
+    - Sends steps in the format expected by the unofficial Garmin Sync API:
+      { "Garmin Exercise Name [category: XYZ]": "10 reps" } or "60s".
+    - Prevents duplicate syncs using idempotency key.
     """
     import httpx
-    import os
-    
+    import json
+
+    # Backend guard for unofficial API
+    if not GARMIN_UNOFFICIAL_SYNC_ENABLED:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "Unofficial Garmin sync is disabled. Set GARMIN_UNOFFICIAL_SYNC_ENABLED=true to use this endpoint.",
+        }
+
     # Get workout
     workout = get_follow_along_workout(workout_id, request.userId)
     if not workout:
         return {
             "success": False,
             "status": "error",
-            "message": "Workout not found"
+            "message": "Workout not found",
         }
-    
+
+    # Prevent duplicate syncs
+    if has_synced_before(workout_id, request.userId, workout.get("title", "")):
+        return {
+            "success": True,
+            "status": "already_synced",
+            "message": "This workout was already synced to Garmin.",
+            "garminWorkoutId": workout.get("title", ""),
+        }
+
     # Get Garmin credentials from environment
     garmin_email = os.getenv("GARMIN_EMAIL")
     garmin_password = os.getenv("GARMIN_PASSWORD")
-    
+
     if not garmin_email or not garmin_password:
         return {
             "success": False,
             "status": "error",
-            "message": "Garmin credentials not configured. Set GARMIN_EMAIL and GARMIN_PASSWORD environment variables."
+            "message": "Garmin credentials not configured. Set GARMIN_EMAIL and GARMIN_PASSWORD environment variables.",
         }
-    
-    # Map to Garmin format
+
+    steps: list[dict[str, str]] = []
+
+    def build_step_from_follow_along_step(step: dict):
+        """
+        Build a single Garmin step from a follow-along step.
+
+        Follow-along structure:
+        - label: exercise label/name
+        - target_reps: optional reps
+        - duration_sec: optional duration in seconds
+        """
+        ex_name = step.get("label", "") or ""
+        if not ex_name:
+            return None
+
+        reps = step.get("target_reps")
+        duration = step.get("duration_sec")
+
+        # In follow-along there is no pre-validated mapped_name, so we just use the label
+        mapped_name = None
+        candidate_names = [ex_name]
+
+        garmin_name, _description, mapping_info = map_exercise_to_garmin(
+            ex_name,
+            ex_reps=reps,
+            ex_distance_m=None,
+            mapped_name=mapped_name,
+            candidate_names=candidate_names,
+        )
+
+        garmin_name_with_category = add_category_to_exercise_name(garmin_name)
+
+        if reps:
+            step_detail = f"{reps} reps"
+        elif duration:
+            step_detail = f"{duration}s"
+        else:
+            step_detail = "10 reps"
+
+        step_obj = {garmin_name_with_category: step_detail}
+
+        logger.info(
+            "GARMIN_SYNC_FOLLOW_STEP original=%r garmin=%r detail=%r source=%s conf=%s",
+            ex_name,
+            garmin_name_with_category,
+            step_detail,
+            mapping_info.get("source"),
+            mapping_info.get("confidence"),
+        )
+
+        return step_obj
+
+    # Build steps list from follow-along workout steps
+    for step in workout.get("steps", []):
+        garmin_step = build_step_from_follow_along_step(step)
+        if garmin_step:
+            steps.append(garmin_step)
+
+    if not steps:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "No valid steps found to sync",
+        }
+
     garmin_workouts = {
-        workout["title"]: [
-            {
-                "exercise": step.get("label", ""),
-                "reps": step.get("target_reps") or f"{step.get('duration_sec', 0)}s"
-            }
-            for step in workout.get("steps", [])
-        ]
+        workout["title"]: steps,
     }
-    
-    # Call Garmin sync API - use /workouts/import endpoint
+
     garmin_url = os.getenv("GARMIN_SERVICE_URL", "http://garmin-sync-api:8002")
-    
+
     garmin_payload = {
         "email": garmin_email,
         "password": garmin_password,
         "workouts": garmin_workouts,
-        "delete_same_name": False
+        "delete_same_name": False,
     }
-    
+
+    # Compare YAML export vs Follow-Along export
+    try:
+        # Convert follow-along workout to blocks format for YAML export
+        blocks_json = {
+            "title": workout["title"],
+            "blocks": [{
+                "label": "Main Block",
+                "structure": "",
+                "exercises": [
+                    {
+                        "name": step.get("label", ""),
+                        "reps": step.get("target_reps"),
+                        "duration_sec": step.get("duration_sec"),
+                    }
+                    for step in workout.get("steps", [])
+                ]
+            }]
+        }
+        yaml_export = to_hyrox_yaml(blocks_json)
+        
+        if GARMIN_EXPORT_DEBUG:
+            print("=== GARMIN_EXPORT_VS_FOLLOW_ALONG_COMPARISON ===")
+            print(json.dumps({
+                "yaml_export": yaml_export,
+                "follow_along_payload": garmin_payload
+            }, indent=2))
+    except Exception as e:
+        if GARMIN_EXPORT_DEBUG:
+            print("=== COMPARISON_ERROR ===", str(e))
+
+    # Debug logging for sync payload
+    if GARMIN_EXPORT_DEBUG:
+        print("=== GARMIN_SYNC_PAYLOAD ===")
+        print(json.dumps(garmin_payload, indent=2))
+
     try:
         with httpx.Client(timeout=30.0) as client:
-            # Import workout first
-            response = client.post(
-                f"{garmin_url}/workouts/import",
-                json=garmin_payload
-            )
+            # Import workout
+            logger.info("GARMIN_SYNC_FOLLOW_IMPORT payload=%s", json.dumps(garmin_payload, indent=2))
+            response = client.post(f"{garmin_url}/workouts/import", json=garmin_payload)
             response.raise_for_status()
-            garmin_data = response.json()
-            
+
             # If scheduleDate is provided, schedule the workout
             if request.scheduleDate:
-                from datetime import datetime
-                # Parse scheduleDate (YYYY-MM-DD) or use current date/time if not provided
-                try:
-                    schedule_date = request.scheduleDate
-                except:
-                    schedule_date = datetime.now().strftime("%Y-%m-%d")
-                
-                # Schedule the workout
+                schedule_date = request.scheduleDate
                 schedule_payload = {
                     "email": garmin_email,
                     "password": garmin_password,
                     "start_from": schedule_date,
-                    "workouts": [workout["title"]]
+                    "workouts": [workout["title"]],
                 }
+                logger.info("GARMIN_SYNC_FOLLOW_SCHEDULE payload=%s", json.dumps(schedule_payload, indent=2))
                 schedule_response = client.post(
                     f"{garmin_url}/workouts/schedule",
-                    json=schedule_payload
+                    json=schedule_payload,
                 )
                 schedule_response.raise_for_status()
-        
-        # Get the workout ID from Garmin (we need to fetch it by name)
-        # For now, use the workout title as the ID
+
         garmin_workout_id = workout["title"]
-        
+
+        # Mark as synced to prevent duplicates
+        mark_synced(workout_id, request.userId, workout["title"])
+
         # Update sync status
         update_follow_along_garmin_sync(
             workout_id=workout_id,
             user_id=request.userId,
-            garmin_workout_id=garmin_workout_id
+            garmin_workout_id=garmin_workout_id,
         )
-        
+
         return {
             "success": True,
             "status": "success",
-            "garminWorkoutId": garmin_workout_id
+            "garminWorkoutId": garmin_workout_id,
         }
     except Exception as e:
-        logger.error(f"Failed to push to Garmin: {e}")
+        logger.error(f"Failed to push follow-along workout to Garmin: {e}")
         return {
             "success": False,
             "status": "error",
-            "message": str(e)
+            "message": str(e),
         }
 
 
@@ -775,134 +998,174 @@ def push_to_garmin_endpoint(workout_id: str, request: PushToGarminRequest):
 @app.post("/workout/sync/garmin")
 def sync_workout_to_garmin(request: dict):
     """
-    Sync a regular workout to Garmin Connect.
-    Takes workout structure and syncs via garmin-sync-api.
+    Sync a regular workout to Garmin Connect via garmin-sync-api.
+
+    - Respects GARMIN_UNOFFICIAL_SYNC_ENABLED.
+    - Uses the same exercise mapping pipeline as the YAML export
+      (map_exercise_to_garmin + add_category_to_exercise_name), so
+      Garmin receives valid exercise names instead of generic steps.
     """
     import httpx
-    import os
-    
+    import json
+
+    logger = logging.getLogger(__name__)
+
+    # Backend guard for unofficial API
+    if not GARMIN_UNOFFICIAL_SYNC_ENABLED:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "Unofficial Garmin sync is disabled. Set GARMIN_UNOFFICIAL_SYNC_ENABLED=true to use this endpoint.",
+        }
+
     # Get workout data from request
     blocks_json = request.get("blocks_json")
     workout_title = request.get("workout_title", "Workout")
     schedule_date = request.get("schedule_date")
-    
+
     if not blocks_json:
         return {
             "success": False,
             "status": "error",
-            "message": "Workout data is required"
+            "message": "Workout data is required",
         }
-    
+
     # Get Garmin credentials from environment
     garmin_email = os.getenv("GARMIN_EMAIL")
     garmin_password = os.getenv("GARMIN_PASSWORD")
-    
+
     if not garmin_email or not garmin_password:
         return {
             "success": False,
             "status": "error",
-            "message": "Garmin credentials not configured. Set GARMIN_EMAIL and GARMIN_PASSWORD environment variables."
+            "message": "Garmin credentials not configured. Set GARMIN_EMAIL and GARMIN_PASSWORD environment variables.",
         }
-    
-    # Convert workout blocks to Garmin format
-    # Extract exercises from blocks - format: [{"Exercise Name": "10 reps"}]
-    # The key should be the exercise name, value should be the reps/duration string
-    steps = []
+
+    steps: list[dict[str, str]] = []
+
+    def build_step_from_exercise(exercise: dict):
+        """Build a single Garmin step (garmin_name_with_category -> '10 reps' / '60s')."""
+        ex_name = exercise.get("name", "") or ""
+        if not ex_name:
+            return None
+
+        reps = exercise.get("reps")
+        reps_range = exercise.get("reps_range")
+        duration = exercise.get("duration_sec")
+        distance_m = exercise.get("distance_m")
+
+        # Use validated mapped_name if available
+        mapped_name = exercise.get("mapped_name") or exercise.get("mapped_to")
+        candidate_names: list[str] = []
+        if mapped_name:
+            candidate_names.append(mapped_name)
+        candidate_names.append(ex_name)
+
+        # Reuse the same mapping pipeline as blocks_to_hyrox_yaml
+        garmin_name, _description, mapping_info = map_exercise_to_garmin(
+            ex_name,
+            ex_reps=reps,
+            ex_distance_m=distance_m,
+            mapped_name=mapped_name,
+            candidate_names=candidate_names if len(candidate_names) > 1 else None,
+        )
+
+        garmin_name_with_category = add_category_to_exercise_name(garmin_name)
+
+        # End condition: keep it simple for the sync API (no "lap |" decorations here)
+        if reps:
+            step_detail = f"{reps} reps"
+        elif reps_range:
+            step_detail = f"{reps_range} reps"
+        elif duration:
+            step_detail = f"{duration}s"
+        elif distance_m:
+            step_detail = f"{distance_m}m"
+        else:
+            step_detail = "10 reps"
+
+        step = {garmin_name_with_category: step_detail}
+
+        logger.info(
+            "GARMIN_SYNC_STEP original=%r mapped_name=%r garmin=%r detail=%r source=%s conf=%s",
+            ex_name,
+            mapped_name,
+            garmin_name_with_category,
+            step_detail,
+            mapping_info.get("source"),
+            mapping_info.get("confidence"),
+        )
+
+        return step
+
+    # Walk through blocks / exercises / supersets and build steps list
     for block in blocks_json.get("blocks", []):
+        # Standalone exercises
         for exercise in block.get("exercises", []):
-            exercise_name = exercise.get("name", "")
-            if not exercise_name:
-                continue  # Skip exercises without names
-            
-            reps = exercise.get("reps")
-            reps_range = exercise.get("reps_range")
-            duration = exercise.get("duration_sec")
-            
-            # Format: "10 reps" or "10-12 reps" or "60s"
-            if reps:
-                step_detail = f"{reps} reps"
-            elif reps_range:
-                step_detail = f"{reps_range} reps"
-            elif duration:
-                step_detail = f"{duration}s"
-            else:
-                step_detail = "10 reps"  # Default
-            
-            # Key is exercise name, value is the reps/duration string
-            steps.append({exercise_name: step_detail})
-        
-        # Also handle supersets
+            step = build_step_from_exercise(exercise)
+            if step:
+                steps.append(step)
+
+        # Supersets
         for superset in block.get("supersets", []):
             for exercise in superset.get("exercises", []):
-                exercise_name = exercise.get("name", "")
-                if not exercise_name:
-                    continue
-                
-                reps = exercise.get("reps")
-                reps_range = exercise.get("reps_range")
-                duration = exercise.get("duration_sec")
-                
-                if reps:
-                    step_detail = f"{reps} reps"
-                elif reps_range:
-                    step_detail = f"{reps_range} reps"
-                elif duration:
-                    step_detail = f"{duration}s"
-                else:
-                    step_detail = "10 reps"
-                
-                steps.append({exercise_name: step_detail})
-    
-    # Map to Garmin format - steps should be a list
-    garmin_workouts = {
-        workout_title: steps
-    }
-    
-    # Call Garmin sync API
+                step = build_step_from_exercise(exercise)
+                if step:
+                    steps.append(step)
+
+    if not steps:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "No valid exercises found to sync",
+        }
+
+    # Final workouts payload for garmin-sync-api
+    garmin_workouts = {workout_title: steps}
+
     garmin_url = os.getenv("GARMIN_SERVICE_URL", "http://garmin-sync-api:8002")
-    
+
     garmin_payload = {
         "email": garmin_email,
         "password": garmin_password,
         "workouts": garmin_workouts,
-        "delete_same_name": False
+        "delete_same_name": False,
     }
-    
+
     try:
         with httpx.Client(timeout=30.0) as client:
             # Import workout
-            response = client.post(
-                f"{garmin_url}/workouts/import",
-                json=garmin_payload
-            )
+            logger.info("GARMIN_SYNC_IMPORT payload=%s", json.dumps(garmin_payload, indent=2))
+            response = client.post(f"{garmin_url}/workouts/import", json=garmin_payload)
             response.raise_for_status()
-            
-            # If schedule_date is provided, schedule the workout
+
+            # Optionally schedule the workout
             if schedule_date:
                 schedule_payload = {
                     "email": garmin_email,
                     "password": garmin_password,
                     "start_from": schedule_date,
-                    "workouts": [workout_title]
+                    "workouts": [workout_title],
                 }
+                logger.info("GARMIN_SYNC_SCHEDULE payload=%s", json.dumps(schedule_payload, indent=2))
                 schedule_response = client.post(
                     f"{garmin_url}/workouts/schedule",
-                    json=schedule_payload
+                    json=schedule_payload,
                 )
                 schedule_response.raise_for_status()
-            
-            return {
-                "success": True,
-                "status": "success",
-                "message": "Workout synced to Garmin successfully",
-                "garminWorkoutId": workout_title
-            }
+
+        return {
+            "success": True,
+            "status": "success",
+            "message": "Workout synced to Garmin successfully",
+            "garminWorkoutId": workout_title,
+        }
     except Exception as e:
         logger.error(f"Failed to sync workout to Garmin: {e}")
         return {
             "success": False,
             "status": "error",
-            "message": str(e)
+            "message": str(e),
         }
 
 @app.post("/follow-along/{workout_id}/push/apple-watch")
