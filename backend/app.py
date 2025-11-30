@@ -977,6 +977,28 @@ def get_follow_along_endpoint(
         }
 
 
+@app.delete("/follow-along/{workout_id}")
+def delete_follow_along_endpoint(
+    workout_id: str,
+    userId: str = Query(..., description="User ID")
+):
+    """Delete a follow-along workout."""
+    from backend.follow_along_database import delete_follow_along_workout
+    
+    success = delete_follow_along_workout(workout_id, userId)
+    
+    if success:
+        return {
+            "success": True,
+            "message": "Workout deleted successfully"
+        }
+    else:
+        return {
+            "success": False,
+            "message": "Failed to delete workout"
+        }
+
+
 # Idempotency registry (in-memory — fine for dev)
 FOLLOW_ALONG_SYNC_CACHE = {}
 

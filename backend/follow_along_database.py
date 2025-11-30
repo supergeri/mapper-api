@@ -270,3 +270,34 @@ def update_follow_along_ios_companion_sync(
         logger.error(f"Failed to update iOS Companion sync: {e}")
         return False
 
+
+def delete_follow_along_workout(workout_id: str, user_id: str) -> bool:
+    """
+    Delete a follow-along workout and its steps.
+    
+    Args:
+        workout_id: Workout ID
+        user_id: User ID (for security)
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        return False
+    
+    try:
+        # Delete steps first (foreign key constraint)
+        supabase.table("follow_along_steps").delete().eq(
+            "follow_along_workout_id", workout_id
+        ).execute()
+        
+        # Then delete the workout
+        result = supabase.table("follow_along_workouts").delete().eq(
+            "id", workout_id
+        ).eq("user_id", user_id).execute()
+        
+        return result.data is not None and len(result.data) > 0
+    except Exception as e:
+        logger.error(f"Failed to delete follow-along workout: {e}")
+        return False
