@@ -957,12 +957,18 @@ def list_follow_along_endpoint(
     }
 
 
+class VoiceSettings(BaseModel):
+    enabled: bool = True
+    content: str = "name-reps"  # "name", "name-reps", or "name-notes"
+
+
 class CreateFollowAlongFromWorkoutRequest(BaseModel):
     userId: str
     workout: Dict[str, Any]
     sourceUrl: Optional[str] = None
     followAlongConfig: Optional[Dict[str, Any]] = None
     stepConfigs: Optional[List[Dict[str, Any]]] = None  # Phase 2: per-step video config
+    voiceSettings: Optional[VoiceSettings] = None  # Phase 3: voice guidance settings
 
 
 @app.post("/follow-along/from-workout")
@@ -975,6 +981,7 @@ def create_follow_along_from_workout(request: CreateFollowAlongFromWorkoutReques
         workout = request.workout
         config = request.followAlongConfig or {}
         step_configs_list = request.stepConfigs or []
+        voice_settings = request.voiceSettings
         
         # Create lookup for step configs by exerciseId
         step_configs_map = {s.get("exerciseId"): s for s in step_configs_list}
@@ -992,9 +999,33 @@ def create_follow_along_from_workout(request: CreateFollowAlongFromWorkoutReques
         elif "tiktok.com" in source_url:
             source = "tiktok"
         
+        # Build voice guidance text for each exercise
+        def build_voice_text(exercise: Dict[str, Any], content_type: str) -> str:
+            name = exercise.get("name", "Exercise")
+            if content_type == "name":
+                return name
+            elif content_type == "name-reps":
+                sets = exercise.get("sets", 3)
+                reps = exercise.get("reps")
+                duration = exercise.get("duration_sec")
+                if reps:
+                    return f"{name}. {sets} sets of {reps} reps"
+                elif duration:
+                    return f"{name}. {sets} sets of {duration} seconds"
+                return name
+            elif content_type == "name-notes":
+                notes = exercise.get("notes", "")
+                if notes:
+                    return f"{name}. {notes}"
+                return name
+            return name
+        
         # Convert workout blocks to follow-along steps
         steps = []
         step_order = 1
+        
+        voice_content = voice_settings.content if voice_settings else "name-reps"
+        voice_enabled = voice_settings.enabled if voice_settings else True
         
         for block in workout.get("blocks", []):
             for exercise in block.get("exercises", []):
@@ -1016,6 +1047,9 @@ def create_follow_along_from_workout(request: CreateFollowAlongFromWorkoutReques
                 elif video_source == "custom":
                     video_url = step_config.get("customUrl")
                 
+                # Build voice text for this step
+                voice_text = build_voice_text(exercise, voice_content) if voice_enabled else None
+                
                 steps.append({
                     "order": step_order,
                     "label": exercise.get("name", f"Exercise {step_order}"),
@@ -1026,10 +1060,11 @@ def create_follow_along_from_workout(request: CreateFollowAlongFromWorkoutReques
                     "sets": exercise.get("sets"),
                     "followAlongUrl": video_url,
                     "videoStartTimeSec": step_config.get("startTimeSec", 0),
+                    "voiceText": voice_text,  # Phase 3: Text for TTS
                 })
                 step_order += 1
         
-        # Save to database
+        # Save to database with voice settings
         saved_workout = save_follow_along_workout(
             user_id=request.userId,
             source=source,
@@ -1039,7 +1074,9 @@ def create_follow_along_from_workout(request: CreateFollowAlongFromWorkoutReques
             video_duration_sec=None,
             thumbnail_url=None,
             video_proxy_url=source_url if source != "manual" else None,
-            steps=steps
+            steps=steps,
+            voice_enabled=voice_enabled,
+            voice_content=voice_content
         )
         
         if saved_workout:
@@ -1624,6 +1661,10 @@ def push_to_ios_companion_endpoint(workout_id: str, request: PushToIOSCompanionR
     }
     sport = sport_mapping.get(source, "other")
     
+    # Get voice settings
+    voice_enabled = workout.get("voice_enabled", True)
+    voice_content = workout.get("voice_content", "name-reps")
+    
     # Build intervals from steps
     intervals = []
     for step in workout.get("steps", []):
@@ -1631,6 +1672,9 @@ def push_to_ios_companion_endpoint(workout_id: str, request: PushToIOSCompanionR
         target_reps = step.get("target_reps")
         label = step.get("label", "")
         notes = step.get("notes")
+        voice_text = step.get("voice_text")
+        video_start_time = step.get("video_start_time_sec", 0)
+        follow_along_url = step.get("follow_along_url")
         
         if target_reps:
             # Reps-based exercise
@@ -1640,7 +1684,9 @@ def push_to_ios_companion_endpoint(workout_id: str, request: PushToIOSCompanionR
                 "name": label,
                 "load": notes,  # Use notes as load hint if available
                 "restSec": 60,  # Default rest
-                "followAlongUrl": source_url,  # Full video URL for the workout
+                "followAlongUrl": follow_along_url or source_url,
+                "videoStartTimeSec": video_start_time,
+                "voiceText": voice_text,  # Phase 3: TTS text
                 "carouselPosition": None  # Can be set per-step if needed
             }
         else:
@@ -1648,7 +1694,10 @@ def push_to_ios_companion_endpoint(workout_id: str, request: PushToIOSCompanionR
             interval = {
                 "kind": "time",
                 "seconds": duration_sec,
-                "target": label
+                "target": label,
+                "followAlongUrl": follow_along_url or source_url,
+                "videoStartTimeSec": video_start_time,
+                "voiceText": voice_text,  # Phase 3: TTS text
             }
         
         intervals.append(interval)
@@ -1666,7 +1715,9 @@ def push_to_ios_companion_endpoint(workout_id: str, request: PushToIOSCompanionR
         "duration": total_duration,
         "source": source,
         "sourceUrl": source_url,
-        "intervals": intervals
+        "intervals": intervals,
+        "voiceEnabled": voice_enabled,  # Phase 3: Voice guidance enabled
+        "voiceContent": voice_content,  # Phase 3: Voice content type
     }
     
     # Update sync status
