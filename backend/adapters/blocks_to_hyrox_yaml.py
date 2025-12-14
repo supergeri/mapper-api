@@ -8,6 +8,15 @@ from backend.core.garmin_matcher import fuzzy_match_garmin, find_garmin_exercise
 from backend.core.user_mappings import get_user_mapping
 from backend.core.exercise_categories import add_category_to_exercise_name
 from backend.adapters.cir_to_garmin_yaml import GARMIN
+from backend.adapters.garmin_lookup import GarminExerciseLookup
+
+# Singleton instance for Garmin exercise lookup
+_garmin_lookup = None
+def get_garmin_lookup():
+    global _garmin_lookup
+    if _garmin_lookup is None:
+        _garmin_lookup = GarminExerciseLookup()
+    return _garmin_lookup
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 USER_DEFAULTS_FILE = ROOT / "shared/settings/user_defaults.yaml"
@@ -147,6 +156,30 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
         "confidence": None,
         "method": None
     }
+
+    # EARLY CHECK: If the exercise name is already a valid Garmin exercise (exact match),
+    # skip all mapping and use it directly. This prevents re-mapping of already-mapped names.
+    lookup = get_garmin_lookup()
+    lookup_result = lookup.find(ex_name)
+    if lookup_result.get("match_type") == "exact" or lookup_result.get("match_type") == "exact_with_category_override":
+        # Exercise name is already a valid Garmin exercise - use it as-is
+        garmin_name = lookup_result.get("display_name") or ex_name
+        mapping_info["source"] = "already_garmin"
+        mapping_info["confidence"] = 1.0
+        mapping_info["method"] = "exact_garmin_name"
+        mapping_info["reason"] = ""  # Empty reason - no mapping needed
+        mapping_info["garmin_name"] = garmin_name
+
+        # Build simple description with reps (no mapping reason)
+        if ex_reps:
+            description = f"x{ex_reps}"
+        elif ex_distance_m:
+            description = f"{ex_distance_m}m"
+        else:
+            description = ""
+
+        return garmin_name, description, mapping_info
+
     base_name, reps_desc, original_desc = parse_exercise_name(ex_name)
     clean_name = clean_exercise_name(base_name)
     
@@ -576,18 +609,28 @@ def to_hyrox_yaml(blocks_json: dict) -> str:
                 ex_entry[garmin_name_with_category] = duration_value
                 exercises_list.append(ex_entry)
             else:
-                # For rep-based and other exercises, always use description
-                # Description already includes "lap | original name (reason)" format
+                # For rep-based and other exercises, use description if available
+                # If exercise is already a valid Garmin name (empty reason), just show reps
+                reason = mapping_info.get('reason', '')
                 if description:
                     ex_entry[garmin_name_with_category] = description
                 elif reps is not None:
-                    # Build a minimal description if we don't have one
-                    original_clean = re.sub(r'^[A-Z]\d+[:\s;]+', '', ex_name, flags=re.IGNORECASE).strip()
-                    ex_entry[garmin_name_with_category] = f"{original_clean} x{reps} ({mapping_info.get('reason', 'chosen automatically')})"
+                    # Check if this is already a Garmin exercise (no mapping needed)
+                    if not reason:
+                        # Already a valid Garmin name - just show reps without mapping note
+                        ex_entry[garmin_name_with_category] = f"x{reps}"
+                    else:
+                        # Build description with mapping reason
+                        original_clean = re.sub(r'^[A-Z]\d+[:\s;]+', '', ex_name, flags=re.IGNORECASE).strip()
+                        ex_entry[garmin_name_with_category] = f"{original_clean} x{reps} ({reason})"
                 else:
                     # Default fallback
-                    original_clean = re.sub(r'^[A-Z]\d+[:\s;]+', '', ex_name, flags=re.IGNORECASE).strip()
-                    ex_entry[garmin_name_with_category] = f"{original_clean} ({mapping_info.get('reason', 'chosen automatically')})"
+                    if not reason:
+                        # Already a valid Garmin name - use "lap" as default
+                        ex_entry[garmin_name_with_category] = "lap"
+                    else:
+                        original_clean = re.sub(r'^[A-Z]\d+[:\s;]+', '', ex_name, flags=re.IGNORECASE).strip()
+                        ex_entry[garmin_name_with_category] = f"{original_clean} ({reason})"
                 exercises_list.append(ex_entry)
         
         # Process supersets - combine all supersets in a block into one repeat
@@ -615,21 +658,29 @@ def to_hyrox_yaml(blocks_json: dict) -> str:
                 
                 # Build exercise entry - always default to "lap" instead of distance
                 ex_entry = {}
-                
-                # Determine the value based on expected output format (ignore distance)
-                # Description already includes "lap | original name (reason)" format
-                # Always use the description that was built in map_exercise_to_garmin
-                # If no description, create a basic one
+                reason = mapping_info.get('reason', '')
+
+                # If exercise is already a valid Garmin name (empty reason), just show reps
                 if description:
                     ex_entry[garmin_name_with_category] = description
-                else:
-                    # Fallback: create description from original name
-                    original_clean = re.sub(r'^[A-Z]\d+[:\s;]+', '', ex_name, flags=re.IGNORECASE).strip()
-                    if reps is not None:
-                        ex_entry[garmin_name_with_category] = f"{original_clean} x{reps} ({mapping_info.get('reason', 'chosen automatically')})"
+                elif reps is not None:
+                    # Check if this is already a Garmin exercise (no mapping needed)
+                    if not reason:
+                        # Already a valid Garmin name - just show reps without mapping note
+                        ex_entry[garmin_name_with_category] = f"x{reps}"
                     else:
-                        ex_entry[garmin_name_with_category] = f"{original_clean} ({mapping_info.get('reason', 'chosen automatically')})"
-                
+                        # Build description with mapping reason
+                        original_clean = re.sub(r'^[A-Z]\d+[:\s;]+', '', ex_name, flags=re.IGNORECASE).strip()
+                        ex_entry[garmin_name_with_category] = f"{original_clean} x{reps} ({reason})"
+                else:
+                    # Default fallback
+                    if not reason:
+                        # Already a valid Garmin name - use "lap" as default
+                        ex_entry[garmin_name_with_category] = "lap"
+                    else:
+                        original_clean = re.sub(r'^[A-Z]\d+[:\s;]+', '', ex_name, flags=re.IGNORECASE).strip()
+                        ex_entry[garmin_name_with_category] = f"{original_clean} ({reason})"
+
                 exercises.append(ex_entry)
             
             # Add exercises from this superset to the block
