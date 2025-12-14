@@ -492,14 +492,14 @@ def to_fit(blocks_json, force_sport_type=None, use_lap_button=False):
             data += struct.pack('<H', i)
             data += struct.pack('<I', step['duration_value'])
             data += struct.pack('<B', step['duration_type'])
-            data += struct.pack('<B', 1)     # target_type: open
+            data += struct.pack('<B', 0)     # target_type: OPEN (0), not heart_rate (1)!
             data += struct.pack('<B', 1)     # intensity: rest
         else:  # exercise
             data += struct.pack('<B', 0x03)  # local 3
             data += struct.pack('<H', i)
             data += struct.pack('<I', step['duration_value'])
             data += struct.pack('<B', step['duration_type'])
-            data += struct.pack('<B', 1)     # target_type: open
+            data += struct.pack('<B', 0)     # target_type: OPEN (0), not heart_rate (1)!
             data += struct.pack('<B', 0)     # intensity: active
             data += struct.pack('<H', step['category_id'])
             data += struct.pack('<H', get_exercise_id(step))  # exercise_name index
