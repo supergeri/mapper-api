@@ -378,10 +378,10 @@ def to_fit(blocks_json, force_sport_type=None, use_lap_button=False):
             category_exercise_ids[key] = step['exercise_name_id']
             return step['exercise_name_id']
 
-        # Fallback: assign a sequential ID (starting from high number to avoid collisions)
-        # Real FIT SDK IDs are typically 0-100+, so start at 1000
+        # Fallback: assign a sequential ID starting from 0
+        # Note: Using 1000+ is invalid for FIT SDK exercise_name and causes Garmin watches to reject
         if category_id not in exercise_name_counter:
-            exercise_name_counter[category_id] = 1000
+            exercise_name_counter[category_id] = 0
         category_exercise_ids[key] = exercise_name_counter[category_id]
         exercise_name_counter[category_id] += 1
         return category_exercise_ids[key]
