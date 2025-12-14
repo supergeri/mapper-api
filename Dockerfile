@@ -12,5 +12,8 @@ COPY . .
 # Expose port 8001
 EXPOSE 8001
 
+# Install shared fitfiletool package if mounted (done at runtime via entrypoint)
+# The package is mounted at /amakaflow-fitfiletool via docker-compose
+
 # Run the FastAPI application
-CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+CMD ["sh", "-c", "pip install -e /amakaflow-fitfiletool 2>/dev/null || true; uvicorn backend.app:app --host 0.0.0.0 --port 8001 --reload"]

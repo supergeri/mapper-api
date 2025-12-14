@@ -28,7 +28,30 @@ class GarminExerciseLookup:
         self.categories = data["categories"]
         self.exercises = data["exercises"]
         self.keywords = data.get("keywords", {}).get("en", {})
-        
+
+        # Built-in keywords for common exercises not in the JSON
+        # IMPORTANT: Only use VALID FIT SDK exercise categories!
+        # Valid categories: 0=bench_press, 2=cardio, 5=core, 6=crunch, 17=lunge,
+        # 19=plank, 21=pull_up, 22=push_up, 23=row, 28=squat, 29=total_body, etc.
+        # Category 38 is INVALID and will cause watch to reject workout!
+        # NOTE: Run uses Cardio (2) for mixed workouts - Run (32) only works with sport type 1
+        self.builtin_keywords = {
+            "run": {"category_id": 2, "category_key": "CARDIO", "category_name": "Cardio", "display_name": "Run"},
+            "running": {"category_id": 2, "category_key": "CARDIO", "category_name": "Cardio", "display_name": "Run"},
+            "jog": {"category_id": 2, "category_key": "CARDIO", "category_name": "Cardio", "display_name": "Run"},
+            "sprint": {"category_id": 2, "category_key": "CARDIO", "category_name": "Cardio", "display_name": "Run"},
+            "ski erg": {"category_id": 2, "category_key": "CARDIO", "category_name": "Cardio", "display_name": "Ski Erg"},
+            "ski mogul": {"category_id": 2, "category_key": "CARDIO", "category_name": "Cardio", "display_name": "Ski Erg"},
+            "ski": {"category_id": 2, "category_key": "CARDIO", "category_name": "Cardio", "display_name": "Ski Erg"},
+            "row erg": {"category_id": 23, "category_key": "ROW", "category_name": "Row", "display_name": "Row"},
+            "rower": {"category_id": 23, "category_key": "ROW", "category_name": "Row", "display_name": "Row"},
+            "indoor row": {"category_id": 23, "category_key": "ROW", "category_name": "Row", "display_name": "Indoor Row"},
+            "assault bike": {"category_id": 2, "category_key": "CARDIO", "category_name": "Cardio", "display_name": "Assault Bike"},
+            "echo bike": {"category_id": 2, "category_key": "CARDIO", "category_name": "Cardio", "display_name": "Echo Bike"},
+            "air bike": {"category_id": 2, "category_key": "CARDIO", "category_name": "Cardio", "display_name": "Air Bike"},
+            "bike erg": {"category_id": 2, "category_key": "CARDIO", "category_name": "Cardio", "display_name": "Bike Erg"},
+        }
+
         # Build reverse lookup: category_name -> category_id
         self.category_ids = {
             v["name"]: v["id"] for v in self.categories.values()
@@ -37,24 +60,27 @@ class GarminExerciseLookup:
     def normalize(self, name):
         """Normalize exercise name for matching."""
         name = name.lower().strip()
-        
+
         # Remove common prefixes like A1:, B2;, etc
         name = re.sub(r'^[a-z]\d+[;:\s]+', '', name, flags=re.IGNORECASE)
-        
+
         # Remove equipment prefixes
         for prefix in ['db ', 'kb ', 'bb ', 'sb ', 'mb ', 'trx ', 'cable ', 'band ']:
             if name.startswith(prefix):
                 name = name[len(prefix):]
-        
+
         # Remove rep counts like x10, X8
         name = re.sub(r'\s*x\s*\d+.*$', '', name, flags=re.IGNORECASE)
-        
+
         # Remove "each side", "per side", etc
         name = re.sub(r'\s+(each|per)\s+(side|arm|leg).*$', '', name, flags=re.IGNORECASE)
-        
-        # Remove distance like 200m
-        name = re.sub(r'\s*\d+\s*m\s*$', '', name, flags=re.IGNORECASE)
-        
+
+        # Remove distance at END like "200m", "1km", "1.5 km"
+        name = re.sub(r'\s*[\d.]+\s*(m|km)\s*$', '', name, flags=re.IGNORECASE)
+
+        # Remove distance at START like "1km Run", "500m Row"
+        name = re.sub(r'^[\d.]+\s*(m|km)\s+', '', name, flags=re.IGNORECASE)
+
         return name.strip()
     
     def find(self, exercise_name, lang="en"):
@@ -70,16 +96,32 @@ class GarminExerciseLookup:
             - match_type: "exact", "keyword", "fuzzy", or "default"
         """
         normalized = self.normalize(exercise_name)
-        
-        # 1. Try exact match in exercises
+
+        # 1. Check builtin keywords FIRST (these override exact matches for compatibility)
+        # This ensures "run" maps to Cardio (2) for mixed workouts, not Run (32)
+        for keyword, info in self.builtin_keywords.items():
+            if keyword in normalized:
+                return {
+                    "category_id": info["category_id"],
+                    "category_key": info["category_key"],
+                    "category_name": info["category_name"],
+                    "exercise_key": None,
+                    "display_name": info.get("display_name"),
+                    "match_type": "builtin_keyword",
+                    "matched_keyword": keyword,
+                    "input": exercise_name,
+                    "normalized": normalized
+                }
+
+        # 2. Try exact match in exercises
         if normalized in self.exercises:
             result = self.exercises[normalized].copy()
             result["match_type"] = "exact"
             result["input"] = exercise_name
             result["normalized"] = normalized
             return result
-        
-        # 2. Try keyword matching
+
+        # 3. Try JSON keyword matching
         keywords = self.keywords if lang == "en" else {}
         for keyword, info in keywords.items():
             if keyword in normalized:
@@ -88,7 +130,7 @@ class GarminExerciseLookup:
                     "category_key": info["category_key"],
                     "category_name": info["category_name"],
                     "exercise_key": None,
-                    "display_name": None,
+                    "display_name": info.get("display_name"),
                     "match_type": "keyword",
                     "matched_keyword": keyword,
                     "input": exercise_name,

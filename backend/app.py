@@ -28,7 +28,7 @@ from backend.adapters.blocks_to_hyrox_yaml import (
 from backend.adapters.blocks_to_hiit_garmin_yaml import to_hiit_garmin_yaml, is_hiit_workout
 from backend.adapters.blocks_to_workoutkit import to_workoutkit
 from backend.adapters.blocks_to_zwo import to_zwo
-from backend.adapters.blocks_to_fit import to_fit, to_fit_response
+from backend.adapters.blocks_to_fit import to_fit, to_fit_response, get_fit_metadata
 
 from backend.core.exercise_suggestions import suggest_alternatives, find_similar_exercises, find_exercises_by_type, categorize_exercise
 from backend.core.exercise_categories import add_category_to_exercise_name
@@ -1824,10 +1824,93 @@ def health():
     return {"status": "ok"}
 
 @app.post("/map/to-fit")
-def map_to_fit(p: BlocksPayload):
+def map_to_fit(
+    p: BlocksPayload,
+    sport_type: str = Query(
+        None,
+        description="Force sport type: 'strength', 'cardio', or 'running'. Auto-detected if not provided."
+    ),
+    use_lap_button: bool = Query(
+        False,
+        description="Use lap button press instead of reps/distance. Press lap when done with each exercise."
+    )
+):
     """Convert blocks JSON directly to Garmin FIT file for USB transfer to watch.
-    
+
+    The sport type affects how Garmin displays the workout:
+    - strength: Best for pure strength/weight training (exercise categories shown)
+    - cardio: Best for mixed workouts with running, rowing, ski erg (more flexible)
+    - running: Best for pure running workouts
+
+    If not specified, auto-detects based on exercise types:
+    - Workouts with running/rowing/ski → cardio
+    - Pure strength exercises → strength
+
+    Lap Button Mode:
+    - When enabled, all exercises use "press lap when done" instead of counting reps/distance
+    - Recommended for conditioning workouts where counting is impractical
+
     Returns:
         Binary .fit file download ready for Garmin watch
     """
-    return to_fit_response(p.blocks_json)
+    return to_fit_response(p.blocks_json, force_sport_type=sport_type, use_lap_button=use_lap_button)
+
+
+@app.post("/map/fit-metadata")
+def map_fit_metadata(
+    p: BlocksPayload,
+    use_lap_button: bool = Query(
+        False,
+        description="Check metadata with lap button mode enabled"
+    )
+):
+    """Analyze workout and return metadata about FIT export.
+
+    Use this endpoint to preview what sport type will be detected
+    and any warnings before exporting.
+
+    Returns:
+        - detected_sport: Auto-detected sport type (strength/cardio/running)
+        - warnings: Any warnings about mixed exercise types
+        - exercise_count: Number of exercises in workout
+        - has_running: Whether workout has running exercises
+        - has_cardio: Whether workout has cardio machine exercises
+        - has_strength: Whether workout has strength exercises
+        - use_lap_button: Whether lap button mode is enabled
+    """
+    return get_fit_metadata(p.blocks_json, use_lap_button=use_lap_button)
+
+
+@app.post("/map/preview-steps")
+def map_preview_steps(
+    p: BlocksPayload,
+    use_lap_button: bool = Query(
+        False,
+        description="Show preview with lap button mode"
+    )
+):
+    """Get preview steps that exactly match what will be exported to FIT.
+
+    This is the single source of truth for exercise preview.
+    The UI should call this endpoint instead of doing local mapping.
+
+    Returns list of steps with:
+        - type: 'exercise', 'rest', or 'repeat'
+        - display_name: Name shown on watch
+        - original_name: Original exercise name from input
+        - category_id: FIT SDK category ID
+        - category_name: Category display name
+        - duration_type: 'reps', 'time', 'distance', or 'lap_button'
+        - duration_display: Human-readable duration string
+        - sets: Number of sets (if > 1)
+        - rest_seconds: Rest duration (for rest steps)
+    """
+    try:
+        # Try to use the shared fitfiletool package
+        from amakaflow_fitfiletool import get_preview_steps
+        return {"steps": get_preview_steps(p.blocks_json, use_lap_button=use_lap_button)}
+    except ImportError:
+        # Fallback to local implementation
+        from backend.adapters.blocks_to_fit import blocks_to_steps
+        steps, _ = blocks_to_steps(p.blocks_json, use_lap_button=use_lap_button)
+        return {"steps": steps}

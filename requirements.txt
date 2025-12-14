@@ -5,6 +5,11 @@ pyyaml>=6.0
 rapidfuzz==3.9.1
 supabase>=2.0.0
 httpx>=0.25.0
+fit-tool>=0.9.13
+python-dotenv>=1.0.0
 
 
 requests
+
+# Local packages (installed via pip install -e)
+# amakaflow-fitfiletool - installed from ../amakaflow-fitfiletool

@@ -7,6 +7,7 @@ Fixes:
 - Proper repeat structure for sets
 """
 
+import re
 import struct
 import time
 from pathlib import Path
@@ -25,6 +26,49 @@ except ImportError:
     LOOKUP_PATH = Path(__file__).parent / "garmin_exercises.json"
 
 _lookup = None
+
+# Maximum valid FIT SDK exercise category ID
+# Categories 0-32 are standard FIT SDK categories
+# Categories 33+ are extended and may not work on all Garmin watches
+MAX_VALID_CATEGORY_ID = 32
+
+# Fallback remapping for invalid categories
+# Maps invalid category IDs to valid FIT SDK categories
+INVALID_CATEGORY_FALLBACK = {
+    # 33-43 are "extended" categories that some watches don't support
+    33: 2,   # Map to Cardio
+    34: 2,   # Map to Cardio
+    35: 2,   # Map to Cardio
+    36: 2,   # Map to Cardio
+    37: 2,   # Map to Cardio
+    38: 2,   # Indoor Rower -> Cardio (Row 23 doesn't work for erg machines)
+    39: 29,  # Map to Total Body
+    40: 29,  # Map to Total Body
+    41: 29,  # Map to Total Body
+    42: 29,  # Map to Total Body
+    43: 29,  # Map to Total Body
+}
+
+def validate_category_id(category_id, exercise_name=None):
+    """
+    Validate and remap exercise category ID to ensure Garmin compatibility.
+
+    FIT SDK only defines categories 0-32 as standard. Extended categories (33+)
+    may cause the watch to reject the entire workout.
+
+    Returns a valid category ID (0-32).
+    """
+    if category_id <= MAX_VALID_CATEGORY_ID:
+        return category_id
+
+    # Check for specific remapping
+    if category_id in INVALID_CATEGORY_FALLBACK:
+        return INVALID_CATEGORY_FALLBACK[category_id]
+
+    # Default fallback for any unknown invalid category
+    # Total Body (29) is a safe generic choice
+    return 29
+
 
 def get_lookup():
     global _lookup
@@ -57,14 +101,22 @@ def write_string(s, length):
 def parse_structure(structure_str):
     if not structure_str:
         return 1
-    import re
     match = re.search(r'(\d+)', structure_str)
     return int(match.group(1)) if match else 1
 
 
-def blocks_to_steps(blocks_json):
+def blocks_to_steps(blocks_json, use_lap_button=False):
+    """
+    Convert blocks JSON to FIT workout steps.
+
+    Args:
+        blocks_json: Workout data with blocks/exercises
+        use_lap_button: If True, use "lap button press" for all exercises instead of reps/distance.
+                       This is often preferred for conditioning workouts where you press lap when done.
+    """
     lookup = get_lookup()
     steps = []
+    category_ids_used = set()  # Track which categories are in the workout
 
     for block in blocks_json.get('blocks', []):
         rounds = parse_structure(block.get('structure'))
@@ -79,20 +131,58 @@ def blocks_to_steps(blocks_json):
 
         for exercise in all_exercises:
             name = exercise.get('name', 'Exercise')
-            reps = exercise.get('reps') or 10
+            reps_raw = exercise.get('reps') or 10
             sets = exercise.get('sets') or rounds
             duration_sec = exercise.get('duration_sec')
 
-            # Ensure reps is an integer
-            if isinstance(reps, str):
-                try:
-                    reps = int(reps.split('-')[0])  # Handle ranges like "8-10"
-                except:
-                    reps = 10
-
             match = lookup.find(name)
-            category_id = match['category_id']
+            raw_category_id = match['category_id']
+            # Validate category ID - remap invalid (33+) to valid (0-32)
+            category_id = validate_category_id(raw_category_id, name)
+            category_ids_used.add(category_id)
             display_name = match.get('display_name') or match['category_name']
+
+            # Determine duration type and value
+            # FIT duration types: 0=time(ms), 1=lap_button, 3=distance(cm), 29=reps
+            duration_type = 29  # default: reps
+            duration_value = 10  # default
+
+            if use_lap_button:
+                # Use lap button press - user presses lap when done with exercise
+                duration_type = 1  # lap_button / until_lap_pressed
+                duration_value = 0  # not used for lap button
+            else:
+                # Check for distance value (e.g., "500m", "1km", "1000m")
+                # Running exercises (category 32) or any exercise with distance notation
+                distance_meters = None
+                if isinstance(reps_raw, str):
+                    reps_str = reps_raw.lower().strip()
+                    # Match patterns like "500m", "1.5km", "1000 m", "2 km"
+                    km_match = re.match(r'^([\d.]+)\s*km$', reps_str)
+                    m_match = re.match(r'^([\d.]+)\s*m$', reps_str)
+                    if km_match:
+                        distance_meters = float(km_match.group(1)) * 1000
+                    elif m_match:
+                        distance_meters = float(m_match.group(1))
+
+                if distance_meters is not None:
+                    # Use distance type (3) with value in centimeters
+                    duration_type = 3
+                    duration_value = int(distance_meters * 100)  # convert to cm
+                elif duration_sec:
+                    # Use time type (0) with value in milliseconds
+                    duration_type = 0
+                    duration_value = int(duration_sec * 1000)
+                else:
+                    # Use reps type (29)
+                    duration_type = 29
+                    if isinstance(reps_raw, str):
+                        try:
+                            duration_value = int(reps_raw.split('-')[0])  # Handle ranges like "8-10"
+                        except:
+                            duration_value = 10
+                    else:
+                        duration_value = int(reps_raw) if reps_raw else 10
 
             start_index = len(steps)
 
@@ -102,8 +192,8 @@ def blocks_to_steps(blocks_json):
                 'display_name': display_name,
                 'category_id': category_id,
                 'intensity': 0,  # active
-                'duration_type': 29 if not duration_sec else 0,  # 29 = reps, 0 = time
-                'duration_value': reps if not duration_sec else int(duration_sec * 1000),
+                'duration_type': duration_type,
+                'duration_value': duration_value,
             })
 
             # Rest step (if sets > 1)
@@ -124,15 +214,85 @@ def blocks_to_steps(blocks_json):
                     'repeat_count': sets - 1,
                 })
 
-    return steps
+    return steps, category_ids_used
 
 
-def to_fit(blocks_json):
+def detect_sport_type(category_ids):
+    """
+    Detect optimal Garmin sport type based on exercise categories used.
+
+    Returns tuple of (sport_id, sub_sport_id, sport_name, warnings)
+
+    Sport types:
+    - 1 = running (for run-only workouts)
+    - 4 = fitness_equipment (for mixed cardio/strength, rowing, skiing)
+    - 10 = training (for pure strength)
+
+    Category IDs that indicate specific sports:
+    - 32 = Run
+    - 2 = Cardio (also used for erg machines like ski/rower)
+    - 23 = Row
+
+    Note: Invalid categories (33+) are remapped before reaching here.
+    """
+    # Categories that work best with different sport types
+    RUNNING_CATEGORIES = {32}  # Run
+    CARDIO_MACHINE_CATEGORIES = {2, 23}  # Cardio, Row
+
+    has_running = bool(category_ids & RUNNING_CATEGORIES)
+    has_cardio_machines = bool(category_ids & CARDIO_MACHINE_CATEGORIES)
+    strength_categories = category_ids - RUNNING_CATEGORIES - CARDIO_MACHINE_CATEGORIES
+    has_strength = bool(strength_categories)
+
+    warnings = []
+
+    # Determine best sport type
+    if has_running and not has_strength and not has_cardio_machines:
+        # Pure running workout
+        return 1, 0, "running", warnings
+
+    if has_running or has_cardio_machines:
+        # Mixed workout with runs or cardio machines - use fitness_equipment
+        # This is the most flexible option for conditioning workouts
+        if has_strength:
+            warnings.append(
+                "This workout has both cardio (running/rowing/ski) and strength exercises. "
+                "Exported as 'Cardio' type for best Garmin compatibility."
+            )
+        return 4, 0, "cardio", warnings
+
+    # Pure strength workout
+    return 10, 20, "strength", warnings
+
+
+def to_fit(blocks_json, force_sport_type=None, use_lap_button=False):
+    """
+    Convert blocks JSON to Garmin FIT binary format.
+
+    Args:
+        blocks_json: Workout data with blocks/exercises
+        force_sport_type: Override auto-detection. Options: "strength", "cardio", "running"
+        use_lap_button: If True, use "lap button press" for all exercises instead of reps/distance.
+                       User presses lap button when done with each exercise.
+
+    Returns:
+        bytes: FIT file binary data
+    """
     title = blocks_json.get('title', 'Workout')[:31]
-    steps = blocks_to_steps(blocks_json)
+    steps, category_ids = blocks_to_steps(blocks_json, use_lap_button=use_lap_button)
 
     if not steps:
         raise ValueError("No exercises found")
+
+    # Auto-detect or use forced sport type
+    if force_sport_type == "strength":
+        sport_id, sub_sport_id = 10, 20
+    elif force_sport_type == "cardio":
+        sport_id, sub_sport_id = 4, 0
+    elif force_sport_type == "running":
+        sport_id, sub_sport_id = 1, 0
+    else:
+        sport_id, sub_sport_id, _, _ = detect_sport_type(category_ids)
 
     data = b''
     timestamp = int(time.time()) - 631065600
@@ -171,11 +331,11 @@ def to_fit(blocks_json):
     data += struct.pack('<BBB', 11, 1, 0x00)  # sub_sport
 
     data += struct.pack('<B', 0x02)
-    data += struct.pack('<B', 10)  # sport = training (strength)
+    data += struct.pack('<B', sport_id)  # sport (auto-detected or forced)
     data += struct.pack('<I', 32)
     data += struct.pack('<H', len(steps))
     data += write_string(title, 32)
-    data += struct.pack('<B', 20)  # sub_sport
+    data += struct.pack('<B', sub_sport_id)  # sub_sport
 
     # === workout_step for exercise (local 3, global 27) ===
     # FIT SDK field numbers:
@@ -259,11 +419,55 @@ def to_fit(blocks_json):
     return header + data + struct.pack('<H', data_crc)
 
 
-def to_fit_response(blocks_json, filename=None):
+def get_fit_metadata(blocks_json, use_lap_button=False):
+    """
+    Analyze workout and return metadata about FIT export.
+
+    Args:
+        blocks_json: Workout data with blocks/exercises
+        use_lap_button: If True, indicates lap button mode will be used
+
+    Returns dict with:
+        - detected_sport: The auto-detected sport type
+        - detected_sport_id: FIT sport ID
+        - warnings: List of warnings about the export
+        - exercise_count: Total number of exercises
+        - has_running: Whether workout contains running exercises
+        - has_cardio: Whether workout contains cardio machine exercises
+        - has_strength: Whether workout contains strength exercises
+        - use_lap_button: Whether lap button mode is enabled
+    """
+    steps, category_ids = blocks_to_steps(blocks_json, use_lap_button=use_lap_button)
+    sport_id, sub_sport_id, sport_name, warnings = detect_sport_type(category_ids)
+
+    # Category analysis
+    RUNNING_CATEGORIES = {32}
+    CARDIO_MACHINE_CATEGORIES = {2, 23}  # Cardio, Row (38 is remapped to 2)
+
+    has_running = bool(category_ids & RUNNING_CATEGORIES)
+    has_cardio = bool(category_ids & CARDIO_MACHINE_CATEGORIES)
+    strength_cats = category_ids - RUNNING_CATEGORIES - CARDIO_MACHINE_CATEGORIES
+    has_strength = bool(strength_cats)
+
+    return {
+        "detected_sport": sport_name,
+        "detected_sport_id": sport_id,
+        "detected_sub_sport_id": sub_sport_id,
+        "warnings": warnings,
+        "exercise_count": len([s for s in steps if s['type'] == 'exercise']),
+        "has_running": has_running,
+        "has_cardio": has_cardio,
+        "has_strength": has_strength,
+        "category_ids": list(category_ids),
+        "use_lap_button": use_lap_button
+    }
+
+
+def to_fit_response(blocks_json, filename=None, force_sport_type=None, use_lap_button=False):
     if StreamingResponse is None:
         raise ImportError("FastAPI not installed")
 
-    fit_bytes = to_fit(blocks_json)
+    fit_bytes = to_fit(blocks_json, force_sport_type=force_sport_type, use_lap_button=use_lap_button)
 
     if filename is None:
         title = blocks_json.get('title', 'workout')
