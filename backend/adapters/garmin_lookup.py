@@ -60,6 +60,8 @@ class GarminExerciseLookup:
     def normalize(self, name):
         """Normalize exercise name for matching."""
         name = name.lower().strip()
+        # Remove trailing pipe characters that may come from canonical format parsing
+        name = name.rstrip('|').strip()
 
         # Remove common prefixes like A1:, B2;, etc
         name = re.sub(r'^[a-z]\d+[;:\s]+', '', name, flags=re.IGNORECASE)
