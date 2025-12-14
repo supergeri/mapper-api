@@ -348,6 +348,26 @@ def to_fit(blocks_json, force_sport_type=None, use_lap_button=False):
     else:
         sport_id, sub_sport_id, _, _ = detect_sport_type(category_ids)
 
+    # Track unique exercise_name IDs per category
+    # Each (category_id, display_name) pair gets a unique ID within that category
+    exercise_name_counter = {}  # category_id -> next available ID
+    category_exercise_ids = {}  # (category_id, display_name) -> exercise_name ID
+
+    def get_exercise_id(category_id, display_name):
+        """Get unique exercise_name ID for a (category, display_name) pair."""
+        key = (category_id, display_name)
+        if key not in category_exercise_ids:
+            if category_id not in exercise_name_counter:
+                exercise_name_counter[category_id] = 0
+            category_exercise_ids[key] = exercise_name_counter[category_id]
+            exercise_name_counter[category_id] += 1
+        return category_exercise_ids[key]
+
+    # First pass: collect all unique (category_id, display_name) pairs
+    for step in steps:
+        if step['type'] == 'exercise':
+            get_exercise_id(step['category_id'], step['display_name'])
+
     data = b''
     timestamp = int(time.time()) - 631065600
     serial = timestamp & 0xFFFFFFFF
@@ -447,7 +467,7 @@ def to_fit(blocks_json, force_sport_type=None, use_lap_button=False):
             data += struct.pack('<B', 1)     # target_type: open
             data += struct.pack('<B', 0)     # intensity: active
             data += struct.pack('<H', step['category_id'])
-            data += struct.pack('<H', 0)     # exercise_name index
+            data += struct.pack('<H', get_exercise_id(step['category_id'], step['display_name']))  # exercise_name index
 
     # === exercise_title (local 6, global 264) ===
     data += struct.pack('<BBBHB', 0x46, 0, 0, 264, 4)
@@ -461,7 +481,7 @@ def to_fit(blocks_json, force_sport_type=None, use_lap_button=False):
             data += struct.pack('<B', 0x06)
             data += struct.pack('<H', i)
             data += struct.pack('<H', step['category_id'])
-            data += struct.pack('<H', 0)
+            data += struct.pack('<H', get_exercise_id(step['category_id'], step['display_name']))
             data += write_string(step['display_name'], 32)
 
     data_crc = crc16(data)
