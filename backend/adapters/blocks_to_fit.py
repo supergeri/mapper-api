@@ -241,14 +241,19 @@ def blocks_to_steps(blocks_json, use_lap_button=False):
             start_index = len(steps)
 
             # Exercise step
-            steps.append({
+            # Include exercise_name_id (real FIT SDK ID) if available from lookup
+            step = {
                 'type': 'exercise',
                 'display_name': display_name,
                 'category_id': category_id,
                 'intensity': 0,  # active
                 'duration_type': duration_type,
                 'duration_value': duration_value,
-            })
+            }
+            # Add real FIT SDK exercise_name_id if available (e.g., 37 for GOBLET_SQUAT)
+            if match.get('exercise_name_id') is not None:
+                step['exercise_name_id'] = match['exercise_name_id']
+            steps.append(step)
 
             # Rest step (if sets > 1)
             if sets > 1 and rest_between > 0:
@@ -348,25 +353,43 @@ def to_fit(blocks_json, force_sport_type=None, use_lap_button=False):
     else:
         sport_id, sub_sport_id, _, _ = detect_sport_type(category_ids)
 
-    # Track unique exercise_name IDs per category
-    # Each (category_id, display_name) pair gets a unique ID within that category
-    exercise_name_counter = {}  # category_id -> next available ID
+    # Track exercise IDs per category
+    # We prefer real FIT SDK exercise_name_id when available (e.g., 37 for GOBLET_SQUAT)
+    # Fall back to sequential IDs for exercises without a known FIT SDK ID
     category_exercise_ids = {}  # (category_id, display_name) -> exercise_name ID
+    exercise_name_counter = {}  # category_id -> next_id for fallback
 
-    def get_exercise_id(category_id, display_name):
-        """Get unique exercise_name ID for a (category, display_name) pair."""
+    def get_exercise_id(step):
+        """Get exercise_name ID for a step.
+
+        Uses real FIT SDK exercise_name_id when available (e.g., GOBLET_SQUAT=37).
+        Falls back to sequential ID if no real ID is known.
+        """
+        category_id = step['category_id']
+        display_name = step['display_name']
         key = (category_id, display_name)
-        if key not in category_exercise_ids:
-            if category_id not in exercise_name_counter:
-                exercise_name_counter[category_id] = 0
-            category_exercise_ids[key] = exercise_name_counter[category_id]
-            exercise_name_counter[category_id] += 1
+
+        # First check if we already assigned an ID for this (category, name) pair
+        if key in category_exercise_ids:
+            return category_exercise_ids[key]
+
+        # Use real FIT SDK ID if available
+        if 'exercise_name_id' in step:
+            category_exercise_ids[key] = step['exercise_name_id']
+            return step['exercise_name_id']
+
+        # Fallback: assign a sequential ID (starting from high number to avoid collisions)
+        # Real FIT SDK IDs are typically 0-100+, so start at 1000
+        if category_id not in exercise_name_counter:
+            exercise_name_counter[category_id] = 1000
+        category_exercise_ids[key] = exercise_name_counter[category_id]
+        exercise_name_counter[category_id] += 1
         return category_exercise_ids[key]
 
-    # First pass: collect all unique (category_id, display_name) pairs
+    # First pass: collect all unique exercise IDs
     for step in steps:
         if step['type'] == 'exercise':
-            get_exercise_id(step['category_id'], step['display_name'])
+            get_exercise_id(step)
 
     data = b''
     timestamp = int(time.time()) - 631065600
@@ -467,7 +490,7 @@ def to_fit(blocks_json, force_sport_type=None, use_lap_button=False):
             data += struct.pack('<B', 1)     # target_type: open
             data += struct.pack('<B', 0)     # intensity: active
             data += struct.pack('<H', step['category_id'])
-            data += struct.pack('<H', get_exercise_id(step['category_id'], step['display_name']))  # exercise_name index
+            data += struct.pack('<H', get_exercise_id(step))  # exercise_name index
 
     # === exercise_title (local 6, global 264) ===
     data += struct.pack('<BBBHB', 0x46, 0, 0, 264, 4)
@@ -481,7 +504,7 @@ def to_fit(blocks_json, force_sport_type=None, use_lap_button=False):
             data += struct.pack('<B', 0x06)
             data += struct.pack('<H', i)
             data += struct.pack('<H', step['category_id'])
-            data += struct.pack('<H', get_exercise_id(step['category_id'], step['display_name']))
+            data += struct.pack('<H', get_exercise_id(step))
             data += write_string(step['display_name'], 32)
 
     data_crc = crc16(data)
