@@ -289,11 +289,14 @@ def detect_sport_type(category_ids):
 
     Sport types (valid combinations for Garmin):
     - 1/0 = running/generic (for run-only workouts)
-    - 10/20 = training/strength_training (for strength or mixed workouts)
-    - 10/26 = training/cardio_training (for cardio-only workouts)
+    - 10/26 = training/cardio_training (for workouts with ANY cardio)
+    - 10/20 = training/strength_training (for strength-only workouts)
 
     NOTE: fitness_equipment (4) does NOT work on most Garmin watches!
     Always use training (10) for custom workouts.
+
+    Priority: If workout has ANY cardio (run, row, ski) → cardio_training
+    This is important for HYROX and similar mixed conditioning workouts.
 
     Category IDs that indicate specific sports:
     - 32 = Run
@@ -314,22 +317,19 @@ def detect_sport_type(category_ids):
     warnings = []
 
     # Determine best sport type
+    # Priority: cardio takes precedence over strength for mixed workouts
     if has_running and not has_strength and not has_cardio_machines:
         # Pure running workout
         return 1, 0, "running", warnings
 
-    if has_strength:
-        # Any workout with strength exercises -> training/strength_training
-        if has_running or has_cardio_machines:
-            warnings.append(
-                "This workout has both cardio (running/rowing/ski) and strength exercises. "
-                "Exported as 'Strength Training' type for best Garmin compatibility."
-            )
-        return 10, 20, "strength", warnings
-
     if has_running or has_cardio_machines:
-        # Cardio-only workout (no strength) -> training/cardio_training
+        # Any workout with cardio exercises (run, row, ski) -> cardio_training
+        # This includes HYROX and other mixed conditioning workouts
         return 10, 26, "cardio", warnings
+
+    if has_strength:
+        # Pure strength workout (no cardio)
+        return 10, 20, "strength", warnings
 
     # Default to strength training
     return 10, 20, "strength", warnings
