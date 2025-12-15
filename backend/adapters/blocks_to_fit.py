@@ -176,6 +176,55 @@ def _create_rest_step(duration_sec, rest_type='timed'):
         }
 
 
+# Warmup activity mapping to display names
+WARMUP_ACTIVITY_NAMES = {
+    'stretching': 'Stretching',
+    'jump_rope': 'Jump Rope',
+    'air_bike': 'Air Bike',
+    'treadmill': 'Treadmill',
+    'stairmaster': 'Stairmaster',
+    'rowing': 'Rowing',
+    'custom': 'Warm-Up',
+}
+
+
+def _create_warmup_step(duration_sec=None, activity=None):
+    """
+    Create a warmup step for FIT file.
+
+    Args:
+        duration_sec: Optional warmup duration in seconds. If None, uses lap button (OPEN).
+        activity: Optional warmup activity type (stretching, jump_rope, air_bike, etc.)
+
+    Returns:
+        dict: Warmup step data
+    """
+    display_name = WARMUP_ACTIVITY_NAMES.get(activity, 'Warm-Up') if activity else 'Warm-Up'
+
+    if duration_sec and duration_sec > 0:
+        # Timed warmup with countdown
+        return {
+            'type': 'warmup',
+            'display_name': display_name,
+            'intensity': 1,  # warmup intensity
+            'duration_type': 0,  # TIME (milliseconds)
+            'duration_value': int(duration_sec * 1000),
+            'category_id': 2,  # Cardio
+            'category_name': 'Cardio',
+        }
+    else:
+        # Lap button warmup (press when done)
+        return {
+            'type': 'warmup',
+            'display_name': display_name,
+            'intensity': 1,  # warmup intensity
+            'duration_type': 5,  # OPEN (lap button)
+            'duration_value': 0,
+            'category_id': 2,  # Cardio
+            'category_name': 'Cardio',
+        }
+
+
 def blocks_to_steps(blocks_json, use_lap_button=False):
     """
     Convert blocks JSON to FIT workout steps.
@@ -197,23 +246,22 @@ def blocks_to_steps(blocks_json, use_lap_button=False):
     steps = []
     category_ids_used = set()  # Track which categories are in the workout
 
-    # Add warmup step at the beginning (matches YAML warmup: cardio: lap)
-    # FIT SDK intensity values: 0=active, 1=warmup, 2=cooldown, 3=rest
-    # Using OPEN duration (5) = lap button press to end warmup
-    steps.append({
-        'type': 'warmup',
-        'display_name': 'Warmup',
-        'intensity': 1,  # warmup intensity
-        'duration_type': 5,  # OPEN (lap button)
-        'duration_value': 0,
-        'category_id': 2,  # Cardio
-        'category_name': 'Cardio',
-    })
-
     blocks = blocks_json.get('blocks', [])
     num_blocks = len(blocks)
 
+    # Check if first block has explicit warmup configured
+    # If not, add a default warmup step at the beginning
+    first_block = blocks[0] if blocks else None
+    if not first_block or not first_block.get('warmup_enabled'):
+        # Default warmup: lap button press (matches YAML warmup: cardio: lap)
+        steps.append(_create_warmup_step())
+
     for block_idx, block in enumerate(blocks):
+        # Per-block warmup: add warmup step before this block if enabled
+        if block.get('warmup_enabled'):
+            warmup_activity = block.get('warmup_activity')
+            warmup_duration = block.get('warmup_duration_sec')
+            steps.append(_create_warmup_step(warmup_duration, warmup_activity))
         rounds = parse_structure(block.get('structure'))
         # Legacy: rest_between_sec was used for intra-set rest
         rest_between_sets = block.get('rest_between_sets_sec') or block.get('rest_between_sec', 30) or 30
@@ -254,6 +302,7 @@ def blocks_to_steps(blocks_json, use_lap_button=False):
         for exercise in all_exercises:
             name = exercise.get('name', 'Exercise')
             reps_raw = exercise.get('reps')  # Don't default - None means no reps specified
+            reps_range = exercise.get('reps_range')  # e.g., "6-8", "8-10"
             sets = exercise.get('sets') or rounds
             duration_sec = exercise.get('duration_sec')
             distance_m = exercise.get('distance_m')  # Numeric distance in meters from ingestor
@@ -326,6 +375,15 @@ def blocks_to_steps(blocks_json, use_lap_button=False):
                             duration_value = 10
                     else:
                         duration_value = int(reps_raw) if reps_raw else 10
+                elif reps_range:
+                    # reps_range specified (e.g., "6-8") - parse upper bound for FIT
+                    duration_type = 29  # REPS
+                    try:
+                        # Parse range like "6-8" or "8-10" -> use upper bound
+                        parts = reps_range.replace('-', ' ').split()
+                        duration_value = int(parts[-1]) if parts else 10
+                    except:
+                        duration_value = 10
                 else:
                     # No reps, no distance, no time - use OPEN (press lap when done)
                     # This is standard for cardio/running exercises like "Indoor Track Run"
