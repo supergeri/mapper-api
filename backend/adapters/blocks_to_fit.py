@@ -302,6 +302,7 @@ def blocks_to_steps(blocks_json, use_lap_button=False):
         for exercise in all_exercises:
             name = exercise.get('name', 'Exercise')
             reps_raw = exercise.get('reps')  # Don't default - None means no reps specified
+            reps_range = exercise.get('reps_range')  # e.g., "6-8", "8-10"
             sets = exercise.get('sets') or rounds
             duration_sec = exercise.get('duration_sec')
             distance_m = exercise.get('distance_m')  # Numeric distance in meters from ingestor
@@ -374,6 +375,15 @@ def blocks_to_steps(blocks_json, use_lap_button=False):
                             duration_value = 10
                     else:
                         duration_value = int(reps_raw) if reps_raw else 10
+                elif reps_range:
+                    # reps_range specified (e.g., "6-8") - parse upper bound for FIT
+                    duration_type = 29  # REPS
+                    try:
+                        # Parse range like "6-8" or "8-10" -> use upper bound
+                        parts = reps_range.replace('-', ' ').split()
+                        duration_value = int(parts[-1]) if parts else 10
+                    except:
+                        duration_value = 10
                 else:
                     # No reps, no distance, no time - use OPEN (press lap when done)
                     # This is standard for cardio/running exercises like "Indoor Track Run"
