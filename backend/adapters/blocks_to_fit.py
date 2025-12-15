@@ -390,9 +390,57 @@ def blocks_to_steps(blocks_json, use_lap_button=False):
                     duration_type = 5  # OPEN (no end condition)
                     duration_value = 0
 
+            # Rest settings for this exercise
+            exercise_rest_type = exercise.get('rest_type') or rest_type_block
+            exercise_rest_sec = exercise.get('rest_sec')
+
+            # Warm-up sets handling (AMA-94)
+            # Warm-up sets are lighter preparatory sets performed before working sets
+            warmup_sets = exercise.get('warmup_sets')
+            warmup_reps = exercise.get('warmup_reps')
+
+            if warmup_sets and warmup_sets > 0 and warmup_reps and warmup_reps > 0:
+                warmup_start_index = len(steps)
+
+                # Warm-up exercise step (same exercise, warmup intensity)
+                warmup_step = {
+                    'type': 'exercise',
+                    'display_name': f"{display_name} (Warm-Up)",
+                    'category_id': category_id,
+                    'intensity': 1,  # warmup intensity
+                    'duration_type': 29,  # REPS
+                    'duration_value': warmup_reps,
+                }
+                if match.get('exercise_name_id') is not None:
+                    warmup_step['exercise_name_id'] = match['exercise_name_id']
+                steps.append(warmup_step)
+
+                # Rest between warmup sets (if warmup_sets > 1)
+                if warmup_sets > 1:
+                    if exercise_rest_type == 'button':
+                        steps.append(_create_rest_step(0, 'button'))
+                    elif exercise_rest_sec and exercise_rest_sec > 0:
+                        steps.append(_create_rest_step(exercise_rest_sec, 'timed'))
+                    elif rest_between_sets > 0:
+                        steps.append(_create_rest_step(rest_between_sets, rest_type_block))
+
+                # Repeat step for warmup sets (if warmup_sets > 1)
+                if warmup_sets > 1:
+                    steps.append({
+                        'type': 'repeat',
+                        'duration_step': warmup_start_index,
+                        'repeat_count': warmup_sets - 1,
+                    })
+
+                # Rest between warmup and working sets
+                if exercise_rest_sec and exercise_rest_sec > 0:
+                    steps.append(_create_rest_step(exercise_rest_sec, exercise_rest_type))
+                elif rest_between_sets > 0:
+                    steps.append(_create_rest_step(rest_between_sets, rest_type_block))
+
             start_index = len(steps)
 
-            # Exercise step
+            # Working set exercise step
             # Include exercise_name_id (real FIT SDK ID) if available from lookup
             step = {
                 'type': 'exercise',
@@ -407,13 +455,10 @@ def blocks_to_steps(blocks_json, use_lap_button=False):
                 step['exercise_name_id'] = match['exercise_name_id']
             steps.append(step)
 
-            # Rest step between sets (if sets > 1)
+            # Rest step between working sets (if sets > 1)
             # Priority: exercise rest_type > block rest_type
             # For button type: always add lap button rest (user presses lap when ready)
             # For timed type: use exercise rest_sec > block rest_between_sets
-            exercise_rest_type = exercise.get('rest_type') or rest_type_block
-            exercise_rest_sec = exercise.get('rest_sec')
-
             if sets > 1:
                 if exercise_rest_type == 'button':
                     # Lap button rest - always add for button type
@@ -425,7 +470,7 @@ def blocks_to_steps(blocks_json, use_lap_button=False):
                     # Fall back to block-level rest between sets
                     steps.append(_create_rest_step(rest_between_sets, rest_type_block))
 
-            # Repeat step (if sets > 1)
+            # Repeat step for working sets (if sets > 1)
             if sets > 1:
                 steps.append({
                     'type': 'repeat',
