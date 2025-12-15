@@ -142,9 +142,48 @@ def parse_structure(structure_str):
     return int(match.group(1)) if match else 1
 
 
+def _create_rest_step(duration_sec, rest_type='timed'):
+    """
+    Create a rest step for FIT file.
+
+    Args:
+        duration_sec: Rest duration in seconds (ignored if rest_type='button')
+        rest_type: 'timed' for countdown timer, 'button' for lap button press
+
+    Returns:
+        dict: Rest step data
+    """
+    if rest_type == 'button':
+        # OPEN = 5 (no end condition) - user presses lap when done
+        return {
+            'type': 'rest',
+            'display_name': 'Rest',
+            'intensity': 1,  # rest
+            'duration_type': 5,  # OPEN
+            'duration_value': 0,
+        }
+    else:
+        # Timed rest with countdown
+        return {
+            'type': 'rest',
+            'display_name': 'Rest',
+            'intensity': 1,  # rest
+            'duration_type': 0,  # time
+            'duration_value': int(duration_sec * 1000),
+        }
+
+
 def blocks_to_steps(blocks_json, use_lap_button=False):
     """
     Convert blocks JSON to FIT workout steps.
+
+    Supports auto-rest insertion at three levels:
+    1. After each exercise: Uses exercise.rest_sec
+    2. After each superset: Uses superset.rest_between_sec
+    3. After each block: Uses block.rest_between_rounds_sec
+
+    Rest can be timed (countdown) or button-press (lap button).
+    Set rest_type='button' on exercise/superset/block for lap button rest.
 
     Args:
         blocks_json: Workout data with blocks/exercises
@@ -155,15 +194,45 @@ def blocks_to_steps(blocks_json, use_lap_button=False):
     steps = []
     category_ids_used = set()  # Track which categories are in the workout
 
-    for block in blocks_json.get('blocks', []):
+    blocks = blocks_json.get('blocks', [])
+    num_blocks = len(blocks)
+
+    for block_idx, block in enumerate(blocks):
         rounds = parse_structure(block.get('structure'))
-        rest_between = block.get('rest_between_sec', 30) or 30
+        # Legacy: rest_between_sec was used for intra-set rest
+        rest_between_sets = block.get('rest_between_sets_sec') or block.get('rest_between_sec', 30) or 30
+        # New: rest_between_rounds_sec for rest after the entire block
+        rest_after_block = block.get('rest_between_rounds_sec')
+        rest_type_block = block.get('rest_type', 'timed')
+
+        is_last_block = (block_idx == num_blocks - 1)
 
         all_exercises = []
-        for superset in block.get('supersets', []):
-            for exercise in superset.get('exercises', []):
+        supersets = block.get('supersets', [])
+
+        # Process supersets with their rest settings
+        for superset_idx, superset in enumerate(supersets):
+            superset_exercises = superset.get('exercises', [])
+            superset_rest = superset.get('rest_between_sec')
+            superset_rest_type = superset.get('rest_type', 'timed')
+            is_last_superset = (superset_idx == len(supersets) - 1) and not block.get('exercises')
+
+            for ex_idx, exercise in enumerate(superset_exercises):
+                exercise['_superset_idx'] = superset_idx
+                exercise['_is_last_in_superset'] = (ex_idx == len(superset_exercises) - 1)
+                exercise['_superset_rest'] = superset_rest
+                exercise['_superset_rest_type'] = superset_rest_type
+                exercise['_is_last_superset'] = is_last_superset
                 all_exercises.append(exercise)
-        for exercise in block.get('exercises', []):
+
+        # Process standalone exercises
+        standalone_exercises = block.get('exercises', [])
+        for ex_idx, exercise in enumerate(standalone_exercises):
+            exercise['_superset_idx'] = None
+            exercise['_is_last_in_superset'] = False
+            exercise['_superset_rest'] = None
+            exercise['_superset_rest_type'] = 'timed'
+            exercise['_is_last_superset'] = (ex_idx == len(standalone_exercises) - 1)
             all_exercises.append(exercise)
 
         for exercise in all_exercises:
@@ -264,15 +333,9 @@ def blocks_to_steps(blocks_json, use_lap_button=False):
                 step['exercise_name_id'] = match['exercise_name_id']
             steps.append(step)
 
-            # Rest step (if sets > 1)
-            if sets > 1 and rest_between > 0:
-                steps.append({
-                    'type': 'rest',
-                    'display_name': 'Rest',
-                    'intensity': 1,  # rest
-                    'duration_type': 0,  # time
-                    'duration_value': int(rest_between * 1000),
-                })
+            # Rest step between sets (if sets > 1)
+            if sets > 1 and rest_between_sets > 0:
+                steps.append(_create_rest_step(rest_between_sets, rest_type_block))
 
             # Repeat step (if sets > 1)
             if sets > 1:
@@ -281,6 +344,29 @@ def blocks_to_steps(blocks_json, use_lap_button=False):
                     'duration_step': start_index,
                     'repeat_count': sets - 1,
                 })
+
+            # Check if this is the last exercise overall in the block
+            is_last_exercise = (all_exercises.index(exercise) == len(all_exercises) - 1)
+
+            # Rest after exercise (if rest_sec is set on the exercise)
+            exercise_rest = exercise.get('rest_sec')
+            exercise_rest_type = exercise.get('rest_type', 'timed')
+            if exercise_rest and exercise_rest > 0:
+                # Don't add rest after the very last exercise in the workout
+                if not (is_last_block and is_last_exercise):
+                    steps.append(_create_rest_step(exercise_rest, exercise_rest_type))
+
+            # Rest after superset (if this is the last exercise in a superset)
+            if exercise.get('_is_last_in_superset') and exercise.get('_superset_rest'):
+                superset_rest = exercise.get('_superset_rest')
+                superset_rest_type = exercise.get('_superset_rest_type', 'timed')
+                # Don't add rest after the very last superset in the workout
+                if not (is_last_block and exercise.get('_is_last_superset')):
+                    steps.append(_create_rest_step(superset_rest, superset_rest_type))
+
+        # Rest after block (if rest_between_rounds_sec is set)
+        if rest_after_block and rest_after_block > 0 and not is_last_block:
+            steps.append(_create_rest_step(rest_after_block, rest_type_block))
 
     return steps, category_ids_used
 
