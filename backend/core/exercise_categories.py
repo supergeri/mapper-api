@@ -31,14 +31,19 @@ MANUAL_CATEGORY_OVERRIDES: Dict[str, str] = {
     # Chest / fly variations
     "Chest Fly": "FLYE",
 
-
-    # Shoulders
+    # Shoulders - Override "Banded Exercises" from raw data
+    "Lateral Raise": "LATERAL_RAISE",
     "Alternating Lateral Raise With Static Hold": "LATERAL_RAISE",
 
-
-    # Arms
+    # Arms - Override "Banded Exercises" from raw data
     "Cable Overhead Triceps Extension": "TRICEPS_EXTENSION",
     "Alternating Dumbbell Biceps Curl": "CURL",
+    "Curl": "CURL",
+    "Triceps Press": "TRICEPS_EXTENSION",
+    "Triceps Extension": "TRICEPS_EXTENSION",
+
+    # Back - Override "Banded Exercises" from raw data
+    "Row": "ROW",
 }
 
 

@@ -566,8 +566,9 @@ def to_hyrox_yaml(blocks_json: dict) -> str:
     first_block = blocks[0] if blocks else None
     if not first_block or not first_block.get('warmup_enabled'):
         # Default warmup: lap button press
+        # Format: warmup: {cardio: lap} not warmup: [{cardio: lap}]
         workout_steps.append({
-            "warmup": [{"cardio": "lap"}]
+            "warmup": {"cardio": "lap"}
         })
 
     # Warmup activity mapping to YAML activity names
@@ -590,14 +591,14 @@ def to_hyrox_yaml(blocks_json: dict) -> str:
             yaml_activity = WARMUP_ACTIVITY_YAML.get(warmup_activity, 'cardio')
 
             if warmup_duration and warmup_duration > 0:
-                # Timed warmup
+                # Timed warmup - format: warmup: {cardio: 300s}
                 workout_steps.append({
-                    "warmup": [{yaml_activity: f"{warmup_duration}s"}]
+                    "warmup": {yaml_activity: f"{warmup_duration}s"}
                 })
             else:
-                # Lap button warmup
+                # Lap button warmup - format: warmup: {cardio: lap}
                 workout_steps.append({
-                    "warmup": [{yaml_activity: "lap"}]
+                    "warmup": {yaml_activity: "lap"}
                 })
 
         label = block.get("label", "")
@@ -671,9 +672,22 @@ def to_hyrox_yaml(blocks_json: dict) -> str:
                         original_clean = re.sub(r'^[A-Z]\d+[:\s;]+', '', ex_name, flags=re.IGNORECASE).strip()
                         ex_entry[garmin_name_with_category] = f"{original_clean} x{upper_reps} ({reason})"
                 else:
-                    # Default fallback - use "lap" (lap button press) when no reps available
-                    # This is standard for cardio/running exercises like "Indoor Track Run"
-                    ex_entry[garmin_name_with_category] = "lap"
+                    # Default fallback - check if cardio or strength exercise
+                    # For cardio exercises (running, rowing, etc), use "lap" (press lap when done)
+                    # For strength exercises without reps, default to 10 reps
+                    lookup = get_garmin_lookup()
+                    ex_lookup = lookup.find(garmin_name)
+                    category_id = ex_lookup.get('category_id', 0)
+
+                    # Cardio categories: 2 (Cardio), 32 (Run)
+                    CARDIO_CATEGORIES = {2, 32}
+
+                    if category_id in CARDIO_CATEGORIES:
+                        # Cardio exercise - use lap button (press lap when done)
+                        ex_entry[garmin_name_with_category] = "lap"
+                    else:
+                        # Strength exercise - default to 10 reps
+                        ex_entry[garmin_name_with_category] = "x10"
 
                 # Get rest settings for this exercise
                 ex_rest_type = ex.get('rest_type')
@@ -763,13 +777,25 @@ def to_hyrox_yaml(blocks_json: dict) -> str:
                         original_clean = re.sub(r'^[A-Z]\d+[:\s;]+', '', ex_name, flags=re.IGNORECASE).strip()
                         ex_entry[garmin_name_with_category] = f"{original_clean} x{upper_reps} ({reason})"
                 else:
-                    # Default fallback
-                    if not reason:
-                        # Already a valid Garmin name - use "lap" as default
+                    # Default fallback - check if cardio or strength exercise
+                    # For cardio exercises, use "lap"; for strength, default to 10 reps
+                    lookup = get_garmin_lookup()
+                    ex_lookup = lookup.find(garmin_name)
+                    category_id = ex_lookup.get('category_id', 0)
+
+                    # Cardio categories: 2 (Cardio), 32 (Run)
+                    CARDIO_CATEGORIES = {2, 32}
+
+                    if category_id in CARDIO_CATEGORIES:
+                        # Cardio exercise - use lap button
                         ex_entry[garmin_name_with_category] = "lap"
                     else:
-                        original_clean = re.sub(r'^[A-Z]\d+[:\s;]+', '', ex_name, flags=re.IGNORECASE).strip()
-                        ex_entry[garmin_name_with_category] = f"{original_clean} ({reason})"
+                        # Strength exercise - default to 10 reps
+                        if not reason:
+                            ex_entry[garmin_name_with_category] = "x10"
+                        else:
+                            original_clean = re.sub(r'^[A-Z]\d+[:\s;]+', '', ex_name, flags=re.IGNORECASE).strip()
+                            ex_entry[garmin_name_with_category] = f"{original_clean} x10 ({reason})"
 
                 # Get rest settings for this exercise
                 ex_rest_type = ex.get('rest_type')
