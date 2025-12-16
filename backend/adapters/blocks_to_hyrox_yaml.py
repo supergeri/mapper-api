@@ -686,8 +686,9 @@ def to_hyrox_yaml(blocks_json: dict) -> str:
                 # Warm-up sets handling (AMA-94)
                 # Add warm-up sets BEFORE working sets
                 if warmup_sets and warmup_sets > 0 and warmup_reps and warmup_reps > 0:
-                    # Create warmup exercise entry
-                    warmup_entry = {f"{garmin_name_with_category}": f"x{warmup_reps}"}
+                    # Create warmup exercise entry with "(Warm-Up)" indicator
+                    warmup_name = f"{garmin_name_with_category} (Warm-Up)"
+                    warmup_entry = {warmup_name: f"x{warmup_reps}"}
 
                     if warmup_sets > 1:
                         # Multiple warmup sets - wrap in repeat
@@ -806,8 +807,9 @@ def to_hyrox_yaml(blocks_json: dict) -> str:
                 # Warm-up sets handling for superset exercises (AMA-94)
                 # Add warm-up sets BEFORE working sets
                 if warmup_sets and warmup_sets > 0 and warmup_reps and warmup_reps > 0:
-                    # Create warmup exercise entry
-                    warmup_entry = {f"{garmin_name_with_category}": f"x{warmup_reps}"}
+                    # Create warmup exercise entry with "(Warm-Up)" indicator
+                    warmup_name = f"{garmin_name_with_category} (Warm-Up)"
+                    warmup_entry = {warmup_name: f"x{warmup_reps}"}
 
                     if warmup_sets > 1:
                         # Multiple warmup sets - wrap in repeat
