@@ -30,6 +30,9 @@ from backend.parsers import (
     ParsedWorkout,
     URLParser,
     fetch_url_metadata_batch,
+    ImageParser,
+    parse_images_batch,
+    is_supported_image,
 )
 
 logger = logging.getLogger(__name__)
@@ -490,13 +493,27 @@ class BulkImportService:
         success_count = 0
         error_count = 0
 
-        # Use optimized batch processing for URLs
+        # Use optimized batch processing for URLs and images
         if source_type == "urls":
             detected_items, success_count, error_count = await self._detect_urls_batch(
                 sources, max_concurrent=5
             )
+        elif source_type == "images":
+            # Images are passed as list of (base64_data, filename) or just base64_data
+            # If just base64 strings, convert to tuples
+            images = []
+            for idx, source in enumerate(sources):
+                if isinstance(source, tuple):
+                    images.append(source)
+                elif isinstance(source, dict):
+                    images.append((source.get("data", ""), source.get("filename", f"image_{idx}.jpg")))
+                else:
+                    images.append((source, f"image_{idx}.jpg"))
+            detected_items, success_count, error_count = await self._detect_images_batch(
+                images, max_concurrent=3
+            )
         else:
-            # Process other sources sequentially
+            # Process files sequentially
             for idx, source in enumerate(sources):
                 try:
                     item = await self._detect_single_source(
@@ -615,6 +632,110 @@ class BulkImportService:
                     "platform": metadata.platform,
                 })
                 success_count += 1
+
+        return detected_items, success_count, error_count
+
+    async def _detect_images_batch(
+        self,
+        images: List[tuple],  # List of (base64_data, filename)
+        max_concurrent: int = 3
+    ) -> tuple:
+        """
+        Batch process images with concurrency limit.
+
+        Uses Vision AI for workout extraction.
+
+        Args:
+            images: List of (base64_data, filename) tuples
+            max_concurrent: Max concurrent requests (lower than URLs due to cost)
+
+        Returns:
+            Tuple of (detected_items, success_count, error_count)
+        """
+        detected_items = []
+        success_count = 0
+        error_count = 0
+
+        # Decode base64 images and prepare for batch processing
+        decoded_images = []
+        decode_errors = []
+
+        for idx, (b64_data, filename) in enumerate(images):
+            try:
+                image_data = base64.b64decode(b64_data)
+                decoded_images.append((image_data, filename or f"image_{idx}.jpg", idx))
+            except Exception as e:
+                decode_errors.append((idx, filename, str(e)))
+
+        # Add decode error items
+        for idx, filename, error in decode_errors:
+            detected_items.append({
+                "id": str(uuid.uuid4()),
+                "source_index": idx,
+                "source_type": "images",
+                "source_ref": filename or f"image_{idx}",
+                "raw_data": {},
+                "parsed_title": f"Image Workout {idx + 1}",
+                "parsed_exercise_count": 0,
+                "confidence": 0,
+                "errors": [f"Invalid base64 image data: {error}"],
+            })
+            error_count += 1
+
+        # Process decoded images in batch
+        if decoded_images:
+            batch_input = [(data, fname) for data, fname, _ in decoded_images]
+            results = await parse_images_batch(
+                batch_input,
+                mode="vision",
+                max_concurrent=max_concurrent,
+            )
+
+            for (_, filename, idx), result in zip(decoded_images, results):
+                item_id = str(uuid.uuid4())
+
+                if not result.success:
+                    detected_items.append({
+                        "id": item_id,
+                        "source_index": idx,
+                        "source_type": "images",
+                        "source_ref": filename,
+                        "raw_data": {
+                            "extraction_method": result.extraction_method,
+                        },
+                        "parsed_title": f"Image Workout {idx + 1}",
+                        "parsed_exercise_count": 0,
+                        "confidence": result.confidence,
+                        "errors": [result.error] if result.error else ["Failed to extract workout"],
+                    })
+                    error_count += 1
+                else:
+                    title = result.title or f"Image Workout {idx + 1}"
+                    exercise_count = len(result.exercises)
+                    block_count = len(result.blocks)
+
+                    detected_items.append({
+                        "id": item_id,
+                        "source_index": idx,
+                        "source_type": "images",
+                        "source_ref": filename,
+                        "raw_data": {
+                            "extraction_method": result.extraction_method,
+                            "model_used": result.model_used,
+                            "exercises": result.exercises,
+                            "blocks": result.blocks,
+                        },
+                        "parsed_title": title,
+                        "parsed_exercise_count": exercise_count,
+                        "parsed_block_count": block_count,
+                        "parsed_workout": result.raw_workout,
+                        "confidence": result.confidence,
+                        "flagged_items": result.flagged_items if result.flagged_items else None,
+                    })
+                    success_count += 1
+
+        # Sort by source_index to maintain order
+        detected_items.sort(key=lambda x: x["source_index"])
 
         return detected_items, success_count, error_count
 
@@ -832,22 +953,98 @@ class BulkImportService:
         self,
         item_id: str,
         source: str,
-        index: int
+        index: int,
+        filename: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Detect workout from image (base64 encoded)"""
-        # TODO: Implement image OCR and parsing
-        # This will be implemented in AMA-103 (Image Parser)
-        return {
-            "id": item_id,
-            "source_index": index,
-            "source_type": "images",
-            "source_ref": f"image_{index}",
-            "raw_data": {"image_data": source[:100]},  # Truncate
-            "parsed_title": f"Image Workout {index + 1}",
-            "parsed_exercise_count": 0,
-            "confidence": 50,
-            "warnings": ["Image parsing not yet implemented"],
-        }
+        """
+        Detect workout from image (base64 encoded).
+
+        Uses Vision AI via workout-ingestor-api to extract workout data.
+        """
+        try:
+            # Decode base64 image
+            try:
+                image_data = base64.b64decode(source)
+            except Exception as e:
+                return {
+                    "id": item_id,
+                    "source_index": index,
+                    "source_type": "images",
+                    "source_ref": filename or f"image_{index}",
+                    "raw_data": {},
+                    "parsed_title": f"Image Workout {index + 1}",
+                    "parsed_exercise_count": 0,
+                    "confidence": 0,
+                    "errors": [f"Invalid base64 image data: {str(e)}"],
+                }
+
+            # Use filename or generate one
+            fname = filename or f"image_{index}.jpg"
+
+            # Parse using ImageParser
+            result = await ImageParser.parse_image(
+                image_data=image_data,
+                filename=fname,
+                mode="vision",
+                vision_model="gpt-4o-mini",
+            )
+
+            if not result.success:
+                return {
+                    "id": item_id,
+                    "source_index": index,
+                    "source_type": "images",
+                    "source_ref": fname,
+                    "raw_data": {
+                        "extraction_method": result.extraction_method,
+                    },
+                    "parsed_title": f"Image Workout {index + 1}",
+                    "parsed_exercise_count": 0,
+                    "confidence": result.confidence,
+                    "errors": [result.error] if result.error else ["Failed to extract workout from image"],
+                }
+
+            # Build title
+            title = result.title
+            if not title:
+                title = f"Image Workout {index + 1}"
+
+            # Count exercises
+            exercise_count = len(result.exercises)
+            block_count = len(result.blocks)
+
+            return {
+                "id": item_id,
+                "source_index": index,
+                "source_type": "images",
+                "source_ref": fname,
+                "raw_data": {
+                    "extraction_method": result.extraction_method,
+                    "model_used": result.model_used,
+                    "exercises": result.exercises,
+                    "blocks": result.blocks,
+                },
+                "parsed_title": title,
+                "parsed_exercise_count": exercise_count,
+                "parsed_block_count": block_count,
+                "parsed_workout": result.raw_workout,
+                "confidence": result.confidence,
+                "flagged_items": result.flagged_items if result.flagged_items else None,
+            }
+
+        except Exception as e:
+            logger.exception(f"Error detecting image: {e}")
+            return {
+                "id": item_id,
+                "source_index": index,
+                "source_type": "images",
+                "source_ref": filename or f"image_{index}",
+                "raw_data": {},
+                "parsed_title": f"Image Workout {index + 1}",
+                "parsed_exercise_count": 0,
+                "confidence": 0,
+                "errors": [f"Failed to process image: {str(e)}"],
+            }
 
     # ========================================================================
     # Step 2: Column Mapping (for files)
