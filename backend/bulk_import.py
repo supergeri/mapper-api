@@ -16,11 +16,14 @@ This module provides:
 """
 
 import uuid
+import base64
 import asyncio
 import logging
 from typing import List, Dict, Any, Optional, Literal
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field
+
+from backend.parsers import FileParserFactory, FileInfo, ParseResult, ParsedWorkout
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +257,22 @@ class BulkImportService:
         except Exception as e:
             logger.warning(f"Could not get Supabase client: {e}")
             return None
+
+    def _patterns_to_list(self, patterns) -> List[Dict[str, Any]]:
+        """Convert DetectedPatterns object to a list of pattern dicts"""
+        result = []
+        if patterns:
+            if patterns.supersets:
+                result.append({"type": "supersets", **patterns.supersets.model_dump()})
+            if patterns.complex_movements:
+                result.append({"type": "complex_movements", **patterns.complex_movements.model_dump()})
+            if patterns.duration_exercises:
+                result.append({"type": "duration_exercises", **patterns.duration_exercises.model_dump()})
+            if patterns.percentage_weights:
+                result.append({"type": "percentage_weights", **patterns.percentage_weights.model_dump()})
+            if patterns.warmup_sets:
+                result.append({"type": "warmup_sets", **patterns.warmup_sets.model_dump()})
+        return result
 
     # ========================================================================
     # Job Management
@@ -540,22 +559,107 @@ class BulkImportService:
         self,
         item_id: str,
         source: str,
-        index: int
+        index: int,
+        filename: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Detect workout from file content (base64 encoded)"""
-        # TODO: Implement file parsing (Excel, CSV, JSON, Text)
-        # This will be implemented in AMA-101 (File Parsers)
-        return {
-            "id": item_id,
-            "source_index": index,
-            "source_type": "file",
-            "source_ref": f"file_{index}",
-            "raw_data": {"content": source[:1000]},  # Truncate for storage
-            "parsed_title": f"Imported Workout {index + 1}",
-            "parsed_exercise_count": 0,
-            "confidence": 50,
-            "warnings": ["File parsing not yet implemented"],
-        }
+        """
+        Detect workout from file content (base64 encoded).
+
+        Args:
+            item_id: Unique ID for this detected item
+            source: Base64 encoded file content (optionally prefixed with "filename:")
+            index: Source index in the batch
+            filename: Optional filename (if not embedded in source)
+        """
+        try:
+            # Parse source format: can be "filename:base64content" or just "base64content"
+            if filename is None and ":" in source and not source.startswith("data:"):
+                # Check if it looks like "filename.ext:base64..."
+                parts = source.split(":", 1)
+                if "." in parts[0] and len(parts[0]) < 256:
+                    filename = parts[0]
+                    source = parts[1]
+
+            # Default filename if none provided
+            if not filename:
+                filename = f"file_{index}.txt"
+
+            # Use the parser factory
+            parse_result = await FileParserFactory.parse_base64(source, filename)
+
+            if not parse_result.success:
+                return {
+                    "id": item_id,
+                    "source_index": index,
+                    "source_type": "file",
+                    "source_ref": filename,
+                    "raw_data": {"filename": filename},
+                    "parsed_title": None,
+                    "parsed_exercise_count": 0,
+                    "parsed_block_count": 0,
+                    "confidence": 0,
+                    "errors": parse_result.errors,
+                    "warnings": parse_result.warnings,
+                }
+
+            # Convert workouts to detected items format
+            # For multi-workout files (e.g., multi-sheet Excel), we'll create multiple items
+            # But since this method returns a single item, we'll aggregate
+            total_exercises = 0
+            total_blocks = 0
+            workout_titles = []
+            parsed_workouts = []
+
+            for workout in parse_result.workouts:
+                workout_titles.append(workout.name or f"Workout {len(workout_titles) + 1}")
+                exercise_count = len(workout.exercises)
+                total_exercises += exercise_count
+                total_blocks += 1  # Each workout is considered one block
+
+                # Convert ParsedWorkout to dict for storage
+                parsed_workouts.append(workout.model_dump())
+
+            # Generate title
+            if len(workout_titles) == 1:
+                title = workout_titles[0]
+            elif len(workout_titles) > 1:
+                title = f"{workout_titles[0]} (+{len(workout_titles) - 1} more)"
+            else:
+                title = filename
+
+            return {
+                "id": item_id,
+                "source_index": index,
+                "source_type": "file",
+                "source_ref": filename,
+                "raw_data": {
+                    "filename": filename,
+                    "detected_format": parse_result.detected_format,
+                    "column_info": [c.model_dump() for c in (parse_result.columns or [])],
+                },
+                "parsed_title": title,
+                "parsed_exercise_count": total_exercises,
+                "parsed_block_count": total_blocks,
+                "parsed_workout": parsed_workouts[0] if len(parsed_workouts) == 1 else {
+                    "workouts": parsed_workouts
+                },
+                "confidence": parse_result.confidence,
+                "errors": parse_result.errors if parse_result.errors else None,
+                "warnings": parse_result.warnings if parse_result.warnings else None,
+                "patterns": self._patterns_to_list(parse_result.patterns) if parse_result.patterns else [],
+            }
+
+        except Exception as e:
+            logger.exception(f"Error parsing file: {e}")
+            return {
+                "id": item_id,
+                "source_index": index,
+                "source_type": "file",
+                "source_ref": filename or f"file_{index}",
+                "raw_data": {},
+                "confidence": 0,
+                "errors": [f"Failed to parse file: {str(e)}"],
+            }
 
     async def _detect_from_url(
         self,

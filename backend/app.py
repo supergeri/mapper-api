@@ -2031,6 +2031,8 @@ def map_preview_steps(
 # Bulk Import Endpoints (AMA-100: Bulk Import Controller)
 # ============================================================================
 
+from fastapi import UploadFile, File as FastAPIFile, Form
+
 from backend.bulk_import import (
     bulk_import_service,
     BulkDetectRequest,
@@ -2066,6 +2068,40 @@ async def bulk_import_detect(request: BulkDetectRequest):
         profile_id=request.profile_id,
         source_type=request.source_type,
         sources=request.sources,
+    )
+
+
+@app.post("/import/detect/file", response_model=BulkDetectResponse)
+async def bulk_import_detect_file(
+    file: UploadFile = FastAPIFile(...),
+    profile_id: str = Form(..., description="User profile ID"),
+):
+    """
+    Detect and parse workout items from an uploaded file.
+
+    Step 1 of the bulk import workflow (file upload variant).
+
+    Accepts file uploads via multipart/form-data:
+    - Excel (.xlsx, .xls)
+    - CSV (.csv)
+    - JSON (.json)
+    - Text (.txt)
+
+    Returns detected items with confidence scores and any parsing errors.
+    """
+    import base64
+
+    # Read file content
+    content = await file.read()
+    filename = file.filename or "upload.txt"
+
+    # Encode as base64 with filename prefix for the parser
+    base64_content = f"{filename}:{base64.b64encode(content).decode('utf-8')}"
+
+    return await bulk_import_service.detect_items(
+        profile_id=profile_id,
+        source_type="file",
+        sources=[base64_content],
     )
 
 
