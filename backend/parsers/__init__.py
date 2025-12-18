@@ -12,6 +12,10 @@ Also provides URL parsing for video platforms:
 - Instagram (instagram.com/p/, /reel/, /tv/)
 - TikTok (tiktok.com, vm.tiktok.com)
 
+And image parsing for workout screenshots:
+- PNG, JPG, JPEG, WebP, HEIC, GIF
+- Uses Vision AI (OpenAI/Anthropic) or OCR
+
 Usage:
     from parsers import FileParserFactory, FileInfo
 
@@ -21,6 +25,10 @@ Usage:
     # For URLs
     from parsers import URLParser, fetch_url_metadata
     metadata = await fetch_url_metadata(url)
+
+    # For images
+    from parsers import ImageParser, parse_image
+    result = await parse_image(image_data, "workout.jpg", mode="vision")
 """
 
 import base64
@@ -49,6 +57,14 @@ from .url_parser import (
     is_valid_url,
     fetch_url_metadata,
     fetch_url_metadata_batch,
+)
+from .image_parser import (
+    ImageParser,
+    ImageParseResult,
+    ImageMetadata,
+    parse_image,
+    parse_images_batch,
+    is_supported_image,
 )
 
 logger = logging.getLogger(__name__)
@@ -189,6 +205,13 @@ __all__ = [
     'is_valid_url',
     'fetch_url_metadata',
     'fetch_url_metadata_batch',
+    # Image Parser
+    'ImageParser',
+    'ImageParseResult',
+    'ImageMetadata',
+    'parse_image',
+    'parse_images_batch',
+    'is_supported_image',
     # Factory
     'FileParserFactory',
     # Convenience

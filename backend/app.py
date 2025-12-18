@@ -2150,6 +2150,68 @@ async def bulk_import_detect_urls(
     )
 
 
+@app.post("/import/detect/images", response_model=BulkDetectResponse)
+async def bulk_import_detect_images(
+    profile_id: str = Form(..., description="User profile ID"),
+    files: list[UploadFile] = FastAPIFile(..., description="Image files to process"),
+):
+    """
+    Detect and parse workout items from images.
+
+    Step 1 of the bulk import workflow (Image variant).
+
+    Accepts image uploads:
+    - PNG, JPG, JPEG, WebP, HEIC, GIF
+    - Max 20 images per request
+
+    Uses Vision AI (GPT-4o-mini by default) to extract workout data.
+    Returns structured workout data with confidence scores.
+
+    Processing uses batch requests with max 3 concurrent connections
+    (lower than URLs due to cost and rate limits).
+    """
+    import base64
+
+    if not files:
+        return BulkDetectResponse(
+            success=False,
+            job_id="",
+            items=[],
+            metadata={"error": "No images provided"},
+            total=0,
+            success_count=0,
+            error_count=0,
+        )
+
+    # Limit to 20 images
+    if len(files) > 20:
+        return BulkDetectResponse(
+            success=False,
+            job_id="",
+            items=[],
+            metadata={"error": f"Too many images ({len(files)}). Maximum is 20."},
+            total=0,
+            success_count=0,
+            error_count=0,
+        )
+
+    # Read files and convert to base64
+    image_sources = []
+    for file in files:
+        content = await file.read()
+        b64_data = base64.b64encode(content).decode("utf-8")
+        image_sources.append({
+            "data": b64_data,
+            "filename": file.filename or "image.jpg",
+        })
+
+    return await bulk_import_service.detect_items(
+        profile_id=profile_id,
+        source_type="images",
+        sources=image_sources,
+    )
+
+
 @app.post("/import/map", response_model=BulkMapResponse)
 async def bulk_import_map(request: BulkMapRequest):
     """
