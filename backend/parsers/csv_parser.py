@@ -202,7 +202,7 @@ class CSVParser(BaseParser):
         headers_lower = {h.lower(): h for h in headers}
 
         # Exercise column
-        for name in ['exercise', 'exercise name', 'movement', 'lift', 'name']:
+        for name in ['exercise', 'exercise name', 'exercise_or_action', 'movement', 'lift', 'name', 'action']:
             if name in headers_lower:
                 mapping['exercise'] = headers_lower[name]
                 break
@@ -214,7 +214,7 @@ class CSVParser(BaseParser):
                 break
 
         # Workout name
-        for name in ['workout', 'workout name', 'routine', 'session']:
+        for name in ['workout', 'workout name', 'workout_name', 'workout_id', 'routine', 'session']:
             if name in headers_lower:
                 mapping['workout_name'] = headers_lower[name]
                 break
