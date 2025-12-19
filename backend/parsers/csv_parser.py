@@ -255,6 +255,62 @@ class CSVParser(BaseParser):
                 mapping['rpe'] = headers_lower[name]
                 break
 
+        # Step type (warmup, work, rest, cooldown)
+        for name in ['step_type', 'type', 'phase', 'block_type']:
+            if name in headers_lower:
+                mapping['step_type'] = headers_lower[name]
+                break
+
+        # Step/exercise order
+        for name in ['step_num', 'step_number', 'order', 'exercise_order']:
+            if name in headers_lower:
+                mapping['order'] = headers_lower[name]
+                break
+
+        # Duration fields
+        for name in ['duration_type', 'duration_mode']:
+            if name in headers_lower:
+                mapping['duration_type'] = headers_lower[name]
+                break
+
+        for name in ['duration_value', 'duration', 'time', 'distance']:
+            if name in headers_lower:
+                mapping['duration_value'] = headers_lower[name]
+                break
+
+        for name in ['duration_unit', 'time_unit', 'distance_unit']:
+            if name in headers_lower:
+                mapping['duration_unit'] = headers_lower[name]
+                break
+
+        # Rest
+        for name in ['rest_seconds', 'rest', 'rest_time', 'rest_sec']:
+            if name in headers_lower:
+                mapping['rest'] = headers_lower[name]
+                break
+
+        # Target/intensity
+        for name in ['target_type', 'intensity_type']:
+            if name in headers_lower:
+                mapping['target_type'] = headers_lower[name]
+                break
+
+        for name in ['target_low', 'target_min', 'zone_low']:
+            if name in headers_lower:
+                mapping['target_low'] = headers_lower[name]
+                break
+
+        for name in ['target_high', 'target_max', 'zone_high']:
+            if name in headers_lower:
+                mapping['target_high'] = headers_lower[name]
+                break
+
+        # Equipment
+        for name in ['equipment', 'gear', 'tools']:
+            if name in headers_lower:
+                mapping['equipment'] = headers_lower[name]
+                break
+
         return mapping
 
     def _create_column_info(self, headers: List[str], mapping: Dict[str, str]) -> List[ColumnInfo]:
