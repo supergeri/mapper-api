@@ -1872,7 +1872,15 @@ async def generate_pairing_token_endpoint(
     """
     try:
         result = create_pairing_token(x_user_id)
+        if result is None:
+            raise HTTPException(status_code=500, detail="Failed to create pairing token")
+        if "error" in result:
+            if result["error"] == "rate_limit":
+                raise HTTPException(status_code=429, detail=result.get("message", "Rate limit exceeded"))
+            raise HTTPException(status_code=400, detail=result.get("message", "Unknown error"))
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to generate pairing token: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1899,6 +1907,12 @@ async def pair_device_endpoint(request: PairDeviceRequest):
             raise HTTPException(
                 status_code=400,
                 detail="Invalid, expired, or already used pairing token"
+            )
+
+        if "error" in result:
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("message", result["error"])
             )
 
         return result
