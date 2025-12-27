@@ -9,21 +9,22 @@ def test_health_endpoint(api_client):
         assert data["status"] == "ok"
 
 
-def test_get_workouts_missing_all_params_returns_422(api_client):
+def test_get_workouts_returns_success(api_client):
     """
-    /workouts requires at least profile_id – calling it bare should 422.
+    /workouts now gets user_id from JWT (mocked in tests).
+    profile_id is no longer required as a query param.
     """
     resp = api_client.get("/workouts")
-    assert resp.status_code == 422
+    # Should return 200 (or 500 if DB not available, but not 422)
+    assert resp.status_code in (200, 500)
 
 
-def test_get_workouts_with_profile_id_does_not_return_422(api_client):
+def test_get_workouts_with_profile_id_param(api_client):
     """
-    With profile_id provided, we should at least pass FastAPI validation.
-    We don't assert 200 here to avoid coupling to DB/state.
+    /workouts with explicit profile_id param should still work.
     """
     resp = api_client.get("/workouts", params={"profile_id": "test-user"})
-    assert resp.status_code != 422
+    assert resp.status_code in (200, 500)
 
 
 def test_validate_workflow_missing_body_returns_422(api_client):
