@@ -1,6 +1,7 @@
 from typing import Optional, Dict, Any, List
-from fastapi import FastAPI, Query, Response
+from fastapi import FastAPI, Query, Response, Depends, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from backend.auth import get_current_user
 import logging
 import httpx
 import os
@@ -556,7 +557,7 @@ def update_defaults(p: UserDefaultsRequest):
 # ============================================================================
 
 class SaveWorkoutRequest(BaseModel):
-    profile_id: str
+    profile_id: str | None = None  # Deprecated: use auth instead
     workout_data: dict
     sources: list[str] = []
     device: str
@@ -568,20 +569,23 @@ class SaveWorkoutRequest(BaseModel):
 
 
 class UpdateWorkoutExportRequest(BaseModel):
-    profile_id: str
+    profile_id: str | None = None  # Deprecated: use auth instead
     is_exported: bool = True
     exported_to_device: str | None = None
 
 
 @app.post("/workouts/save")
-def save_workout_endpoint(request: SaveWorkoutRequest):
+def save_workout_endpoint(
+    request: SaveWorkoutRequest,
+    user_id: str = Depends(get_current_user)
+):
     """Save a workout to Supabase before syncing to device.
 
     With deduplication: if a workout with the same profile_id, title, and device
     already exists, it will be updated instead of creating a duplicate.
     """
     result = save_workout(
-        profile_id=request.profile_id,
+        profile_id=user_id,
         workout_data=request.workout_data,
         sources=request.sources,
         device=request.device,
@@ -607,14 +611,14 @@ def save_workout_endpoint(request: SaveWorkoutRequest):
 
 @app.get("/workouts")
 def get_workouts_endpoint(
-    profile_id: str = Query(..., description="User profile ID"),
+    user_id: str = Depends(get_current_user),
     device: str = Query(None, description="Filter by device"),
     is_exported: bool = Query(None, description="Filter by export status"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts")
 ):
-    """Get workouts for a user, optionally filtered by device and export status."""
+    """Get workouts for the authenticated user, optionally filtered by device and export status."""
     workouts = get_workouts(
-        profile_id=profile_id,
+        profile_id=user_id,
         device=device,
         is_exported=is_exported,
         limit=limit
@@ -630,10 +634,10 @@ def get_workouts_endpoint(
 @app.get("/workouts/{workout_id}")
 def get_workout_endpoint(
     workout_id: str,
-    profile_id: str = Query(..., description="User profile ID")
+    user_id: str = Depends(get_current_user)
 ):
     """Get a single workout by ID."""
-    workout = get_workout(workout_id, profile_id)
+    workout = get_workout(workout_id, user_id)
     
     if workout:
         return {
@@ -648,11 +652,15 @@ def get_workout_endpoint(
 
 
 @app.put("/workouts/{workout_id}/export-status")
-def update_workout_export_endpoint(workout_id: str, request: UpdateWorkoutExportRequest):
+def update_workout_export_endpoint(
+    workout_id: str,
+    request: UpdateWorkoutExportRequest,
+    user_id: str = Depends(get_current_user)
+):
     """Update workout export status after syncing to device."""
     success = update_workout_export_status(
         workout_id=workout_id,
-        profile_id=request.profile_id,
+        profile_id=user_id,
         is_exported=request.is_exported,
         exported_to_device=request.exported_to_device
     )
@@ -672,10 +680,10 @@ def update_workout_export_endpoint(workout_id: str, request: UpdateWorkoutExport
 @app.delete("/workouts/{workout_id}")
 def delete_workout_endpoint(
     workout_id: str,
-    profile_id: str = Query(..., description="User profile ID")
+    user_id: str = Depends(get_current_user)
 ):
     """Delete a workout."""
-    success = delete_workout(workout_id, profile_id)
+    success = delete_workout(workout_id, user_id)
     
     if success:
         return {
@@ -690,22 +698,26 @@ def delete_workout_endpoint(
 
 
 class PushWorkoutToIOSCompanionRequest(BaseModel):
-    userId: str
+    userId: str | None = None  # Deprecated: use auth instead
 
 
 @app.post("/workouts/{workout_id}/push/ios-companion")
-def push_workout_to_ios_companion_endpoint(workout_id: str, request: PushWorkoutToIOSCompanionRequest):
+def push_workout_to_ios_companion_endpoint(
+    workout_id: str,
+    request: PushWorkoutToIOSCompanionRequest,
+    user_id: str = Depends(get_current_user)
+):
     """
     Push a regular (blocks-based) workout to iOS Companion App.
     Transforms the workout structure into the iOS app's interval format.
-    
+
     This endpoint is for workouts created through the standard workflow,
     not follow-along workouts ingested from Instagram.
     """
     from backend.database import get_workout
-    
+
     # Get workout
-    workout_record = get_workout(workout_id, request.userId)
+    workout_record = get_workout(workout_id, user_id)
     if not workout_record:
         return {
             "success": False,
@@ -861,7 +873,7 @@ def convert_exercise_to_interval(exercise: dict) -> dict:
 
 class IngestFollowAlongRequest(BaseModel):
     instagramUrl: str
-    userId: str
+    userId: str | None = None  # Deprecated: use auth instead
 
 
 class PushToGarminRequest(BaseModel):
@@ -880,7 +892,7 @@ class PushToIOSCompanionRequest(BaseModel):
 class CreateFollowAlongManualRequest(BaseModel):
     """Request to create a follow-along workout with manually entered data (no AI extraction)"""
     sourceUrl: str
-    userId: str
+    userId: str | None = None  # Deprecated: use auth instead
     title: str
     description: Optional[str] = None
     steps: List[Dict[str, Any]]
@@ -889,7 +901,10 @@ class CreateFollowAlongManualRequest(BaseModel):
 
 
 @app.post("/follow-along/create")
-def create_follow_along_manual_endpoint(request: CreateFollowAlongManualRequest):
+def create_follow_along_manual_endpoint(
+    request: CreateFollowAlongManualRequest,
+    user_id: str = Depends(get_current_user)
+):
     """
     Create a follow-along workout with manually entered data.
     This is for Instagram and other platforms where we can't auto-extract exercises.
@@ -923,7 +938,7 @@ def create_follow_along_manual_endpoint(request: CreateFollowAlongManualRequest)
     try:
         # Save to Supabase
         workout = save_follow_along_workout(
-            user_id=request.userId,
+            user_id=user_id,
             source=source,
             source_url=request.sourceUrl,
             title=request.title,
@@ -953,7 +968,10 @@ def create_follow_along_manual_endpoint(request: CreateFollowAlongManualRequest)
 
 
 @app.post("/follow-along/ingest")
-def ingest_follow_along_endpoint(request: IngestFollowAlongRequest):
+def ingest_follow_along_endpoint(
+    request: IngestFollowAlongRequest,
+    user_id: str = Depends(get_current_user)
+):
     """
     Ingest a follow-along workout from video URL (Instagram, YouTube, TikTok, Vimeo).
     Calls workout-ingestor-api to extract workout data, then stores in Supabase.
@@ -1025,7 +1043,7 @@ def ingest_follow_along_endpoint(request: IngestFollowAlongRequest):
         
         # Save to Supabase
         workout = save_follow_along_workout(
-            user_id=request.userId,
+            user_id=user_id,
             source=source,
             source_url=video_url,
             title=ingestor_data.get("title", default_title),
@@ -1056,10 +1074,10 @@ def ingest_follow_along_endpoint(request: IngestFollowAlongRequest):
 
 @app.get("/follow-along")
 def list_follow_along_endpoint(
-    userId: str = Query(..., description="User ID")
+    user_id: str = Depends(get_current_user)
 ):
-    """List all follow-along workouts for a user."""
-    workouts = get_follow_along_workouts(user_id=userId)
+    """List all follow-along workouts for the authenticated user."""
+    workouts = get_follow_along_workouts(user_id=user_id)
     
     return {
         "success": True,
@@ -1073,7 +1091,7 @@ class VoiceSettings(BaseModel):
 
 
 class CreateFollowAlongFromWorkoutRequest(BaseModel):
-    userId: str
+    userId: str | None = None  # Deprecated: use auth instead
     workout: Dict[str, Any]
     sourceUrl: Optional[str] = None
     followAlongConfig: Optional[Dict[str, Any]] = None
@@ -1082,7 +1100,10 @@ class CreateFollowAlongFromWorkoutRequest(BaseModel):
 
 
 @app.post("/follow-along/from-workout")
-def create_follow_along_from_workout(request: CreateFollowAlongFromWorkoutRequest):
+def create_follow_along_from_workout(
+    request: CreateFollowAlongFromWorkoutRequest,
+    user_id: str = Depends(get_current_user)
+):
     """
     Create a follow-along workout from an existing structured workout.
     This converts a workout created through the normal flow into a follow-along format.
@@ -1176,7 +1197,7 @@ def create_follow_along_from_workout(request: CreateFollowAlongFromWorkoutReques
         
         # Save to database with voice settings
         saved_workout = save_follow_along_workout(
-            user_id=request.userId,
+            user_id=user_id,
             source=source,
             source_url=source_url,
             title=title,
@@ -1856,11 +1877,9 @@ def health():
 # Mobile Pairing Endpoints (AMA-61: iOS Companion App Authentication)
 # ============================================================================
 
-from fastapi import Header, HTTPException
-
 @app.post("/mobile/pairing/generate", response_model=GeneratePairingResponse)
 async def generate_pairing_token_endpoint(
-    x_user_id: str = Header(..., alias="X-User-Id", description="Clerk user ID")
+    user_id: str = Depends(get_current_user)
 ):
     """
     Generate a new pairing token for iOS Companion App authentication.
@@ -1868,10 +1887,10 @@ async def generate_pairing_token_endpoint(
     Returns a secure token (for QR code) and human-readable short code (for manual entry).
     Both expire after 5 minutes.
 
-    Requires X-User-Id header with the authenticated Clerk user ID.
+    Requires valid authentication (Clerk JWT or API key).
     """
     try:
-        result = create_pairing_token(x_user_id)
+        result = create_pairing_token(user_id)
         if result is None:
             raise HTTPException(status_code=500, detail="Failed to create pairing token")
         if "error" in result:
@@ -1946,7 +1965,7 @@ async def check_pairing_status_endpoint(token: str):
 
 @app.delete("/mobile/pairing/revoke")
 async def revoke_pairing_tokens_endpoint(
-    x_user_id: str = Header(..., alias="X-User-Id", description="Clerk user ID")
+    user_id: str = Depends(get_current_user)
 ):
     """
     Revoke all active pairing tokens for the authenticated user.
@@ -1955,7 +1974,7 @@ async def revoke_pairing_tokens_endpoint(
     Also useful as a security measure if tokens may have been compromised.
     """
     try:
-        count = revoke_user_tokens(x_user_id)
+        count = revoke_user_tokens(user_id)
         return {
             "success": True,
             "message": f"Revoked {count} pairing token(s)",
