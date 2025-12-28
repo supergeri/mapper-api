@@ -163,17 +163,18 @@ def create_pairing_token(clerk_user_id: str) -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        # Check rate limit
-        one_hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        # Check rate limit - only count active (non-expired, unused) tokens
+        now = datetime.now(timezone.utc)
         rate_check = supabase.table("mobile_pairing_tokens") \
             .select("id") \
             .eq("clerk_user_id", clerk_user_id) \
-            .gte("created_at", one_hour_ago) \
+            .is_("used_at", "null") \
+            .gte("expires_at", now.isoformat()) \
             .execute()
 
         if rate_check.data and len(rate_check.data) >= MAX_TOKENS_PER_HOUR:
             logger.warning(f"Rate limit exceeded for user {clerk_user_id}")
-            return {"error": "rate_limit", "message": f"Maximum {MAX_TOKENS_PER_HOUR} tokens per hour"}
+            return {"error": "rate_limit", "message": f"Maximum {MAX_TOKENS_PER_HOUR} active tokens allowed"}
 
         # Generate tokens
         token, short_code = generate_pairing_tokens()
