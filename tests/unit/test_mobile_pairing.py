@@ -1,5 +1,5 @@
 """
-Unit tests for mobile pairing module (AMA-61, AMA-175, AMA-178).
+Unit tests for mobile pairing module (AMA-61, AMA-175, AMA-178, AMA-180).
 
 Tests cover:
 - Token generation (secure token and short code)
@@ -8,6 +8,7 @@ Tests cover:
 - Token validation logic
 - Rate limiting logic
 - API endpoint behavior
+- Clerk profile fetching (AMA-180)
 """
 
 import pytest
@@ -21,6 +22,8 @@ from backend.mobile_pairing import (
     generate_pairing_tokens,
     generate_qr_data,
     generate_jwt_for_user,
+    get_clerk_client,
+    fetch_clerk_profile,
     TOKEN_EXPIRY_MINUTES,
     JWT_EXPIRY_DAYS,
     SHORT_CODE_ALPHABET,
@@ -552,3 +555,325 @@ class TestPydanticModels:
         assert resp.paired is True
         assert resp.expired is False
         assert resp.device_info == {"device": "iPhone"}
+
+
+# ============================================================================
+# Clerk Integration Tests (AMA-180)
+# ============================================================================
+
+class TestGetClerkClient:
+    """Tests for get_clerk_client function."""
+
+    def test_returns_none_when_no_secret_key(self, monkeypatch):
+        """Should return None when CLERK_SECRET_KEY is not set."""
+        import backend.mobile_pairing as mp
+        mp._clerk_client = None  # Reset global
+        monkeypatch.delenv("CLERK_SECRET_KEY", raising=False)
+
+        result = get_clerk_client()
+
+        assert result is None
+
+    @patch("backend.mobile_pairing.Clerk", create=True)
+    def test_initializes_clerk_with_secret_key(self, mock_clerk_class, monkeypatch):
+        """Should initialize Clerk client with CLERK_SECRET_KEY."""
+        import backend.mobile_pairing as mp
+        mp._clerk_client = None  # Reset global
+        monkeypatch.setenv("CLERK_SECRET_KEY", "sk_test_12345")
+
+        # Mock the import inside the function
+        with patch.dict("sys.modules", {"clerk_backend_api": MagicMock(Clerk=mock_clerk_class)}):
+            result = get_clerk_client()
+
+        # Verify Clerk was called with the secret key
+        mock_clerk_class.assert_called_once_with(bearer_auth="sk_test_12345")
+
+    def test_caches_client_instance(self, monkeypatch):
+        """Should cache the Clerk client after first initialization."""
+        import backend.mobile_pairing as mp
+        mock_client = MagicMock()
+        mp._clerk_client = mock_client  # Pre-set global
+
+        result = get_clerk_client()
+
+        assert result is mock_client
+
+
+class TestFetchClerkProfile:
+    """Tests for fetch_clerk_profile function."""
+
+    @patch("backend.mobile_pairing.get_clerk_client")
+    def test_returns_none_when_no_client(self, mock_get_client):
+        """Should return None when Clerk client is unavailable."""
+        mock_get_client.return_value = None
+
+        result = fetch_clerk_profile("user-123")
+
+        assert result is None
+
+    @patch("backend.mobile_pairing.get_clerk_client")
+    def test_returns_profile_on_success(self, mock_get_client):
+        """Should return profile dict on successful Clerk API call."""
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        # Mock Clerk user response
+        mock_email = MagicMock()
+        mock_email.email_address = "test@example.com"
+        mock_user = MagicMock()
+        mock_user.id = "user_abc123"
+        mock_user.email_addresses = [mock_email]
+        mock_user.first_name = "Test"
+        mock_user.last_name = "User"
+        mock_user.image_url = "https://img.clerk.com/abc123"
+        mock_client.users.get.return_value = mock_user
+
+        result = fetch_clerk_profile("user_abc123")
+
+        assert result is not None
+        assert result["id"] == "user_abc123"
+        assert result["email"] == "test@example.com"
+        assert result["first_name"] == "Test"
+        assert result["last_name"] == "User"
+        assert result["image_url"] == "https://img.clerk.com/abc123"
+
+    @patch("backend.mobile_pairing.get_clerk_client")
+    def test_handles_no_email_addresses(self, mock_get_client):
+        """Should handle user with no email addresses."""
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        mock_user = MagicMock()
+        mock_user.id = "user_abc123"
+        mock_user.email_addresses = []  # No emails
+        mock_user.first_name = "Test"
+        mock_user.last_name = "User"
+        mock_user.image_url = None
+        mock_client.users.get.return_value = mock_user
+
+        result = fetch_clerk_profile("user_abc123")
+
+        assert result is not None
+        assert result["email"] is None
+        assert result["first_name"] == "Test"
+
+    @patch("backend.mobile_pairing.get_clerk_client")
+    def test_returns_none_on_api_error(self, mock_get_client):
+        """Should return None when Clerk API call fails."""
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_client.users.get.side_effect = Exception("API Error")
+
+        result = fetch_clerk_profile("user_abc123")
+
+        assert result is None
+
+    @patch("backend.mobile_pairing.get_clerk_client")
+    def test_returns_none_when_user_not_found(self, mock_get_client):
+        """Should return None when user is not found."""
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_client.users.get.return_value = None
+
+        result = fetch_clerk_profile("nonexistent-user")
+
+        assert result is None
+
+
+class TestValidateAndUseTokenWithClerkProfile:
+    """Tests for validate_and_use_token with Clerk profile integration."""
+
+    @patch("backend.mobile_pairing.fetch_clerk_profile")
+    @patch("backend.mobile_pairing.generate_jwt_for_user")
+    @patch("backend.mobile_pairing.get_supabase_client")
+    def test_uses_clerk_profile_when_available(self, mock_get_supabase, mock_gen_jwt, mock_fetch_clerk):
+        """Should use Clerk profile when available."""
+        from backend.mobile_pairing import validate_and_use_token
+
+        # Mock Supabase
+        mock_client = MagicMock()
+        mock_get_supabase.return_value = mock_client
+
+        # Mock token lookup
+        future_time = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        mock_token_result = MagicMock()
+        mock_token_result.data = [{
+            "id": "token-uuid",
+            "clerk_user_id": "user_abc123",
+            "used_at": None,
+            "expires_at": future_time,
+        }]
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = mock_token_result
+
+        # Mock update
+        mock_update_result = MagicMock()
+        mock_update_result.data = [{"id": "token-uuid"}]
+        mock_client.table.return_value.update.return_value.eq.return_value.execute.return_value = mock_update_result
+
+        # Mock Clerk profile
+        clerk_profile = {
+            "id": "user_abc123",
+            "email": "clerk@example.com",
+            "first_name": "Clerk",
+            "last_name": "User",
+            "image_url": "https://clerk.com/image.jpg",
+        }
+        mock_fetch_clerk.return_value = clerk_profile
+
+        # Mock JWT generation
+        mock_gen_jwt.return_value = ("jwt-token", datetime.now(timezone.utc))
+
+        result = validate_and_use_token(token="valid-token")
+
+        assert result is not None
+        assert result["profile"]["first_name"] == "Clerk"
+        assert result["profile"]["last_name"] == "User"
+        assert result["profile"]["image_url"] == "https://clerk.com/image.jpg"
+
+    @patch("backend.mobile_pairing.fetch_clerk_profile")
+    @patch("backend.mobile_pairing.generate_jwt_for_user")
+    @patch("backend.mobile_pairing.get_supabase_client")
+    def test_falls_back_to_supabase_when_clerk_fails(self, mock_get_supabase, mock_gen_jwt, mock_fetch_clerk):
+        """Should fallback to Supabase profile when Clerk fails."""
+        from backend.mobile_pairing import validate_and_use_token
+
+        # Mock Supabase
+        mock_client = MagicMock()
+        mock_get_supabase.return_value = mock_client
+
+        # Mock token lookup
+        future_time = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        mock_token_result = MagicMock()
+        mock_token_result.data = [{
+            "id": "token-uuid",
+            "clerk_user_id": "user_abc123",
+            "used_at": None,
+            "expires_at": future_time,
+        }]
+
+        # Mock update
+        mock_update_result = MagicMock()
+        mock_update_result.data = [{"id": "token-uuid"}]
+
+        # Mock Supabase profile lookup
+        mock_profile_result = MagicMock()
+        mock_profile_result.data = [{
+            "id": "user_abc123",
+            "email": "supabase@example.com",
+            "name": "Supabase User",
+            "avatar_url": "https://supabase.com/avatar.jpg",
+        }]
+
+        # Configure table mock to return different results for different tables
+        def table_side_effect(table_name):
+            mock_table = MagicMock()
+            if table_name == "mobile_pairing_tokens":
+                mock_table.select.return_value.eq.return_value.execute.return_value = mock_token_result
+                mock_table.update.return_value.eq.return_value.execute.return_value = mock_update_result
+            elif table_name == "profiles":
+                mock_table.select.return_value.eq.return_value.execute.return_value = mock_profile_result
+            return mock_table
+
+        mock_client.table.side_effect = table_side_effect
+
+        # Mock Clerk profile fetch failure
+        mock_fetch_clerk.return_value = None
+
+        # Mock JWT generation
+        mock_gen_jwt.return_value = ("jwt-token", datetime.now(timezone.utc))
+
+        result = validate_and_use_token(token="valid-token")
+
+        assert result is not None
+        # Should have split the name into first/last
+        assert result["profile"]["first_name"] == "Supabase"
+        assert result["profile"]["last_name"] == "User"
+        assert result["profile"]["email"] == "supabase@example.com"
+
+    @patch("backend.mobile_pairing.fetch_clerk_profile")
+    @patch("backend.mobile_pairing.generate_jwt_for_user")
+    @patch("backend.mobile_pairing.get_supabase_client")
+    def test_minimal_profile_when_all_fail(self, mock_get_supabase, mock_gen_jwt, mock_fetch_clerk):
+        """Should return minimal profile when both Clerk and Supabase fail."""
+        from backend.mobile_pairing import validate_and_use_token
+
+        # Mock Supabase
+        mock_client = MagicMock()
+        mock_get_supabase.return_value = mock_client
+
+        # Mock token lookup
+        future_time = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        mock_token_result = MagicMock()
+        mock_token_result.data = [{
+            "id": "token-uuid",
+            "clerk_user_id": "user_abc123",
+            "used_at": None,
+            "expires_at": future_time,
+        }]
+
+        # Mock update
+        mock_update_result = MagicMock()
+        mock_update_result.data = [{"id": "token-uuid"}]
+
+        # Mock empty Supabase profile
+        mock_profile_result = MagicMock()
+        mock_profile_result.data = []  # No profile found
+
+        def table_side_effect(table_name):
+            mock_table = MagicMock()
+            if table_name == "mobile_pairing_tokens":
+                mock_table.select.return_value.eq.return_value.execute.return_value = mock_token_result
+                mock_table.update.return_value.eq.return_value.execute.return_value = mock_update_result
+            elif table_name == "profiles":
+                mock_table.select.return_value.eq.return_value.execute.return_value = mock_profile_result
+            return mock_table
+
+        mock_client.table.side_effect = table_side_effect
+
+        # Mock Clerk profile fetch failure
+        mock_fetch_clerk.return_value = None
+
+        # Mock JWT generation
+        mock_gen_jwt.return_value = ("jwt-token", datetime.now(timezone.utc))
+
+        result = validate_and_use_token(token="valid-token")
+
+        assert result is not None
+        # Should have minimal profile with just the ID
+        assert result["profile"]["id"] == "user_abc123"
+        assert result["profile"]["email"] is None
+        assert result["profile"]["first_name"] is None
+        assert result["profile"]["last_name"] is None
+
+
+class TestProfileResponseFormat:
+    """Tests for profile response format (AMA-180)."""
+
+    def test_profile_has_required_fields(self):
+        """Profile should have id, email, first_name, last_name, image_url."""
+        expected_fields = {"id", "email", "first_name", "last_name", "image_url"}
+
+        # Create a sample profile
+        profile = {
+            "id": "user_abc123",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "image_url": "https://example.com/image.jpg",
+        }
+
+        assert set(profile.keys()) == expected_fields
+
+    def test_profile_does_not_have_legacy_fields(self):
+        """Profile should not have legacy fields like name or avatar_url."""
+        profile = {
+            "id": "user_abc123",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "image_url": "https://example.com/image.jpg",
+        }
+
+        # These fields should NOT be in the new format
+        assert "name" not in profile
+        assert "avatar_url" not in profile

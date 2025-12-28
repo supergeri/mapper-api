@@ -13,6 +13,9 @@ import jwt
 
 logger = logging.getLogger(__name__)
 
+# Clerk client for fetching user profiles (lazy initialized)
+_clerk_client = None
+
 # Token configuration
 TOKEN_EXPIRY_MINUTES = 5
 JWT_EXPIRY_DAYS = 30
@@ -25,6 +28,61 @@ MAX_TOKENS_PER_HOUR = 5
 # Character set for short codes (no confusing characters: 0,O,1,I,l)
 SHORT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 SHORT_CODE_LENGTH = 6
+
+
+# ============================================================================
+# Clerk Integration
+# ============================================================================
+
+def get_clerk_client():
+    """Get or create the Clerk client for fetching user profiles."""
+    global _clerk_client
+    if _clerk_client is None:
+        clerk_secret_key = os.getenv("CLERK_SECRET_KEY")
+        if clerk_secret_key:
+            try:
+                from clerk_backend_api import Clerk
+                _clerk_client = Clerk(bearer_auth=clerk_secret_key)
+            except ImportError:
+                logger.warning("clerk_backend_api not installed, Clerk profile fetch disabled")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Clerk client: {e}")
+    return _clerk_client
+
+
+def fetch_clerk_profile(clerk_user_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetch user profile from Clerk API.
+
+    Args:
+        clerk_user_id: The Clerk user ID
+
+    Returns:
+        Dict with profile data or None if fetch fails
+    """
+    client = get_clerk_client()
+    if not client:
+        return None
+
+    try:
+        user = client.users.get(user_id=clerk_user_id)
+        if user:
+            # Extract primary email
+            email = None
+            if user.email_addresses:
+                email = user.email_addresses[0].email_address
+
+            return {
+                "id": user.id,
+                "email": email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "image_url": user.image_url,
+            }
+    except Exception as e:
+        logger.warning(f"Failed to fetch Clerk profile for {clerk_user_id}: {e}")
+
+    return None
 
 
 # ============================================================================
@@ -261,26 +319,49 @@ def validate_and_use_token(token: Optional[str] = None, short_code: Optional[str
             logger.error("Failed to mark token as used")
             return None
 
-        # Get user profile
+        # Get user profile - try Clerk API first, fallback to Supabase
         clerk_user_id = token_record["clerk_user_id"]
-        profile_result = supabase.table("profiles").select("*").eq("id", clerk_user_id).execute()
 
-        if not profile_result.data or len(profile_result.data) == 0:
-            return {"error": "profile_not_found", "message": "User profile not found"}
+        # Try to fetch from Clerk API for most accurate profile data
+        profile = fetch_clerk_profile(clerk_user_id)
 
-        profile = profile_result.data[0]
+        if profile is None:
+            # Fallback to Supabase profiles table
+            logger.info(f"Clerk profile fetch failed for {clerk_user_id}, using Supabase fallback")
+            profile_result = supabase.table("profiles").select("*").eq("id", clerk_user_id).execute()
+
+            if profile_result.data and len(profile_result.data) > 0:
+                db_profile = profile_result.data[0]
+                # Map Supabase profile to expected format
+                # Split name into first/last if possible
+                name = db_profile.get("name", "")
+                name_parts = name.split(" ", 1) if name else ["", ""]
+                first_name = name_parts[0] if name_parts else None
+                last_name = name_parts[1] if len(name_parts) > 1 else None
+
+                profile = {
+                    "id": db_profile.get("id"),
+                    "email": db_profile.get("email"),
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "image_url": db_profile.get("avatar_url"),
+                }
+            else:
+                # Minimal fallback profile with just the ID
+                profile = {
+                    "id": clerk_user_id,
+                    "email": None,
+                    "first_name": None,
+                    "last_name": None,
+                    "image_url": None,
+                }
 
         # Generate JWT
         jwt_token, jwt_expiry = generate_jwt_for_user(clerk_user_id, profile)
 
         return {
             "jwt": jwt_token,
-            "profile": {
-                "id": profile.get("id"),
-                "email": profile.get("email"),
-                "name": profile.get("name"),
-                "avatar_url": profile.get("avatar_url"),
-            },
+            "profile": profile,
             "expires_at": jwt_expiry.isoformat(),
         }
 

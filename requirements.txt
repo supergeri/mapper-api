@@ -9,6 +9,7 @@ fit-tool>=0.9.13
 python-dotenv>=1.0.0
 python-multipart>=0.0.6
 PyJWT>=2.8.0
+clerk-backend-api>=1.0.0
 
 requests
 
