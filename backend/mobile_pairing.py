@@ -440,3 +440,98 @@ def revoke_user_tokens(clerk_user_id: str) -> int:
     except Exception as e:
         logger.error(f"Error revoking tokens: {e}")
         return 0
+
+
+# ============================================================================
+# Paired Devices Management (AMA-184)
+# ============================================================================
+
+def get_paired_devices(clerk_user_id: str) -> list[Dict[str, Any]]:
+    """
+    Get all paired devices for a user.
+
+    Args:
+        clerk_user_id: The Clerk user ID
+
+    Returns:
+        List of paired device records
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        logger.error("Supabase client not available")
+        return []
+
+    try:
+        # Query tokens that have been used (paired)
+        result = supabase.table("mobile_pairing_tokens") \
+            .select("id, device_info, used_at, created_at") \
+            .eq("clerk_user_id", clerk_user_id) \
+            .not_.is_("used_at", "null") \
+            .order("used_at", desc=True) \
+            .execute()
+
+        if not result.data:
+            return []
+
+        # Transform to response format
+        devices = []
+        for record in result.data:
+            device_info = record.get("device_info") or {}
+            devices.append({
+                "id": record["id"],
+                "device_info": device_info,
+                "paired_at": record["used_at"],
+                "created_at": record["created_at"],
+            })
+
+        return devices
+
+    except Exception as e:
+        logger.error(f"Error fetching paired devices: {e}")
+        return []
+
+
+def revoke_device(clerk_user_id: str, device_id: str) -> Dict[str, Any]:
+    """
+    Revoke a specific paired device.
+
+    Args:
+        clerk_user_id: The Clerk user ID
+        device_id: The device/token ID to revoke
+
+    Returns:
+        Dict with success status and message
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        return {"success": False, "message": "Database unavailable"}
+
+    try:
+        # Verify the device belongs to this user and is paired
+        check_result = supabase.table("mobile_pairing_tokens") \
+            .select("id, used_at") \
+            .eq("id", device_id) \
+            .eq("clerk_user_id", clerk_user_id) \
+            .execute()
+
+        if not check_result.data or len(check_result.data) == 0:
+            return {"success": False, "message": "Device not found"}
+
+        if check_result.data[0].get("used_at") is None:
+            return {"success": False, "message": "Device is not paired"}
+
+        # Delete the token (revoke the device)
+        delete_result = supabase.table("mobile_pairing_tokens") \
+            .delete() \
+            .eq("id", device_id) \
+            .eq("clerk_user_id", clerk_user_id) \
+            .execute()
+
+        if delete_result.data and len(delete_result.data) > 0:
+            return {"success": True, "message": "Device revoked successfully"}
+        else:
+            return {"success": False, "message": "Failed to revoke device"}
+
+    except Exception as e:
+        logger.error(f"Error revoking device {device_id}: {e}")
+        return {"success": False, "message": str(e)}
