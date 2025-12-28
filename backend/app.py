@@ -87,6 +87,8 @@ from backend.mobile_pairing import (
     validate_and_use_token,
     get_pairing_status,
     revoke_user_tokens,
+    get_paired_devices,
+    revoke_device,
 )
 
 # Feature flag for unofficial Garmin sync
@@ -1982,6 +1984,51 @@ async def revoke_pairing_tokens_endpoint(
         }
     except Exception as e:
         logger.error(f"Failed to revoke pairing tokens: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/mobile/pairing/devices")
+async def list_paired_devices_endpoint(
+    user_id: str = Depends(get_current_user)
+):
+    """
+    List all paired iOS devices for the authenticated user (AMA-184).
+
+    Returns a list of devices that have successfully completed pairing,
+    including device info (model, OS version) and when they were paired.
+    """
+    try:
+        devices = get_paired_devices(user_id)
+        return {
+            "success": True,
+            "devices": devices,
+            "count": len(devices)
+        }
+    except Exception as e:
+        logger.error(f"Failed to list paired devices: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/mobile/pairing/devices/{device_id}")
+async def revoke_device_endpoint(
+    device_id: str,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Revoke a specific paired device (AMA-184).
+
+    This removes the device's pairing, requiring the user to re-pair
+    if they want to use the iOS app on that device again.
+    """
+    try:
+        result = revoke_device(user_id, device_id)
+        if not result.get("success"):
+            raise HTTPException(status_code=404, detail=result.get("message", "Device not found"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to revoke device {device_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
