@@ -1,6 +1,10 @@
 """
-Authentication module for Clerk JWT and API key validation.
+Authentication module for Clerk JWT, Mobile JWT, and API key validation.
 Provides FastAPI dependencies for securing endpoints.
+
+Supports two JWT types:
+- Clerk JWTs: RS256, validated via JWKS
+- Mobile pairing JWTs: HS256, validated via shared secret (iss: "amakaflow", aud: "ios_companion")
 """
 import os
 import jwt
@@ -14,6 +18,12 @@ logger = logging.getLogger(__name__)
 CLERK_DOMAIN = os.getenv("CLERK_DOMAIN", "")
 CLERK_JWKS_URL = f"https://{CLERK_DOMAIN}/.well-known/jwks.json" if CLERK_DOMAIN else ""
 _jwks_client = None
+
+# Mobile JWT configuration (must match mobile_pairing.py)
+MOBILE_JWT_SECRET = os.getenv("JWT_SECRET", "amakaflow-mobile-jwt-secret-change-in-production")
+MOBILE_JWT_ALGORITHM = "HS256"
+MOBILE_JWT_ISSUER = "amakaflow"
+MOBILE_JWT_AUDIENCE = "ios_companion"
 
 
 def get_jwks_client():
@@ -79,11 +89,58 @@ def validate_api_key(api_key: str) -> str:
 
 
 def validate_jwt(authorization: str) -> str:
-    """Validate Clerk JWT and return user_id."""
+    """
+    Validate JWT and return user_id.
+
+    Supports two JWT types:
+    - Mobile pairing JWTs: HS256, iss="amakaflow", aud="ios_companion"
+    - Clerk JWTs: RS256, validated via JWKS
+    """
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header format")
 
     token = authorization.split(" ", 1)[1]
+
+    # First, decode without verification to check the token type
+    try:
+        unverified = jwt.decode(token, options={"verify_signature": False})
+        issuer = unverified.get("iss")
+        audience = unverified.get("aud")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token format")
+
+    # Check if this is a mobile pairing JWT
+    if issuer == MOBILE_JWT_ISSUER and audience == MOBILE_JWT_AUDIENCE:
+        return validate_mobile_jwt(token)
+
+    # Otherwise, validate as Clerk JWT
+    return validate_clerk_jwt(token)
+
+
+def validate_mobile_jwt(token: str) -> str:
+    """Validate mobile pairing JWT (HS256) and return user_id."""
+    try:
+        payload = jwt.decode(
+            token,
+            MOBILE_JWT_SECRET,
+            algorithms=[MOBILE_JWT_ALGORITHM],
+            issuer=MOBILE_JWT_ISSUER,
+            audience=MOBILE_JWT_AUDIENCE,
+        )
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Token missing user ID")
+        logger.debug(f"Mobile JWT validated for user: {user_id}")
+        return user_id
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"Invalid mobile JWT: {e}")
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+
+
+def validate_clerk_jwt(token: str) -> str:
+    """Validate Clerk JWT (RS256 via JWKS) and return user_id."""
     jwks_client = get_jwks_client()
 
     if not jwks_client:
