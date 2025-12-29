@@ -639,6 +639,112 @@ def get_workouts_endpoint(
     }
 
 
+# ============================================================================
+# Workout Completion Endpoints (AMA-189)
+# IMPORTANT: These must be defined BEFORE /workouts/{workout_id} to avoid
+# "completions" being parsed as a workout_id parameter.
+# ============================================================================
+
+@app.post("/workouts/complete")
+def record_workout_completion_endpoint(
+    request: WorkoutCompletionRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Record a workout completion with health metrics from Apple Watch.
+
+    Called by iOS app when user finishes a workout. Stores heart rate,
+    calories, duration, and other health data captured during the workout.
+
+    Args:
+        request: Workout completion data including health metrics
+        user_id: Authenticated user ID (from Clerk JWT)
+
+    Returns:
+        Success status, completion ID, and summary
+    """
+    # Validate at least one workout link
+    if not request.workout_event_id and not request.follow_along_workout_id:
+        return {
+            "success": False,
+            "message": "Either workout_event_id or follow_along_workout_id is required"
+        }
+
+    result = save_workout_completion(user_id, request)
+
+    if result:
+        return {
+            "success": True,
+            "id": result["id"],
+            "summary": result["summary"]
+        }
+    else:
+        return {
+            "success": False,
+            "message": "Failed to save workout completion"
+        }
+
+
+@app.get("/workouts/completions")
+def list_workout_completions_endpoint(
+    limit: int = Query(default=50, le=100),
+    offset: int = Query(default=0),
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Get workout completion history for the authenticated user.
+
+    Returns a paginated list of completed workouts with basic health metrics.
+    Does not include full heart rate sample data (use single completion endpoint).
+
+    Args:
+        limit: Max number of records to return (default 50, max 100)
+        offset: Number of records to skip for pagination
+        user_id: Authenticated user ID (from Clerk JWT)
+
+    Returns:
+        List of completions and total count
+    """
+    result = get_user_completions(user_id, limit, offset)
+    return {
+        "success": True,
+        "completions": result["completions"],
+        "total": result["total"]
+    }
+
+
+@app.get("/workouts/completions/{completion_id}")
+def get_workout_completion_endpoint(
+    completion_id: str,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Get detailed workout completion including heart rate samples.
+
+    Returns the full completion record with all health metrics and
+    heart rate time series data for displaying charts.
+
+    Args:
+        completion_id: The completion ID
+        user_id: Authenticated user ID (from Clerk JWT)
+
+    Returns:
+        Full completion record or error if not found
+    """
+    result = get_completion_by_id(user_id, completion_id)
+
+    if result:
+        return {
+            "success": True,
+            "completion": result
+        }
+    else:
+        return {
+            "success": False,
+            "message": "Completion not found"
+        }
+
+
 @app.get("/workouts/{workout_id}")
 def get_workout_endpoint(
     workout_id: str,
@@ -871,110 +977,6 @@ def convert_exercise_to_interval(exercise: dict) -> dict:
             "kind": "time",
             "seconds": 60,
             "target": name
-        }
-
-
-# ============================================================================
-# Workout Completion Endpoints (AMA-189)
-# ============================================================================
-
-@app.post("/workouts/complete")
-def record_workout_completion_endpoint(
-    request: WorkoutCompletionRequest,
-    user_id: str = Depends(get_current_user)
-):
-    """
-    Record a workout completion with health metrics from Apple Watch.
-
-    Called by iOS app when user finishes a workout. Stores heart rate,
-    calories, duration, and other health data captured during the workout.
-
-    Args:
-        request: Workout completion data including health metrics
-        user_id: Authenticated user ID (from Clerk JWT)
-
-    Returns:
-        Success status, completion ID, and summary
-    """
-    # Validate at least one workout link
-    if not request.workout_event_id and not request.follow_along_workout_id:
-        return {
-            "success": False,
-            "message": "Either workout_event_id or follow_along_workout_id is required"
-        }
-
-    result = save_workout_completion(user_id, request)
-
-    if result:
-        return {
-            "success": True,
-            "id": result["id"],
-            "summary": result["summary"]
-        }
-    else:
-        return {
-            "success": False,
-            "message": "Failed to save workout completion"
-        }
-
-
-@app.get("/workouts/completions")
-def list_workout_completions_endpoint(
-    limit: int = Query(default=50, le=100),
-    offset: int = Query(default=0),
-    user_id: str = Depends(get_current_user)
-):
-    """
-    Get workout completion history for the authenticated user.
-
-    Returns a paginated list of completed workouts with basic health metrics.
-    Does not include full heart rate sample data (use single completion endpoint).
-
-    Args:
-        limit: Max number of records to return (default 50, max 100)
-        offset: Number of records to skip for pagination
-        user_id: Authenticated user ID (from Clerk JWT)
-
-    Returns:
-        List of completions and total count
-    """
-    result = get_user_completions(user_id, limit, offset)
-    return {
-        "success": True,
-        "completions": result["completions"],
-        "total": result["total"]
-    }
-
-
-@app.get("/workouts/completions/{completion_id}")
-def get_workout_completion_endpoint(
-    completion_id: str,
-    user_id: str = Depends(get_current_user)
-):
-    """
-    Get detailed workout completion including heart rate samples.
-
-    Returns the full completion record with all health metrics and
-    heart rate time series data for displaying charts.
-
-    Args:
-        completion_id: The completion ID
-        user_id: Authenticated user ID (from Clerk JWT)
-
-    Returns:
-        Full completion record or error if not found
-    """
-    result = get_completion_by_id(user_id, completion_id)
-
-    if result:
-        return {
-            "success": True,
-            "completion": result
-        }
-    else:
-        return {
-            "success": False,
-            "message": "Completion not found"
         }
 
 
