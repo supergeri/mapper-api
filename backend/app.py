@@ -953,6 +953,12 @@ def get_ios_companion_pending_endpoint(
     ios_companion_synced_at is set, ordered by most recently pushed.
 
     The iOS app authenticates using a Mobile JWT obtained through pairing.
+
+    The intervals field uses the same transformation as WorkoutKit export,
+    properly handling:
+    - Warmup from settings.workoutWarmup
+    - Sets wrapped in RepeatInterval (e.g., 3 sets → repeat.reps=3)
+    - Default rest times from settings
     """
     workouts = get_ios_companion_pending_workouts(user_id, limit=limit)
 
@@ -961,27 +967,24 @@ def get_ios_companion_pending_endpoint(
     for workout_record in workouts:
         workout_data = workout_record.get("workout_data", {})
         title = workout_record.get("title") or workout_data.get("title", "Workout")
-        blocks = workout_data.get("blocks", [])
 
-        # Detect sport type
-        sport = "strength"
-        for block in blocks:
-            structure = block.get("structure", "")
-            if structure in ["tabata", "hiit", "circuit", "emom", "amrap"]:
-                sport = "cardio"
-                break
+        # Use to_workoutkit to properly transform intervals
+        # This handles warmup, sets as RepeatInterval, and default rest
+        try:
+            workoutkit_dto = to_workoutkit(workout_data)
+            intervals = [interval.model_dump() for interval in workoutkit_dto.intervals]
+            sport = workoutkit_dto.sportType
+        except Exception as e:
+            logger.warning(f"Failed to transform workout {workout_record.get('id')}: {e}")
+            # Fallback to simple transformation
+            intervals = []
+            sport = "strengthTraining"
+            for block in workout_data.get("blocks", []):
+                for exercise in block.get("exercises", []):
+                    intervals.append(convert_exercise_to_interval(exercise))
 
-        # Build intervals and calculate duration
-        intervals = []
-        total_duration = 0
-        for block in blocks:
-            exercises = block.get("exercises", [])
-            rounds = block.get("rounds", 1) or 1
-            for exercise in exercises:
-                interval = convert_exercise_to_interval(exercise)
-                intervals.append(interval)
-                duration = (exercise.get("duration_sec", 0) or 0) + (exercise.get("rest_sec", 0) or 0)
-                total_duration += duration * rounds
+        # Calculate total duration from intervals
+        total_duration = calculate_intervals_duration(intervals)
 
         transformed.append({
             "id": workout_record.get("id"),
@@ -1000,6 +1003,29 @@ def get_ios_companion_pending_endpoint(
         "workouts": transformed,
         "count": len(transformed)
     }
+
+
+def calculate_intervals_duration(intervals: list) -> int:
+    """Calculate total duration in seconds from intervals list."""
+    total = 0
+    for interval in intervals:
+        kind = interval.get("kind")
+        if kind == "time" or kind == "warmup" or kind == "cooldown":
+            total += interval.get("seconds", 0)
+        elif kind == "reps":
+            # Estimate ~3 seconds per rep for rep-based exercises
+            total += interval.get("reps", 0) * 3
+            total += interval.get("restSec", 0) or 0
+        elif kind == "repeat":
+            # Recursive calculation for repeat intervals
+            reps = interval.get("reps", 1)
+            inner_duration = calculate_intervals_duration(interval.get("intervals", []))
+            total += inner_duration * reps
+        elif kind == "distance":
+            # Estimate ~6 min/km for distance-based
+            meters = interval.get("meters", 0)
+            total += int(meters * 0.36)  # 6 min/km = 360s/1000m
+    return total
 
 
 def convert_exercise_to_interval(exercise: dict) -> dict:
