@@ -31,12 +31,12 @@ def parse_exercise_name(ex_name: str) -> str:
     return clean
 
 
-def exercise_to_step(exercise: dict) -> Optional[WKStepDTO]:
+def exercise_to_step(exercise: dict, default_rest_sec: Optional[int] = None) -> Optional[WKStepDTO]:
     """Convert a single exercise to a WKStepDTO."""
     ex_name = exercise.get("name", "")
     reps = exercise.get("reps")
     duration_sec = exercise.get("duration_sec")
-    rest_sec = exercise.get("rest_sec")
+    rest_sec = exercise.get("rest_sec") or default_rest_sec
     distance_m = exercise.get("distance_m")
     distance_range = exercise.get("distance_range")
     
@@ -135,15 +135,24 @@ def exercise_to_step(exercise: dict) -> Optional[WKStepDTO]:
     )
 
 
-def block_to_intervals(block: dict) -> List[WKIntervalDTO]:
-    """Convert a block to WorkoutKit intervals."""
+def block_to_intervals(block: dict, default_rest_sec: Optional[int] = None) -> List[WKIntervalDTO]:
+    """Convert a block to WorkoutKit intervals.
+
+    For strength training with sets:
+    - Each exercise with sets > 1 is wrapped in a RepeatInterval
+    - Rest between sets is included in the repeat
+
+    Args:
+        block: The block data from workout JSON
+        default_rest_sec: Default rest time from workout settings (used if exercise has no rest_sec)
+    """
     structure = block.get("structure", "")
     rounds = extract_rounds(structure) if structure else 1
     rest_between_sec = block.get("rest_between_sec")
     time_work_sec = block.get("time_work_sec")
-    
-    steps: List[WKStepDTO] = []
-    
+
+    intervals: List[WKIntervalDTO] = []
+
     # If this is an interval block (time_work_sec is set), handle it specially
     if time_work_sec:
         # Check if exercises have duration_sec and rest_sec (like "SKIER 60S ON 90S OFF X3")
@@ -151,20 +160,20 @@ def block_to_intervals(block: dict) -> List[WKIntervalDTO]:
         if exercises:
             ex = exercises[0]
             duration_sec = ex.get("duration_sec") or time_work_sec
-            rest_sec = ex.get("rest_sec") or rest_between_sec
-            
+            rest_sec = ex.get("rest_sec") or rest_between_sec or default_rest_sec
+
             # Create work interval
             work_step = TimeStep(kind="time", seconds=duration_sec, target=None)
             interval_steps: List[WKStepDTO] = [work_step]
-            
+
             # Add rest interval
             if rest_sec:
                 rest_step = TimeStep(kind="time", seconds=rest_sec, target=None)
                 interval_steps.append(rest_step)
-            
+
             # Get number of sets/reps from exercise or block structure
             sets = ex.get("sets") or rounds
-            
+
             # Wrap in repeat
             if sets > 1:
                 return [RepeatInterval(kind="repeat", reps=sets, intervals=interval_steps)]
@@ -174,28 +183,39 @@ def block_to_intervals(block: dict) -> List[WKIntervalDTO]:
             # Fallback: use time_work_sec and rest_between_sec
             work_step = TimeStep(kind="time", seconds=time_work_sec, target=None)
             interval_steps: List[WKStepDTO] = [work_step]
-            
-            if rest_between_sec:
-                rest_step = TimeStep(kind="time", seconds=rest_between_sec, target=None)
+
+            if rest_between_sec or default_rest_sec:
+                rest_step = TimeStep(kind="time", seconds=rest_between_sec or default_rest_sec, target=None)
                 interval_steps.append(rest_step)
-            
+
             if rounds > 1:
                 return [RepeatInterval(kind="repeat", reps=rounds, intervals=interval_steps)]
             else:
                 return interval_steps
-    
-    # Process standalone exercises
+
+    # Process standalone exercises - handle sets for strength training
     for ex in block.get("exercises", []):
-        step = exercise_to_step(ex)
+        step = exercise_to_step(ex, default_rest_sec)
         if step:
-            steps.append(step)
-    
+            sets = ex.get("sets")
+            rest_sec = ex.get("rest_sec") or default_rest_sec
+
+            # If exercise has multiple sets, wrap in RepeatInterval
+            if sets and sets > 1:
+                # Create interval with exercise step and rest between sets
+                set_intervals: List[WKStepDTO] = [step]
+                if rest_sec:
+                    set_intervals.append(TimeStep(kind="time", seconds=rest_sec, target=None))
+                intervals.append(RepeatInterval(kind="repeat", reps=sets, intervals=set_intervals))
+            else:
+                intervals.append(step)
+
     # Process supersets
     for superset_idx, superset in enumerate(block.get("supersets", [])):
         superset_steps: List[WKStepDTO] = []
-        
+
         for ex_idx, ex in enumerate(superset.get("exercises", [])):
-            step = exercise_to_step(ex)
+            step = exercise_to_step(ex, default_rest_sec)
             if step:
                 superset_steps.append(step)
                 # Add rest between exercises in superset if specified
@@ -204,52 +224,81 @@ def block_to_intervals(block: dict) -> List[WKIntervalDTO]:
                     # Add rest step between exercises (not after last one)
                     rest_step = TimeStep(kind="time", seconds=superset_rest, target=None)
                     superset_steps.append(rest_step)
-        
+
         # Add rest between supersets if specified and not the last superset
         if rest_between_sec and superset_idx < len(block.get("supersets", [])) - 1:
             rest_step = TimeStep(kind="time", seconds=rest_between_sec, target=None)
             superset_steps.append(rest_step)
-        
-        steps.extend(superset_steps)
-    
-    # If we have multiple steps and rounds > 1, wrap in repeat
-    if len(steps) > 0:
-        if rounds > 1:
-            return [RepeatInterval(kind="repeat", reps=rounds, intervals=steps)]
+
+        # Handle superset sets - wrap in repeat if needed
+        superset_sets = superset.get("sets") or 1
+        if superset_sets > 1:
+            intervals.append(RepeatInterval(kind="repeat", reps=superset_sets, intervals=superset_steps))
         else:
-            return steps
-    
-    return []
+            intervals.extend(superset_steps)
+
+    # If we have multiple intervals and rounds > 1 (circuit structure), wrap all in repeat
+    if len(intervals) > 0 and rounds > 1:
+        return [RepeatInterval(kind="repeat", reps=rounds, intervals=intervals)]
+
+    return intervals
 
 
 def to_workoutkit(blocks_json: dict) -> WKPlanDTO:
-    """Convert blocks JSON to WorkoutKit DTO format."""
+    """Convert blocks JSON to WorkoutKit DTO format.
+
+    Handles:
+    - Workout-level warmup from settings.workoutWarmup
+    - Default rest times from settings.defaultRestSec
+    - Sets for strength exercises (wrapped in RepeatInterval)
+    - Blocks labeled as warmup/cooldown
+    """
     title = blocks_json.get("title", "Imported Workout")
     intervals: List[WKIntervalDTO] = []
-    
+
+    # Extract workout settings
+    settings = blocks_json.get("settings", {})
+    default_rest_sec = settings.get("defaultRestSec")
+    default_rest_type = settings.get("defaultRestType", "button")
+
+    # Only use timed rest if type is 'timed', otherwise don't add automatic rest
+    if default_rest_type != "timed":
+        default_rest_sec = None
+
+    # Check for workout-level warmup from settings
+    workout_warmup = settings.get("workoutWarmup", {})
+    if workout_warmup.get("enabled"):
+        warmup_duration = workout_warmup.get("durationSec", 300)
+        intervals.append(WarmupInterval(
+            kind="warmup",
+            seconds=warmup_duration,
+            target=None
+        ))
+
     # Process each block
     for block in blocks_json.get("blocks", []):
         block_label = block.get("label", "").lower()
         has_exercises = len(block.get("exercises", [])) > 0 or len(block.get("supersets", [])) > 0
-        
+
         # Check if this is a warmup or cooldown block
         if "warmup" in block_label or "primer" in block_label:
             # If block has exercises, convert them to intervals (don't add separate warmup)
             if has_exercises:
-                block_intervals = block_to_intervals(block)
+                block_intervals = block_to_intervals(block, default_rest_sec)
                 intervals.extend(block_intervals)
             else:
-                # No exercises, just add a warmup interval
-                warmup_duration = block.get("time_work_sec") or 300  # 5 minutes default
-                intervals.append(WarmupInterval(
-                    kind="warmup",
-                    seconds=warmup_duration,
-                    target=None
-                ))
+                # No exercises, just add a warmup interval (if not already added from settings)
+                if not workout_warmup.get("enabled"):
+                    warmup_duration = block.get("time_work_sec") or 300  # 5 minutes default
+                    intervals.append(WarmupInterval(
+                        kind="warmup",
+                        seconds=warmup_duration,
+                        target=None
+                    ))
         elif "cooldown" in block_label:
             # If block has exercises, convert them to intervals (don't add separate cooldown)
             if has_exercises:
-                block_intervals = block_to_intervals(block)
+                block_intervals = block_to_intervals(block, default_rest_sec)
                 intervals.extend(block_intervals)
             else:
                 # No exercises, just add a cooldown interval
@@ -261,15 +310,15 @@ def to_workoutkit(blocks_json: dict) -> WKPlanDTO:
                 ))
         else:
             # Regular block - convert to intervals
-            block_intervals = block_to_intervals(block)
+            block_intervals = block_to_intervals(block, default_rest_sec)
             intervals.extend(block_intervals)
-    
+
     # Determine sport type - default to strengthTraining for workout plans
     sport_type = "strengthTraining"
-    
+
     # Create schedule if source has date info (can be extended)
     schedule = None
-    
+
     return WKPlanDTO(
         title=title,
         sportType=sport_type,
