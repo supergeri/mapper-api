@@ -67,3 +67,49 @@ def test_list_mappings_not_422(api_client):
     """
     resp = api_client.get("/mappings")
     assert resp.status_code != 422
+
+
+# AMA-206: Test workout update with workout_id parameter
+def test_save_workout_with_workout_id_not_422(api_client):
+    """
+    POST /workouts/save should accept workout_id parameter for updates.
+    This verifies the API accepts the parameter (AMA-206 fix).
+    """
+    payload = {
+        "workout_data": {
+            "title": "Test Workout",
+            "blocks": [
+                {
+                    "label": "Warm-up",
+                    "exercises": [{"name": "Jumping Jacks", "sets": 1, "reps": 20}]
+                }
+            ]
+        },
+        "sources": ["text:test"],
+        "device": "garmin",
+        "title": "Test Workout",
+        "workout_id": "existing-workout-uuid-123"  # AMA-206: Pass workout_id for update
+    }
+    resp = api_client.post("/workouts/save", json=payload)
+    # Should not return 422 (validation error) - workout_id should be accepted
+    # May return 500 if DB not available in test, but that's fine for this test
+    assert resp.status_code != 422, f"API rejected workout_id parameter: {resp.json()}"
+
+
+def test_save_workout_without_workout_id_not_422(api_client):
+    """
+    POST /workouts/save should work without workout_id for new workouts.
+    """
+    payload = {
+        "workout_data": {
+            "title": "New Workout",
+            "blocks": []
+        },
+        "sources": ["text:test"],
+        "device": "garmin",
+        "title": "New Workout"
+        # No workout_id - this is a new workout
+    }
+    resp = api_client.post("/workouts/save", json=payload)
+    # Should not return 422 (validation error)
+    assert resp.status_code != 422
