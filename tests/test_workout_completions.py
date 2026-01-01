@@ -263,6 +263,32 @@ def test_complete_workout_with_follow_along_id(client):
         assert data["success"] is True
 
 
+def test_complete_workout_with_workout_id(client):
+    """POST /workouts/complete accepts workout_id (for iOS Companion workouts)."""
+    with patch('backend.app.save_workout_completion') as mock_save:
+        mock_save.return_value = {
+            "success": True,
+            "id": str(uuid.uuid4()),
+            "summary": {"duration_formatted": "30:00", "avg_heart_rate": 135, "calories": 250}
+        }
+
+        resp = client.post("/workouts/complete", json={
+            "workout_id": str(uuid.uuid4()),
+            "started_at": "2025-01-15T14:00:00Z",
+            "ended_at": "2025-01-15T14:30:00Z",
+            "source": "apple_watch",
+            "health_metrics": {
+                "avg_heart_rate": 135,
+                "active_calories": 250
+            }
+        })
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert "id" in data
+
+
 # =============================================================================
 # Auth Tests
 # =============================================================================
