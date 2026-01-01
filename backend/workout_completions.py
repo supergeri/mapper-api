@@ -92,7 +92,7 @@ def get_supabase_client():
 def save_workout_completion(
     user_id: str,
     request: WorkoutCompletionRequest
-) -> Optional[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """
     Save a workout completion record to the database.
 
@@ -101,12 +101,18 @@ def save_workout_completion(
         request: Workout completion data from iOS app
 
     Returns:
-        Dict with completion info or None if failed
+        Dict with completion info on success, or error details on failure.
+        Success: {"success": True, "id": str, "summary": dict}
+        Failure: {"success": False, "error": str, "error_code": str}
     """
     supabase = get_supabase_client()
     if not supabase:
         logger.error("Supabase client not available")
-        return None
+        return {
+            "success": False,
+            "error": "Database connection unavailable",
+            "error_code": "DB_UNAVAILABLE"
+        }
 
     try:
         # Calculate duration
@@ -148,16 +154,61 @@ def save_workout_completion(
             )
 
             return {
+                "success": True,
                 "id": saved["id"],
                 "summary": summary.model_dump(),
             }
         else:
-            logger.error("Failed to insert workout completion")
-            return None
+            logger.error("Failed to insert workout completion: empty result from database")
+            return {
+                "success": False,
+                "error": "Database insert returned empty result",
+                "error_code": "INSERT_FAILED"
+            }
 
     except Exception as e:
-        logger.error(f"Error saving workout completion: {e}")
-        return None
+        error_msg = str(e)
+        logger.error(f"Error saving workout completion: {error_msg}")
+
+        # Provide specific error messages for common issues
+        if "violates foreign key constraint" in error_msg:
+            if "profiles" in error_msg:
+                return {
+                    "success": False,
+                    "error": "User profile not found. Please ensure your account is fully set up.",
+                    "error_code": "PROFILE_NOT_FOUND"
+                }
+            elif "follow_along_workouts" in error_msg:
+                return {
+                    "success": False,
+                    "error": "Follow-along workout not found",
+                    "error_code": "WORKOUT_NOT_FOUND"
+                }
+            elif "workout_events" in error_msg:
+                return {
+                    "success": False,
+                    "error": "Workout event not found",
+                    "error_code": "EVENT_NOT_FOUND"
+                }
+        elif "row-level security" in error_msg.lower() or "permission denied" in error_msg.lower():
+            logger.error("RLS/Permissions error: Check SUPABASE_SERVICE_ROLE_KEY configuration")
+            return {
+                "success": False,
+                "error": "Permission denied. Please contact support.",
+                "error_code": "RLS_ERROR"
+            }
+        elif "violates check constraint" in error_msg:
+            return {
+                "success": False,
+                "error": "Either workout_event_id or follow_along_workout_id is required",
+                "error_code": "MISSING_WORKOUT_LINK"
+            }
+
+        return {
+            "success": False,
+            "error": "Failed to save workout completion",
+            "error_code": "UNKNOWN_ERROR"
+        }
 
 
 def get_user_completions(

@@ -675,16 +675,18 @@ def record_workout_completion_endpoint(
 
     result = save_workout_completion(user_id, request)
 
-    if result:
+    if result.get("success"):
         return {
             "success": True,
             "id": result["id"],
             "summary": result["summary"]
         }
     else:
+        # Return specific error from save_workout_completion
         return {
             "success": False,
-            "message": "Failed to save workout completion"
+            "message": result.get("error", "Failed to save workout completion"),
+            "error_code": result.get("error_code", "UNKNOWN_ERROR")
         }
 
 
