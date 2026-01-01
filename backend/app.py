@@ -667,10 +667,10 @@ def record_workout_completion_endpoint(
         Success status, completion ID, and summary
     """
     # Validate at least one workout link
-    if not request.workout_event_id and not request.follow_along_workout_id:
+    if not request.workout_event_id and not request.follow_along_workout_id and not request.workout_id:
         return {
             "success": False,
-            "message": "Either workout_event_id or follow_along_workout_id is required"
+            "message": "One of workout_event_id, follow_along_workout_id, or workout_id is required"
         }
 
     result = save_workout_completion(user_id, request)

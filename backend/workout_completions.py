@@ -29,6 +29,7 @@ class WorkoutCompletionRequest(BaseModel):
     """Request from iOS app when workout completes."""
     workout_event_id: Optional[str] = None
     follow_along_workout_id: Optional[str] = None
+    workout_id: Optional[str] = None  # For iOS Companion workouts from workouts table
     started_at: str  # ISO format
     ended_at: str    # ISO format
     health_metrics: HealthMetrics
@@ -123,6 +124,7 @@ def save_workout_completion(
             "user_id": user_id,
             "workout_event_id": request.workout_event_id,
             "follow_along_workout_id": request.follow_along_workout_id,
+            "workout_id": request.workout_id,
             "started_at": request.started_at,
             "ended_at": request.ended_at,
             "duration_seconds": duration_seconds,
@@ -189,6 +191,12 @@ def save_workout_completion(
                     "success": False,
                     "error": "Workout event not found",
                     "error_code": "EVENT_NOT_FOUND"
+                }
+            elif "workouts" in error_msg:
+                return {
+                    "success": False,
+                    "error": "Workout not found",
+                    "error_code": "WORKOUT_NOT_FOUND"
                 }
         elif "row-level security" in error_msg.lower() or "permission denied" in error_msg.lower():
             logger.error("RLS/Permissions error: Check SUPABASE_SERVICE_ROLE_KEY configuration")
