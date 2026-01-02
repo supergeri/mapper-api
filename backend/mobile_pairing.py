@@ -124,6 +124,18 @@ class PairingStatusResponse(BaseModel):
     device_info: Optional[Dict[str, Any]] = None
 
 
+class RefreshTokenRequest(BaseModel):
+    """Request to refresh JWT using device_id (AMA-220)."""
+    device_id: str
+
+
+class RefreshTokenResponse(BaseModel):
+    """Response with refreshed JWT (AMA-220)."""
+    jwt: str
+    expires_at: str
+    refreshed_at: str
+
+
 # ============================================================================
 # Token Generation
 # ============================================================================
@@ -535,3 +547,109 @@ def revoke_device(clerk_user_id: str, device_id: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error revoking device {device_id}: {e}")
         return {"success": False, "message": str(e)}
+
+
+# ============================================================================
+# JWT Token Refresh (AMA-220)
+# ============================================================================
+
+def refresh_jwt_for_device(device_id: str) -> Dict[str, Any]:
+    """
+    Refresh JWT for a paired device using its device_id.
+
+    This allows iOS to silently get a new JWT when the old one expires,
+    without requiring the user to re-pair. The device_id is the iOS
+    UIDevice.current.identifierForVendor stored during initial pairing.
+
+    Args:
+        device_id: The iOS device UUID (identifierForVendor)
+
+    Returns:
+        Dict with new JWT on success, or error details on failure.
+        Success: {"success": True, "jwt": str, "expires_at": str, "refreshed_at": str}
+        Failure: {"success": False, "error": str, "error_code": str}
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        logger.error("Supabase client not available")
+        return {
+            "success": False,
+            "error": "Database connection unavailable",
+            "error_code": "DB_UNAVAILABLE"
+        }
+
+    try:
+        # Find the paired device by device_id in device_info JSONB
+        # device_info structure: {"device_id": "...", "device": "iPhone 15", ...}
+        result = supabase.table("mobile_pairing_tokens") \
+            .select("id, clerk_user_id, device_info, used_at") \
+            .filter("device_info->>device_id", "eq", device_id) \
+            .execute()
+
+        if not result.data or len(result.data) == 0:
+            logger.warning(f"Device not found for refresh: {device_id[:8]}...")
+            return {
+                "success": False,
+                "error": "Device not found or not paired",
+                "error_code": "DEVICE_NOT_FOUND"
+            }
+
+        # Get the most recently paired device if multiple exist
+        # (shouldn't happen, but be safe)
+        token_record = result.data[0]
+
+        # Verify device is actually paired (has used_at)
+        if not token_record.get("used_at"):
+            logger.warning(f"Device not paired for refresh: {device_id[:8]}...")
+            return {
+                "success": False,
+                "error": "Device not paired",
+                "error_code": "DEVICE_NOT_PAIRED"
+            }
+
+        clerk_user_id = token_record["clerk_user_id"]
+
+        # Fetch user profile for JWT
+        profile = fetch_clerk_profile(clerk_user_id)
+        if profile is None:
+            # Fallback to Supabase profiles table
+            profile_result = supabase.table("profiles").select("*").eq("id", clerk_user_id).execute()
+            if profile_result.data and len(profile_result.data) > 0:
+                db_profile = profile_result.data[0]
+                name = db_profile.get("name", "")
+                name_parts = name.split(" ", 1) if name else ["", ""]
+                profile = {
+                    "id": db_profile.get("id"),
+                    "email": db_profile.get("email"),
+                    "first_name": name_parts[0] if name_parts else None,
+                    "last_name": name_parts[1] if len(name_parts) > 1 else None,
+                    "image_url": db_profile.get("avatar_url"),
+                }
+            else:
+                profile = {"id": clerk_user_id, "email": None}
+
+        # Generate new JWT
+        jwt_token, jwt_expiry = generate_jwt_for_user(clerk_user_id, profile)
+
+        # Update last_token_refresh timestamp
+        now = datetime.now(timezone.utc)
+        supabase.table("mobile_pairing_tokens").update({
+            "last_token_refresh": now.isoformat(),
+        }).eq("id", token_record["id"]).execute()
+
+        logger.info(f"JWT refreshed for device {device_id[:8]}... user {clerk_user_id}")
+
+        return {
+            "success": True,
+            "jwt": jwt_token,
+            "expires_at": jwt_expiry.isoformat(),
+            "refreshed_at": now.isoformat(),
+        }
+
+    except Exception as e:
+        logger.error(f"Error refreshing JWT for device {device_id}: {e}")
+        return {
+            "success": False,
+            "error": "Failed to refresh token",
+            "error_code": "REFRESH_FAILED"
+        }

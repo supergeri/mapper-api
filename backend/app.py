@@ -86,12 +86,15 @@ from backend.mobile_pairing import (
     PairDeviceRequest,
     PairDeviceResponse,
     PairingStatusResponse,
+    RefreshTokenRequest,
+    RefreshTokenResponse,
     create_pairing_token,
     validate_and_use_token,
     get_pairing_status,
     revoke_user_tokens,
     get_paired_devices,
     revoke_device,
+    refresh_jwt_for_device,
 )
 from backend.workout_completions import (
     WorkoutCompletionRequest,
@@ -2148,6 +2151,47 @@ async def pair_device_endpoint(request: PairDeviceRequest):
         raise
     except Exception as e:
         logger.error(f"Failed to pair device: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/mobile/pairing/refresh", response_model=RefreshTokenResponse)
+async def refresh_jwt_endpoint(request: RefreshTokenRequest):
+    """
+    Refresh JWT for a paired device (AMA-220).
+
+    This endpoint allows the iOS app to get a new JWT when the current one
+    expires, without requiring the user to re-pair. The device_id is the
+    iOS UIDevice.current.identifierForVendor that was sent during initial pairing.
+
+    This endpoint is public (no auth required) because the old JWT may be expired.
+    The device_id serves as proof of previous pairing.
+
+    Returns:
+    - jwt: New JWT token
+    - expires_at: When the new JWT expires
+    - refreshed_at: When this refresh occurred
+    """
+    try:
+        result = refresh_jwt_for_device(request.device_id)
+
+        if not result.get("success"):
+            error_code = result.get("error_code", "UNKNOWN")
+            if error_code == "DEVICE_NOT_FOUND":
+                raise HTTPException(status_code=401, detail=result.get("error"))
+            elif error_code == "DEVICE_NOT_PAIRED":
+                raise HTTPException(status_code=401, detail=result.get("error"))
+            else:
+                raise HTTPException(status_code=500, detail=result.get("error"))
+
+        return RefreshTokenResponse(
+            jwt=result["jwt"],
+            expires_at=result["expires_at"],
+            refreshed_at=result["refreshed_at"]
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to refresh JWT: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -448,3 +448,135 @@ class TestResponseFormats:
         assert "device_info" in data
         assert isinstance(data["paired"], bool)
         assert isinstance(data["expired"], bool)
+
+
+# =============================================================================
+# POST /mobile/pairing/refresh Tests (AMA-220)
+# =============================================================================
+
+
+class TestJWTRefreshEndpoint:
+    """Tests for /mobile/pairing/refresh endpoint."""
+
+    @patch("backend.app.refresh_jwt_for_device")
+    def test_refresh_is_public(self, mock_refresh, client: TestClient):
+        """Refresh endpoint should be public (no auth required)."""
+        mock_refresh.return_value = {
+            "success": False,
+            "error": "Device not found",
+            "error_code": "DEVICE_NOT_FOUND"
+        }
+
+        response = client.post(
+            "/mobile/pairing/refresh",
+            json={"device_id": "12345678-1234-1234-1234-123456789ABC"}
+        )
+
+        # Should get 401 (not found) not 403 (forbidden for missing auth)
+        assert response.status_code == 401
+
+    @patch("backend.app.refresh_jwt_for_device")
+    def test_refresh_success(self, mock_refresh, client: TestClient):
+        """Refresh endpoint should return new JWT on success."""
+        mock_refresh.return_value = {
+            "success": True,
+            "jwt": "eyJhbGciOiJIUzI1NiJ9.new.token",
+            "expires_at": "2026-02-01T00:00:00+00:00",
+            "refreshed_at": "2026-01-02T12:00:00+00:00"
+        }
+
+        response = client.post(
+            "/mobile/pairing/refresh",
+            json={"device_id": "12345678-1234-1234-1234-123456789ABC"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "jwt" in data
+        assert data["jwt"] == "eyJhbGciOiJIUzI1NiJ9.new.token"
+        assert "expires_at" in data
+        assert "refreshed_at" in data
+
+    @patch("backend.app.refresh_jwt_for_device")
+    def test_refresh_device_not_found(self, mock_refresh, client: TestClient):
+        """Refresh endpoint should return 401 when device not found."""
+        mock_refresh.return_value = {
+            "success": False,
+            "error": "Device not found or not paired",
+            "error_code": "DEVICE_NOT_FOUND"
+        }
+
+        response = client.post(
+            "/mobile/pairing/refresh",
+            json={"device_id": "nonexistent-device-id"}
+        )
+
+        assert response.status_code == 401
+        assert "not found" in response.json()["detail"].lower()
+
+    @patch("backend.app.refresh_jwt_for_device")
+    def test_refresh_device_not_paired(self, mock_refresh, client: TestClient):
+        """Refresh endpoint should return 401 when device exists but not paired."""
+        mock_refresh.return_value = {
+            "success": False,
+            "error": "Device not paired",
+            "error_code": "DEVICE_NOT_PAIRED"
+        }
+
+        response = client.post(
+            "/mobile/pairing/refresh",
+            json={"device_id": "unpaired-device-id"}
+        )
+
+        assert response.status_code == 401
+        assert "not paired" in response.json()["detail"].lower()
+
+    @patch("backend.app.refresh_jwt_for_device")
+    def test_refresh_db_unavailable(self, mock_refresh, client: TestClient):
+        """Refresh endpoint should return 500 on database error."""
+        mock_refresh.return_value = {
+            "success": False,
+            "error": "Database connection unavailable",
+            "error_code": "DB_UNAVAILABLE"
+        }
+
+        response = client.post(
+            "/mobile/pairing/refresh",
+            json={"device_id": "any-device-id"}
+        )
+
+        assert response.status_code == 500
+
+    def test_refresh_missing_device_id(self, client: TestClient):
+        """Refresh endpoint should return 422 when device_id missing."""
+        response = client.post(
+            "/mobile/pairing/refresh",
+            json={}
+        )
+
+        assert response.status_code == 422
+
+    @patch("backend.app.refresh_jwt_for_device")
+    def test_refresh_response_format(self, mock_refresh, client: TestClient):
+        """Refresh response should use snake_case for field names."""
+        mock_refresh.return_value = {
+            "success": True,
+            "jwt": "test.jwt.token",
+            "expires_at": "2026-02-01T00:00:00+00:00",
+            "refreshed_at": "2026-01-02T00:00:00+00:00"
+        }
+
+        response = client.post(
+            "/mobile/pairing/refresh",
+            json={"device_id": "test-device"}
+        )
+
+        data = response.json()
+
+        # Verify snake_case keys
+        assert "expires_at" in data
+        assert "refreshed_at" in data
+
+        # Verify camelCase is NOT used
+        assert "expiresAt" not in data
+        assert "refreshedAt" not in data
