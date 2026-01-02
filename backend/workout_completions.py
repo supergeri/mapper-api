@@ -247,7 +247,7 @@ def get_user_completions(
             .select(
                 "id, started_at, ended_at, duration_seconds, "
                 "avg_heart_rate, max_heart_rate, active_calories, total_calories, "
-                "source, workout_event_id, follow_along_workout_id, created_at"
+                "source, workout_event_id, follow_along_workout_id, workout_id, created_at"
             ) \
             .eq("user_id", user_id) \
             .order("started_at", desc=True) \
@@ -256,9 +256,21 @@ def get_user_completions(
 
         completions = []
         for record in result.data or []:
-            # Get workout name from linked workout
+            # Get workout name from the appropriate table based on which FK is set
             workout_name = None
-            if record.get("follow_along_workout_id"):
+            if record.get("workout_id"):
+                # iOS Companion workouts from workouts table
+                try:
+                    w_result = supabase.table("workouts") \
+                        .select("title") \
+                        .eq("id", record["workout_id"]) \
+                        .single() \
+                        .execute()
+                    if w_result.data:
+                        workout_name = w_result.data.get("title")
+                except Exception:
+                    pass
+            elif record.get("follow_along_workout_id"):
                 # Try to get follow-along workout title
                 try:
                     fa_result = supabase.table("follow_along_workouts") \
@@ -344,9 +356,21 @@ def get_completion_by_id(
 
         record = result.data
 
-        # Get workout name
+        # Get workout name from the appropriate table based on which FK is set
         workout_name = None
-        if record.get("follow_along_workout_id"):
+        if record.get("workout_id"):
+            # iOS Companion workouts from workouts table
+            try:
+                w_result = supabase.table("workouts") \
+                    .select("title") \
+                    .eq("id", record["workout_id"]) \
+                    .single() \
+                    .execute()
+                if w_result.data:
+                    workout_name = w_result.data.get("title")
+            except Exception:
+                pass
+        elif record.get("follow_along_workout_id"):
             try:
                 fa_result = supabase.table("follow_along_workouts") \
                     .select("title") \
