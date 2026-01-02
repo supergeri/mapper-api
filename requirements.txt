@@ -13,6 +13,9 @@ clerk-backend-api>=1.0.0
 
 requests
 
+# Error tracking (AMA-225)
+sentry-sdk[fastapi]>=2.0.0
+
 # Local packages (installed via pip install -e)
 # amakaflow-fitfiletool - installed from ../amakaflow-fitfiletool
 amakaflow-fitfiletool>=0.2.3

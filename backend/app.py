@@ -7,9 +7,22 @@ import httpx
 import os
 import json
 from dotenv import load_dotenv
+import sentry_sdk
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Initialize Sentry for error tracking (AMA-225)
+sentry_dsn = os.getenv("SENTRY_DSN")
+if sentry_dsn:
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        environment=os.getenv("ENVIRONMENT", "development"),
+        traces_sample_rate=0.1,  # 10% of transactions for performance monitoring
+        profiles_sample_rate=0.1,
+        enable_tracing=True,
+    )
+    logging.getLogger(__name__).info("Sentry initialized for mapper-api")
 
 from pydantic import BaseModel
 
