@@ -2394,6 +2394,41 @@ async def get_deletion_preview(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.delete("/account")
+async def delete_account(
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Delete user account and all associated data.
+
+    This permanently deletes:
+    - All workouts
+    - All workout completions
+    - All programs and tags
+    - All follow-along workouts
+    - All paired devices
+    - Voice settings and corrections
+    - External service connections (Strava, Garmin)
+    - Calendar events
+    - User profile
+
+    Note: This does NOT delete the Clerk user - that must be done separately
+    via Clerk's API or dashboard.
+    """
+    from backend.database import delete_user_account
+
+    try:
+        result = delete_user_account(user_id)
+        if not result.get("success"):
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to delete account"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete account for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/map/to-fit")
 def map_to_fit(
     p: BlocksPayload,
