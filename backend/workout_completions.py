@@ -417,3 +417,146 @@ def get_completion_by_id(
     except Exception as e:
         logger.error(f"Error fetching completion {completion_id}: {e}")
         return None
+
+
+# ============================================================================
+# Voice Workout with Completion (AMA-5)
+# ============================================================================
+
+class VoiceWorkout(BaseModel):
+    """Workout data from voice parsing (AMA-5)."""
+    id: Optional[str] = None
+    name: str
+    sport: str
+    duration: int  # seconds
+    description: Optional[str] = None
+    intervals: List[Dict[str, Any]]
+    source: str = "ai"
+    sourceUrl: Optional[str] = None
+
+
+class VoiceCompletionData(BaseModel):
+    """Completion data for voice-created workout."""
+    started_at: str  # ISO format
+    ended_at: str    # ISO format
+    duration_seconds: int
+    source: str = "manual"
+
+
+class VoiceWorkoutCompletionRequest(BaseModel):
+    """Request to save a voice-created workout with completion (AMA-5)."""
+    workout: VoiceWorkout
+    completion: VoiceCompletionData
+
+
+def save_voice_workout_with_completion(
+    user_id: str,
+    request: VoiceWorkoutCompletionRequest
+) -> Dict[str, Any]:
+    """
+    Save a voice-created workout and its completion in one transaction.
+
+    Creates both a workout record and a linked completion record.
+    Used by the iOS app when saving voice-created workouts.
+
+    Args:
+        user_id: The Clerk user ID
+        request: Workout and completion data from iOS app
+
+    Returns:
+        Dict with workout_id and completion_id on success, or error details on failure.
+    """
+    from backend.database import save_workout as db_save_workout
+
+    supabase = get_supabase_client()
+    if not supabase:
+        logger.error("Supabase client not available")
+        return {
+            "success": False,
+            "error": "Database connection unavailable",
+            "error_code": "DB_UNAVAILABLE"
+        }
+
+    try:
+        # 1. Save the workout to workouts table
+        workout_data = {
+            "title": request.workout.name,
+            "sport": request.workout.sport,
+            "duration": request.workout.duration,
+            "description": request.workout.description,
+            "intervals": request.workout.intervals,
+            "source": request.workout.source,
+            "sourceUrl": request.workout.sourceUrl,
+        }
+
+        saved_workout = db_save_workout(
+            profile_id=user_id,
+            workout_data=workout_data,
+            sources=[request.workout.source],
+            device="ios_companion",
+            title=request.workout.name,
+            description=request.workout.description,
+        )
+
+        if not saved_workout:
+            return {
+                "success": False,
+                "error": "Failed to save workout",
+                "error_code": "WORKOUT_SAVE_FAILED"
+            }
+
+        workout_id = saved_workout["id"]
+        logger.info(f"Voice workout saved with id: {workout_id}")
+
+        # 2. Save the completion linked to the workout
+        completion_record = {
+            "user_id": user_id,
+            "workout_id": workout_id,
+            "started_at": request.completion.started_at,
+            "ended_at": request.completion.ended_at,
+            "duration_seconds": request.completion.duration_seconds,
+            "source": request.completion.source,
+        }
+
+        completion_result = supabase.table("workout_completions").insert(completion_record).execute()
+
+        if not completion_result.data or len(completion_result.data) == 0:
+            logger.error("Failed to save completion for voice workout")
+            return {
+                "success": False,
+                "error": "Workout saved but completion failed",
+                "error_code": "COMPLETION_SAVE_FAILED",
+                "workout_id": workout_id
+            }
+
+        completion_id = completion_result.data[0]["id"]
+        logger.info(f"Voice workout completion saved with id: {completion_id}")
+
+        return {
+            "success": True,
+            "workout_id": workout_id,
+            "completion_id": completion_id,
+            "summary": {
+                "workout_name": request.workout.name,
+                "duration_formatted": format_duration(request.completion.duration_seconds),
+                "intervals_count": len(request.workout.intervals),
+            }
+        }
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Error saving voice workout with completion: {error_msg}")
+
+        if "violates foreign key constraint" in error_msg:
+            if "profiles" in error_msg:
+                return {
+                    "success": False,
+                    "error": "User profile not found",
+                    "error_code": "PROFILE_NOT_FOUND"
+                }
+
+        return {
+            "success": False,
+            "error": "Failed to save workout and completion",
+            "error_code": "UNKNOWN_ERROR"
+        }

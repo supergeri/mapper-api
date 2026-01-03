@@ -114,6 +114,9 @@ from backend.workout_completions import (
     save_workout_completion,
     get_user_completions,
     get_completion_by_id,
+    # AMA-5: Voice workout with completion
+    VoiceWorkoutCompletionRequest,
+    save_voice_workout_with_completion,
 )
 
 # Feature flag for unofficial Garmin sync
@@ -763,6 +766,61 @@ def get_workout_completion_endpoint(
         return {
             "success": False,
             "message": "Completion not found"
+        }
+
+
+@app.post("/workouts/completions")
+def save_voice_workout_completion_endpoint(
+    request: VoiceWorkoutCompletionRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Save a voice-created workout with its completion (AMA-5).
+
+    Creates both a workout record and a linked completion record.
+    Used by the iOS app when saving voice-created workouts.
+
+    Args:
+        request: Contains workout data and completion timing
+        user_id: Authenticated user ID (from Clerk JWT)
+
+    Request format:
+        {
+            "workout": {
+                "name": "Upper Body Strength",
+                "sport": "strength",
+                "duration": 2700,
+                "intervals": [
+                    {"reps": {"sets": 4, "reps": 8, "name": "Bench Press", "load": "135 lbs"}}
+                ],
+                "source": "ai"
+            },
+            "completion": {
+                "started_at": "2026-01-02T10:00:00.000Z",
+                "ended_at": "2026-01-02T10:45:00.000Z",
+                "duration_seconds": 2700,
+                "source": "manual"
+            }
+        }
+
+    Returns:
+        Success status, workout_id, completion_id, and summary
+    """
+    result = save_voice_workout_with_completion(user_id, request)
+
+    if result.get("success"):
+        return {
+            "success": True,
+            "workout_id": result["workout_id"],
+            "completion_id": result["completion_id"],
+            "summary": result.get("summary")
+        }
+    else:
+        return {
+            "success": False,
+            "message": result.get("error", "Failed to save workout and completion"),
+            "error_code": result.get("error_code", "UNKNOWN_ERROR"),
+            "workout_id": result.get("workout_id")  # Included if workout saved but completion failed
         }
 
 
