@@ -356,18 +356,22 @@ def get_completion_by_id(
 
         record = result.data
 
-        # Get workout name from the appropriate table based on which FK is set
+        # Get workout name and intervals from the appropriate table based on which FK is set
         workout_name = None
+        intervals = None
         if record.get("workout_id"):
             # iOS Companion workouts from workouts table
             try:
                 w_result = supabase.table("workouts") \
-                    .select("title") \
+                    .select("title, workout_data") \
                     .eq("id", record["workout_id"]) \
                     .single() \
                     .execute()
                 if w_result.data:
                     workout_name = w_result.data.get("title")
+                    workout_data = w_result.data.get("workout_data")
+                    if workout_data and isinstance(workout_data, dict):
+                        intervals = workout_data.get("intervals")
             except Exception:
                 pass
         elif record.get("follow_along_workout_id"):
@@ -411,6 +415,7 @@ def get_completion_by_id(
             "source_workout_id": record.get("source_workout_id"),
             "device_info": record.get("device_info"),
             "heart_rate_samples": record.get("heart_rate_samples"),
+            "intervals": intervals,  # Include workout intervals for detail view (AMA-5)
             "created_at": record["created_at"],
         }
 
