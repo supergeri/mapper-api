@@ -85,6 +85,8 @@ from backend.database import (
     # AMA-199: iOS Companion App Sync
     update_workout_ios_companion_sync,
     get_ios_companion_pending_workouts,
+    # AMA-200: Account Deletion
+    get_account_deletion_preview,
 )
 from backend.follow_along_database import (
     save_follow_along_workout,
@@ -2351,6 +2353,44 @@ async def revoke_device_endpoint(
         raise
     except Exception as e:
         logger.error(f"Failed to revoke device {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Account Management (AMA-200)
+# =============================================================================
+
+@app.get("/account/deletion-preview")
+async def get_deletion_preview(
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Get a preview of all user data that will be deleted when account is deleted.
+
+    Returns counts of:
+    - workouts: Number of saved workouts
+    - workout_completions: Number of completed workout records
+    - programs: Number of workout programs
+    - tags: Number of custom tags
+    - follow_along_workouts: Number of follow-along workouts
+    - paired_devices: Number of iOS devices paired
+    - voice_settings: Whether voice settings exist
+    - voice_corrections: Number of voice correction entries
+    - strava_connection: Whether Strava is connected
+    - garmin_connection: Whether Garmin is connected
+    - total_items: Total count of deletable items
+    - has_ios_devices: Boolean indicating if iOS app needs attention
+    - has_external_connections: Boolean indicating if external services connected
+    """
+    try:
+        preview = get_account_deletion_preview(user_id)
+        if "error" in preview:
+            raise HTTPException(status_code=500, detail=preview["error"])
+        return preview
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get deletion preview for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

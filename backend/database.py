@@ -851,3 +851,143 @@ def get_ios_companion_pending_workouts(profile_id: str, limit: int = 50) -> List
         logger.error(f"Failed to get iOS companion pending workouts for {profile_id}: {e}")
         return []
 
+
+# =============================================================================
+# Account Deletion Preview (AMA-200)
+# =============================================================================
+
+def get_account_deletion_preview(profile_id: str) -> Dict[str, Any]:
+    """
+    Get a preview of all user data that will be deleted when account is deleted.
+
+    This helps users understand what they're losing before confirming deletion.
+    Counts items across all user-related tables.
+
+    Args:
+        profile_id: User profile ID (Clerk user ID)
+
+    Returns:
+        Dict with counts and details of data to be deleted
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        return {"error": "Database not available"}
+
+    preview = {
+        "workouts": 0,
+        "workout_completions": 0,
+        "programs": 0,
+        "tags": 0,
+        "follow_along_workouts": 0,
+        "paired_devices": 0,
+        "voice_settings": False,
+        "voice_corrections": 0,
+        "strava_connection": False,
+        "garmin_connection": False,
+    }
+
+    try:
+        # Count workouts
+        workouts_result = supabase.table("workouts") \
+            .select("id", count="exact") \
+            .eq("profile_id", profile_id) \
+            .execute()
+        preview["workouts"] = workouts_result.count or 0
+
+        # Count workout completions
+        completions_result = supabase.table("workout_completions") \
+            .select("id", count="exact") \
+            .eq("user_id", profile_id) \
+            .execute()
+        preview["workout_completions"] = completions_result.count or 0
+
+        # Count programs
+        programs_result = supabase.table("workout_programs") \
+            .select("id", count="exact") \
+            .eq("profile_id", profile_id) \
+            .execute()
+        preview["programs"] = programs_result.count or 0
+
+        # Count tags
+        tags_result = supabase.table("user_tags") \
+            .select("id", count="exact") \
+            .eq("profile_id", profile_id) \
+            .execute()
+        preview["tags"] = tags_result.count or 0
+
+        # Count follow-along workouts
+        follow_along_result = supabase.table("follow_along_workouts") \
+            .select("id", count="exact") \
+            .eq("user_id", profile_id) \
+            .execute()
+        preview["follow_along_workouts"] = follow_along_result.count or 0
+
+        # Count paired devices (used pairing tokens)
+        devices_result = supabase.table("mobile_pairing_tokens") \
+            .select("id", count="exact") \
+            .eq("clerk_user_id", profile_id) \
+            .not_.is_("used_at", "null") \
+            .execute()
+        preview["paired_devices"] = devices_result.count or 0
+
+        # Check voice settings
+        try:
+            voice_settings_result = supabase.table("user_voice_settings") \
+                .select("id") \
+                .eq("user_id", profile_id) \
+                .execute()
+            preview["voice_settings"] = bool(voice_settings_result.data)
+        except Exception:
+            pass  # Table might not exist
+
+        # Count voice corrections
+        try:
+            voice_corrections_result = supabase.table("user_voice_corrections") \
+                .select("id", count="exact") \
+                .eq("user_id", profile_id) \
+                .execute()
+            preview["voice_corrections"] = voice_corrections_result.count or 0
+        except Exception:
+            pass  # Table might not exist
+
+        # Check Strava connection
+        try:
+            strava_result = supabase.table("strava_tokens") \
+                .select("id") \
+                .eq("user_id", profile_id) \
+                .execute()
+            preview["strava_connection"] = bool(strava_result.data)
+        except Exception:
+            pass  # Table might not exist
+
+        # Check Garmin connection
+        try:
+            garmin_result = supabase.table("garmin_tokens") \
+                .select("id") \
+                .eq("user_id", profile_id) \
+                .execute()
+            preview["garmin_connection"] = bool(garmin_result.data)
+        except Exception:
+            pass  # Table might not exist
+
+        # Calculate totals
+        preview["total_items"] = (
+            preview["workouts"] +
+            preview["workout_completions"] +
+            preview["programs"] +
+            preview["tags"] +
+            preview["follow_along_workouts"] +
+            preview["voice_corrections"]
+        )
+
+        preview["has_ios_devices"] = preview["paired_devices"] > 0
+        preview["has_external_connections"] = (
+            preview["strava_connection"] or preview["garmin_connection"]
+        )
+
+        return preview
+
+    except Exception as e:
+        logger.error(f"Failed to get account deletion preview: {e}")
+        return {"error": str(e)}
+
