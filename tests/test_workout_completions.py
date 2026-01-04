@@ -581,3 +581,185 @@ def test_complete_endpoint_rls_error_code(client):
         data = resp.json()
         assert data["success"] is False
         assert data["error_code"] == "RLS_ERROR"
+
+
+# =============================================================================
+# AMA-236: Filter Completed Workouts from Incoming Endpoints
+# =============================================================================
+
+
+def test_workouts_incoming_route_exists(client):
+    """GET /workouts/incoming route is defined and returns success."""
+    resp = client.get("/workouts/incoming")
+
+    # Should return 200 or 500 (DB error), not 404
+    assert resp.status_code != 404, "/workouts/incoming route not found"
+    assert resp.status_code in (200, 500)
+
+    if resp.status_code == 200:
+        data = resp.json()
+        assert "success" in data
+        assert "workouts" in data
+        assert "count" in data
+
+
+def test_workouts_incoming_accepts_limit_param(client):
+    """GET /workouts/incoming accepts limit parameter."""
+    resp = client.get("/workouts/incoming", params={"limit": 10})
+
+    assert resp.status_code in (200, 500)
+
+
+def test_ios_companion_pending_excludes_completed_by_default(client):
+    """GET /ios-companion/pending excludes completed workouts by default."""
+    with patch('backend.app.get_ios_companion_pending_workouts') as mock_get:
+        mock_get.return_value = []
+
+        resp = client.get("/ios-companion/pending")
+
+        # Verify exclude_completed=True was passed by default
+        mock_get.assert_called_once()
+        call_args = mock_get.call_args
+        assert call_args.kwargs.get("exclude_completed") is True
+
+
+def test_ios_companion_pending_can_include_completed(client):
+    """GET /ios-companion/pending can include completed workouts with param."""
+    with patch('backend.app.get_ios_companion_pending_workouts') as mock_get:
+        mock_get.return_value = []
+
+        resp = client.get("/ios-companion/pending", params={"exclude_completed": "false"})
+
+        # Verify exclude_completed=False was passed
+        mock_get.assert_called_once()
+        call_args = mock_get.call_args
+        assert call_args.kwargs.get("exclude_completed") is False
+
+
+def test_get_completed_workout_ids_returns_set():
+    """get_completed_workout_ids returns a set of workout IDs."""
+    from backend.database import get_completed_workout_ids
+
+    with patch('backend.database.get_supabase_client') as mock_client:
+        mock_supabase = MagicMock()
+        mock_client.return_value = mock_supabase
+
+        # Mock the query chain
+        mock_table = MagicMock()
+        mock_supabase.table.return_value = mock_table
+        mock_select = MagicMock()
+        mock_table.select.return_value = mock_select
+        mock_eq = MagicMock()
+        mock_select.eq.return_value = mock_eq
+        mock_not = MagicMock()
+        mock_eq.not_.is_.return_value = mock_not
+
+        workout_id_1 = str(uuid.uuid4())
+        workout_id_2 = str(uuid.uuid4())
+        mock_not.execute.return_value = MagicMock(
+            data=[
+                {"workout_id": workout_id_1},
+                {"workout_id": workout_id_2},
+                {"workout_id": None},  # Should be filtered out
+            ]
+        )
+
+        result = get_completed_workout_ids("test-user-123")
+
+        assert isinstance(result, set)
+        assert workout_id_1 in result
+        assert workout_id_2 in result
+        assert None not in result
+        assert len(result) == 2
+
+
+def test_get_ios_companion_pending_filters_completed():
+    """get_ios_companion_pending_workouts filters completed workouts."""
+    from backend.database import get_ios_companion_pending_workouts
+
+    workout_id_1 = str(uuid.uuid4())
+    workout_id_2 = str(uuid.uuid4())
+    workout_id_completed = str(uuid.uuid4())
+
+    with patch('backend.database.get_supabase_client') as mock_client, \
+         patch('backend.database.get_completed_workout_ids') as mock_completed:
+
+        mock_supabase = MagicMock()
+        mock_client.return_value = mock_supabase
+
+        # Mock the workout query
+        mock_table = MagicMock()
+        mock_supabase.table.return_value = mock_table
+        mock_chain = MagicMock()
+        mock_table.select.return_value = mock_chain
+        mock_chain.eq.return_value = mock_chain
+        mock_chain.not_.is_.return_value = mock_chain
+        mock_chain.order.return_value = mock_chain
+        mock_chain.limit.return_value = mock_chain
+        mock_chain.execute.return_value = MagicMock(
+            data=[
+                {"id": workout_id_1, "title": "Workout 1"},
+                {"id": workout_id_2, "title": "Workout 2"},
+                {"id": workout_id_completed, "title": "Completed Workout"},
+            ]
+        )
+
+        # Mark one workout as completed
+        mock_completed.return_value = {workout_id_completed}
+
+        result = get_ios_companion_pending_workouts(
+            "test-user-123",
+            limit=50,
+            exclude_completed=True
+        )
+
+        # Should only return the 2 non-completed workouts
+        assert len(result) == 2
+        result_ids = {w["id"] for w in result}
+        assert workout_id_1 in result_ids
+        assert workout_id_2 in result_ids
+        assert workout_id_completed not in result_ids
+
+
+def test_get_ios_companion_pending_includes_completed_when_disabled():
+    """get_ios_companion_pending_workouts includes completed when exclude_completed=False."""
+    from backend.database import get_ios_companion_pending_workouts
+
+    workout_id_1 = str(uuid.uuid4())
+    workout_id_completed = str(uuid.uuid4())
+
+    with patch('backend.database.get_supabase_client') as mock_client, \
+         patch('backend.database.get_completed_workout_ids') as mock_completed:
+
+        mock_supabase = MagicMock()
+        mock_client.return_value = mock_supabase
+
+        # Mock the workout query
+        mock_table = MagicMock()
+        mock_supabase.table.return_value = mock_table
+        mock_chain = MagicMock()
+        mock_table.select.return_value = mock_chain
+        mock_chain.eq.return_value = mock_chain
+        mock_chain.not_.is_.return_value = mock_chain
+        mock_chain.order.return_value = mock_chain
+        mock_chain.limit.return_value = mock_chain
+        mock_chain.execute.return_value = MagicMock(
+            data=[
+                {"id": workout_id_1, "title": "Workout 1"},
+                {"id": workout_id_completed, "title": "Completed Workout"},
+            ]
+        )
+
+        # This should NOT be called when exclude_completed=False
+        mock_completed.return_value = {workout_id_completed}
+
+        result = get_ios_companion_pending_workouts(
+            "test-user-123",
+            limit=50,
+            exclude_completed=False
+        )
+
+        # Should return all workouts including completed
+        assert len(result) == 2
+        # get_completed_workout_ids should not be called when exclude_completed=False
+        mock_completed.assert_not_called()

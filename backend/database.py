@@ -819,7 +819,42 @@ def update_workout_ios_companion_sync(workout_id: str, profile_id: str) -> bool:
         return False
 
 
-def get_ios_companion_pending_workouts(profile_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+def get_completed_workout_ids(profile_id: str) -> set:
+    """
+    Get IDs of workouts that the user has completed.
+
+    Used to filter out completed workouts from incoming/pending lists.
+
+    Args:
+        profile_id: User profile ID
+
+    Returns:
+        Set of workout IDs that have completions
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        return set()
+
+    try:
+        result = supabase.table("workout_completions") \
+            .select("workout_id") \
+            .eq("user_id", profile_id) \
+            .not_.is_("workout_id", "null") \
+            .execute()
+
+        if result.data:
+            return {r["workout_id"] for r in result.data if r.get("workout_id")}
+        return set()
+    except Exception as e:
+        logger.error(f"Failed to get completed workout IDs for {profile_id}: {e}")
+        return set()
+
+
+def get_ios_companion_pending_workouts(
+    profile_id: str,
+    limit: int = 50,
+    exclude_completed: bool = True
+) -> List[Dict[str, Any]]:
     """
     Get workouts that have been pushed to iOS Companion App.
 
@@ -829,6 +864,7 @@ def get_ios_companion_pending_workouts(profile_id: str, limit: int = 50) -> List
     Args:
         profile_id: User profile ID
         limit: Maximum number of workouts to return
+        exclude_completed: If True, exclude workouts that have completions
 
     Returns:
         List of workout records with iOS companion sync data
@@ -846,10 +882,41 @@ def get_ios_companion_pending_workouts(profile_id: str, limit: int = 50) -> List
             .limit(limit) \
             .execute()
 
-        return result.data if result.data else []
+        workouts = result.data if result.data else []
+
+        # Filter out completed workouts if requested
+        if exclude_completed and workouts:
+            completed_ids = get_completed_workout_ids(profile_id)
+            workouts = [w for w in workouts if w["id"] not in completed_ids]
+
+        return workouts
     except Exception as e:
         logger.error(f"Failed to get iOS companion pending workouts for {profile_id}: {e}")
         return []
+
+
+def get_incoming_workouts(
+    profile_id: str,
+    limit: int = 50
+) -> List[Dict[str, Any]]:
+    """
+    Get incoming workouts that haven't been completed yet.
+
+    This is the primary endpoint for discovering workouts to do.
+    Returns workouts that have been pushed to iOS Companion but not yet completed.
+
+    Args:
+        profile_id: User profile ID
+        limit: Maximum number of workouts to return
+
+    Returns:
+        List of pending workout records
+    """
+    return get_ios_companion_pending_workouts(
+        profile_id,
+        limit=limit,
+        exclude_completed=True
+    )
 
 
 # =============================================================================

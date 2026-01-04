@@ -85,6 +85,7 @@ from backend.database import (
     # AMA-199: iOS Companion App Sync
     update_workout_ios_companion_sync,
     get_ios_companion_pending_workouts,
+    get_incoming_workouts,
     # AMA-200: Account Deletion
     get_account_deletion_preview,
 )
@@ -655,11 +656,75 @@ def get_workouts_endpoint(
         is_exported=is_exported,
         limit=limit
     )
-    
+
     return {
         "success": True,
         "workouts": workouts,
         "count": len(workouts)
+    }
+
+
+@app.get("/workouts/incoming")
+def get_incoming_workouts_endpoint(
+    user_id: str = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts")
+):
+    """
+    Get incoming workouts that haven't been completed yet (AMA-236).
+
+    This endpoint returns workouts that have been pushed to iOS Companion App
+    but have not yet been recorded as completed in workout_completions.
+
+    Use this instead of /workouts to get a filtered list of workouts
+    that still need to be done.
+
+    Args:
+        user_id: Authenticated user ID (from Clerk JWT)
+        limit: Maximum number of workouts to return
+
+    Returns:
+        List of pending workouts in iOS Companion format
+    """
+    workouts = get_incoming_workouts(user_id, limit=limit)
+
+    # Transform each workout to iOS companion format (same as /ios-companion/pending)
+    transformed = []
+    for workout_record in workouts:
+        workout_data = workout_record.get("workout_data", {})
+        title = workout_record.get("title") or workout_data.get("title", "Workout")
+
+        # Use to_workoutkit to properly transform intervals
+        try:
+            workoutkit_dto = to_workoutkit(workout_data)
+            intervals = [interval.model_dump() for interval in workoutkit_dto.intervals]
+            sport = workoutkit_dto.sportType
+        except Exception as e:
+            logger.warning(f"Failed to transform workout {workout_record.get('id')}: {e}")
+            intervals = []
+            sport = "strengthTraining"
+            for block in workout_data.get("blocks", []):
+                for exercise in block.get("exercises", []):
+                    intervals.append(convert_exercise_to_interval(exercise))
+
+        # Calculate total duration from intervals
+        total_duration = calculate_intervals_duration(intervals)
+
+        transformed.append({
+            "id": workout_record.get("id"),
+            "name": title,
+            "sport": sport,
+            "duration": total_duration,
+            "source": "amakaflow",
+            "sourceUrl": None,
+            "intervals": intervals,
+            "pushedAt": workout_record.get("ios_companion_synced_at"),
+            "createdAt": workout_record.get("created_at"),
+        })
+
+    return {
+        "success": True,
+        "workouts": transformed,
+        "count": len(transformed)
     }
 
 
@@ -1021,7 +1086,8 @@ def push_workout_to_ios_companion_endpoint(
 @app.get("/ios-companion/pending")
 def get_ios_companion_pending_endpoint(
     user_id: str = Depends(get_current_user),
-    limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts")
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts"),
+    exclude_completed: bool = Query(True, description="Exclude workouts that have been completed")
 ):
     """
     Get workouts that have been pushed to iOS Companion App.
@@ -1029,6 +1095,9 @@ def get_ios_companion_pending_endpoint(
     This endpoint is called by the iOS Companion App to discover workouts
     that are ready to be synced to Apple Watch. Returns workouts where
     ios_companion_synced_at is set, ordered by most recently pushed.
+
+    By default, excludes workouts that have been marked as completed in
+    workout_completions table (AMA-236).
 
     The iOS app authenticates using a Mobile JWT obtained through pairing.
 
@@ -1038,7 +1107,7 @@ def get_ios_companion_pending_endpoint(
     - Sets wrapped in RepeatInterval (e.g., 3 sets → repeat.reps=3)
     - Default rest times from settings
     """
-    workouts = get_ios_companion_pending_workouts(user_id, limit=limit)
+    workouts = get_ios_companion_pending_workouts(user_id, limit=limit, exclude_completed=exclude_completed)
 
     # Transform each workout to iOS companion format
     transformed = []
