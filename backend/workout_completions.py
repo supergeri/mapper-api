@@ -37,6 +37,8 @@ class WorkoutCompletionRequest(BaseModel):
     source_workout_id: Optional[str] = None
     device_info: Optional[Dict[str, Any]] = None
     heart_rate_samples: Optional[List[Dict[str, Any]]] = None  # [{t, bpm}, ...]
+    workout_structure: Optional[List[Dict[str, Any]]] = None  # Original workout intervals (AMA-240)
+    intervals: Optional[List[Dict[str, Any]]] = None  # Backwards compat alias for workout_structure
 
 
 class WorkoutCompletionSummary(BaseModel):
@@ -120,6 +122,9 @@ def save_workout_completion(
         duration_seconds = calculate_duration_seconds(request.started_at, request.ended_at)
 
         # Build record
+        # Use workout_structure if provided, otherwise fall back to intervals for backwards compat (AMA-240)
+        workout_structure = request.workout_structure or request.intervals
+
         record = {
             "user_id": user_id,
             "workout_event_id": request.workout_event_id,
@@ -139,6 +144,7 @@ def save_workout_completion(
             "source_workout_id": request.source_workout_id,
             "device_info": request.device_info,
             "heart_rate_samples": request.heart_rate_samples,
+            "workout_structure": workout_structure,  # AMA-240
         }
 
         # Insert into database
@@ -361,9 +367,11 @@ def get_completion_by_id(
 
         record = result.data
 
+        # Get workout_structure from stored record, or fall back to fetching from source (AMA-240)
+        workout_structure = record.get("workout_structure")
+
         # Get workout name and intervals from the appropriate table based on which FK is set
         workout_name = None
-        intervals = None
         if record.get("workout_id"):
             # iOS Companion workouts from workouts table
             try:
@@ -374,9 +382,11 @@ def get_completion_by_id(
                     .execute()
                 if w_result.data:
                     workout_name = w_result.data.get("title")
-                    workout_data = w_result.data.get("workout_data")
-                    if workout_data and isinstance(workout_data, dict):
-                        intervals = workout_data.get("intervals")
+                    # Fall back to fetching intervals if not stored in completion (backwards compat)
+                    if not workout_structure:
+                        workout_data = w_result.data.get("workout_data")
+                        if workout_data and isinstance(workout_data, dict):
+                            workout_structure = workout_data.get("intervals")
             except Exception:
                 pass
         elif record.get("follow_along_workout_id"):
@@ -420,7 +430,8 @@ def get_completion_by_id(
             "source_workout_id": record.get("source_workout_id"),
             "device_info": record.get("device_info"),
             "heart_rate_samples": record.get("heart_rate_samples"),
-            "intervals": intervals,  # Include workout intervals for detail view (AMA-5)
+            "workout_structure": workout_structure,  # AMA-240: stored or fetched from source
+            "intervals": workout_structure,  # Backwards compat alias for iOS (AMA-240)
             "created_at": record["created_at"],
         }
 
