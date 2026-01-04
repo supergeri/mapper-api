@@ -763,3 +763,85 @@ def test_get_ios_companion_pending_includes_completed_when_disabled():
         assert len(result) == 2
         # get_completed_workout_ids should not be called when exclude_completed=False
         mock_completed.assert_not_called()
+
+
+# ============================================================================
+# AMA-240: workout_structure field tests
+# ============================================================================
+
+def test_save_completion_with_workout_structure():
+    """save_workout_completion stores workout_structure field (AMA-240)."""
+    mock_supabase = MagicMock()
+    mock_supabase.table.return_value.insert.return_value.execute.return_value = MagicMock(
+        data=[{"id": "completion-123"}]
+    )
+
+    with patch('backend.workout_completions.get_supabase_client', return_value=mock_supabase):
+        workout_structure = [
+            {"type": "warmup", "duration": 300},
+            {"type": "work", "duration": 600},
+            {"type": "cooldown", "duration": 300},
+        ]
+        request = _make_completion_request(workout_structure=workout_structure)
+        result = save_workout_completion("user-123", request)
+
+        assert result["success"] is True
+        # Verify workout_structure was passed to insert
+        insert_call = mock_supabase.table.return_value.insert.call_args
+        record = insert_call[0][0]
+        assert record["workout_structure"] == workout_structure
+
+
+def test_save_completion_with_intervals_backwards_compat():
+    """save_workout_completion accepts 'intervals' field for backwards compat (AMA-240)."""
+    mock_supabase = MagicMock()
+    mock_supabase.table.return_value.insert.return_value.execute.return_value = MagicMock(
+        data=[{"id": "completion-123"}]
+    )
+
+    with patch('backend.workout_completions.get_supabase_client', return_value=mock_supabase):
+        intervals = [
+            {"type": "warmup", "duration": 300},
+            {"type": "work", "duration": 600},
+        ]
+        # Use 'intervals' instead of 'workout_structure'
+        request = _make_completion_request(intervals=intervals)
+        result = save_workout_completion("user-123", request)
+
+        assert result["success"] is True
+        # Verify intervals was stored as workout_structure
+        insert_call = mock_supabase.table.return_value.insert.call_args
+        record = insert_call[0][0]
+        assert record["workout_structure"] == intervals
+
+
+def test_get_completion_returns_workout_structure():
+    """get_completion_by_id returns stored workout_structure (AMA-240)."""
+    from backend.workout_completions import get_completion_by_id
+
+    mock_supabase = MagicMock()
+    workout_structure = [{"type": "work", "duration": 600}]
+
+    # Mock completion record with workout_structure
+    mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value = MagicMock(
+        data={
+            "id": "completion-123",
+            "user_id": "user-123",
+            "started_at": "2026-01-04T10:00:00Z",
+            "ended_at": "2026-01-04T10:30:00Z",
+            "duration_seconds": 1800,
+            "source": "apple_watch",
+            "created_at": "2026-01-04T10:30:00Z",
+            "workout_structure": workout_structure,
+            "workout_id": None,
+            "follow_along_workout_id": None,
+            "workout_event_id": None,
+        }
+    )
+
+    with patch('backend.workout_completions.get_supabase_client', return_value=mock_supabase):
+        result = get_completion_by_id("user-123", "completion-123")
+
+        assert result is not None
+        assert result["workout_structure"] == workout_structure
+        assert result["intervals"] == workout_structure  # Backwards compat alias
