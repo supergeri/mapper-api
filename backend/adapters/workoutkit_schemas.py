@@ -19,13 +19,13 @@ class WorkoutTarget(BaseModel):
 class TimeStep(BaseModel):
     kind: Literal["time"]
     seconds: int
-    target: Optional[WorkoutTarget] = None
+    target: Optional[str] = None  # Exercise name for display (AMA-243)
 
 
 class DistanceStep(BaseModel):
     kind: Literal["distance"]
     meters: int
-    target: Optional[PaceTarget] = None
+    target: Optional[str] = None  # Exercise name for display (AMA-243)
 
 
 class Load(BaseModel):

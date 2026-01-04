@@ -40,16 +40,18 @@ def exercise_to_step(exercise: dict, default_rest_sec: Optional[int] = None) -> 
     distance_m = exercise.get("distance_m")
     distance_range = exercise.get("distance_range")
     
-    # Get mapped exercise name (use Garmin mapping for consistency)
+    # Get mapped exercise name (use Garmin mapping for reps steps)
     garmin_name, _, _ = map_exercise_to_garmin(
         ex_name,
         ex_reps=reps,
         ex_distance_m=distance_m
     )
-    
-    # Use the clean exercise name for the step
+
+    # Use the clean exercise name for display (AMA-243: preserve original name)
     clean_name = parse_exercise_name(ex_name)
-    exercise_name = garmin_name if garmin_name else clean_name
+    # For reps steps, use Garmin name if available; for time/distance steps, use clean name
+    garmin_exercise_name = garmin_name if garmin_name else clean_name
+    display_name = clean_name  # Use original name for iOS display (AMA-243)
     
     # Check for "EACH SIDE" pattern and extract reps if present
     each_side_match = re.search(r'X\s*(\d+)\s+EACH\s+SIDE', ex_name, re.IGNORECASE)
@@ -67,16 +69,16 @@ def exercise_to_step(exercise: dict, default_rest_sec: Optional[int] = None) -> 
         return TimeStep(
             kind="time",
             seconds=duration_sec,
-            target=None  # Can be extended later if needed
+            target=display_name or None  # Exercise name for iOS display (AMA-243)
         )
-    
+
     if distance_m is not None:
         return DistanceStep(
             kind="distance",
             meters=distance_m,
-            target=None  # Can be extended later if needed
+            target=display_name or None  # Exercise name for iOS display (AMA-243)
         )
-    
+
     if distance_range:
         # Parse distance range like "25-30m" - take average or max
         match = re.search(r'(\d+)-(\d+)', distance_range)
@@ -87,7 +89,7 @@ def exercise_to_step(exercise: dict, default_rest_sec: Optional[int] = None) -> 
             return DistanceStep(
                 kind="distance",
                 meters=avg_dist,
-                target=None
+                target=display_name or None  # Exercise name for iOS display (AMA-243)
             )
     
     # Default to reps if available, otherwise use time-based
@@ -95,11 +97,11 @@ def exercise_to_step(exercise: dict, default_rest_sec: Optional[int] = None) -> 
         return RepsStep(
             kind="reps",
             reps=reps,
-            name=exercise_name,
+            name=garmin_exercise_name,  # Use Garmin name for reps (structured data)
             load=None,  # Can be extended later if load info is available
             restSec=rest_sec
         )
-    
+
     # If no reps, check for reps_range
     reps_range = exercise.get("reps_range")
     if reps_range:
@@ -112,26 +114,26 @@ def exercise_to_step(exercise: dict, default_rest_sec: Optional[int] = None) -> 
             return RepsStep(
                 kind="reps",
                 reps=avg_reps,
-                name=exercise_name,
+                name=garmin_exercise_name,  # Use Garmin name for reps (structured data)
                 load=None,
                 restSec=rest_sec
             )
-    
+
     # Check for "EACH SIDE" without number - default to 10 reps (5 each side)
     if re.search(r'EACH\s+SIDE', ex_name, re.IGNORECASE) and reps is None:
         return RepsStep(
             kind="reps",
             reps=10,  # Default: 5 each side
-            name=exercise_name,
+            name=garmin_exercise_name,  # Use Garmin name for reps (structured data)
             load=None,
             restSec=rest_sec
         )
-    
+
     # Final fallback: time-based with 60 seconds if no other info
     return TimeStep(
         kind="time",
         seconds=duration_sec if duration_sec else 60,
-        target=None
+        target=display_name or None  # Exercise name for iOS display (AMA-243)
     )
 
 
@@ -161,12 +163,14 @@ def block_to_intervals(block: dict, default_rest_sec: Optional[int] = None) -> L
             ex = exercises[0]
             duration_sec = ex.get("duration_sec") or time_work_sec
             rest_sec = ex.get("rest_sec") or rest_between_sec or default_rest_sec
+            # Get exercise name for display (AMA-243)
+            ex_name = parse_exercise_name(ex.get("name", ""))
 
-            # Create work interval
-            work_step = TimeStep(kind="time", seconds=duration_sec, target=None)
+            # Create work interval with exercise name
+            work_step = TimeStep(kind="time", seconds=duration_sec, target=ex_name or None)
             interval_steps: List[WKStepDTO] = [work_step]
 
-            # Add rest interval
+            # Add rest interval (no target for rest)
             if rest_sec:
                 rest_step = TimeStep(kind="time", seconds=rest_sec, target=None)
                 interval_steps.append(rest_step)
@@ -180,7 +184,7 @@ def block_to_intervals(block: dict, default_rest_sec: Optional[int] = None) -> L
             else:
                 return interval_steps
         else:
-            # Fallback: use time_work_sec and rest_between_sec
+            # Fallback: use time_work_sec and rest_between_sec (no exercise name available)
             work_step = TimeStep(kind="time", seconds=time_work_sec, target=None)
             interval_steps: List[WKStepDTO] = [work_step]
 
