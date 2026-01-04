@@ -246,7 +246,8 @@ def get_user_completions(
         result = supabase.table("workout_completions") \
             .select(
                 "id, started_at, ended_at, duration_seconds, "
-                "avg_heart_rate, max_heart_rate, active_calories, total_calories, "
+                "avg_heart_rate, max_heart_rate, min_heart_rate, active_calories, total_calories, "
+                "distance_meters, steps, "
                 "source, workout_event_id, follow_along_workout_id, workout_id, created_at"
             ) \
             .eq("user_id", user_id) \
@@ -302,7 +303,11 @@ def get_user_completions(
                 "duration_seconds": record["duration_seconds"],
                 "avg_heart_rate": record.get("avg_heart_rate"),
                 "max_heart_rate": record.get("max_heart_rate"),
+                "min_heart_rate": record.get("min_heart_rate"),
                 "active_calories": record.get("active_calories"),
+                "total_calories": record.get("total_calories"),
+                "distance_meters": record.get("distance_meters"),
+                "steps": record.get("steps"),
                 "source": record["source"],
             })
 
