@@ -5,6 +5,10 @@ Provides FastAPI dependencies for securing endpoints.
 Supports two JWT types:
 - Clerk JWTs: RS256, validated via JWKS
 - Mobile pairing JWTs: HS256, validated via shared secret (iss: "amakaflow", aud: "ios_companion")
+
+E2E Test Bypass (dev/staging only):
+- X-Test-Auth header with TEST_AUTH_SECRET
+- X-Test-User-Id header with user ID to impersonate
 """
 import os
 import jwt
@@ -13,6 +17,10 @@ from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Environment check for test bypass (never in production)
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+TEST_AUTH_SECRET = os.getenv("TEST_AUTH_SECRET", "")
 
 # Clerk JWKS for JWT validation
 CLERK_DOMAIN = os.getenv("CLERK_DOMAIN", "")
@@ -36,10 +44,12 @@ def get_jwks_client():
 
 async def get_current_user(
     authorization: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    x_test_auth: Optional[str] = Header(None, alias="X-Test-Auth"),
+    x_test_user_id: Optional[str] = Header(None, alias="X-Test-User-Id"),
 ) -> str:
     """
-    Authenticate via API key OR Clerk JWT.
+    Authenticate via API key, Clerk JWT, or E2E test bypass.
     Returns user_id string.
 
     Usage:
@@ -47,6 +57,10 @@ async def get_current_user(
         async def protected_route(user_id: str = Depends(get_current_user)):
             return {"user_id": user_id}
     """
+    # Option 0: E2E Test Bypass (dev/staging only)
+    if x_test_auth and x_test_user_id:
+        return validate_test_auth(x_test_auth, x_test_user_id)
+
     # Option 1: API Key authentication
     if x_api_key:
         return validate_api_key(x_api_key)
@@ -59,6 +73,52 @@ async def get_current_user(
         status_code=401,
         detail="Missing authentication. Provide Authorization header or X-API-Key."
     )
+
+
+def validate_test_auth(test_secret: str, user_id: str) -> str:
+    """
+    Validate E2E test authentication bypass.
+    Only works in dev/staging environments with valid TEST_AUTH_SECRET.
+
+    This allows E2E tests to bypass JWT authentication by providing:
+    - X-Test-Auth: The TEST_AUTH_SECRET value
+    - X-Test-User-Id: The user ID to impersonate
+
+    Security: This is explicitly disabled in production.
+    """
+    # Safety check: Never allow in production
+    if ENVIRONMENT == "production":
+        logger.warning("Test auth bypass attempted in production - denied")
+        raise HTTPException(
+            status_code=403,
+            detail="Test authentication not available in production"
+        )
+
+    # Check if test auth is configured
+    if not TEST_AUTH_SECRET:
+        logger.warning("Test auth attempted but TEST_AUTH_SECRET not configured")
+        raise HTTPException(
+            status_code=401,
+            detail="Test authentication not configured"
+        )
+
+    # Validate the secret
+    if test_secret != TEST_AUTH_SECRET:
+        logger.warning("Test auth failed - invalid secret")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid test authentication secret"
+        )
+
+    # Validate user_id format (basic sanity check)
+    if not user_id or len(user_id) < 5:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid test user ID"
+        )
+
+    logger.info(f"E2E test auth bypass for user: {user_id}")
+    return user_id
 
 
 def validate_api_key(api_key: str) -> str:
@@ -169,13 +229,15 @@ def validate_clerk_jwt(token: str) -> str:
 
 async def get_optional_user(
     authorization: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    x_test_auth: Optional[str] = Header(None, alias="X-Test-Auth"),
+    x_test_user_id: Optional[str] = Header(None, alias="X-Test-User-Id"),
 ) -> Optional[str]:
     """
     Returns user_id if authenticated, None otherwise.
     Use for endpoints that work differently when authenticated.
     """
     try:
-        return await get_current_user(authorization, x_api_key)
+        return await get_current_user(authorization, x_api_key, x_test_auth, x_test_user_id)
     except HTTPException:
         return None
