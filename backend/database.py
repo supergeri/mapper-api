@@ -920,6 +920,90 @@ def get_incoming_workouts(
 
 
 # =============================================================================
+# Android Companion App Sync (AMA-246)
+# =============================================================================
+
+def update_workout_android_companion_sync(workout_id: str, profile_id: str) -> bool:
+    """
+    Mark a workout as synced to Android Companion App.
+
+    Sets android_companion_synced_at to current timestamp.
+
+    Args:
+        workout_id: Workout UUID
+        profile_id: User profile ID (for security)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        return False
+
+    try:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+
+        result = supabase.table("workouts").update({
+            "android_companion_synced_at": now,
+            "updated_at": now,
+        }).eq("id", workout_id).eq("profile_id", profile_id).execute()
+
+        if result.data and len(result.data) > 0:
+            logger.info(f"Workout {workout_id} marked as synced to Android Companion")
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"Failed to update Android companion sync for workout {workout_id}: {e}")
+        return False
+
+
+def get_android_companion_pending_workouts(
+    profile_id: str,
+    limit: int = 50,
+    exclude_completed: bool = True
+) -> List[Dict[str, Any]]:
+    """
+    Get workouts that have been pushed to Android Companion App.
+
+    Returns workouts where android_companion_synced_at is not null,
+    ordered by most recently synced.
+
+    Args:
+        profile_id: User profile ID
+        limit: Maximum number of workouts to return
+        exclude_completed: If True, exclude workouts that have completions
+
+    Returns:
+        List of workout records with Android companion sync data
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        return []
+
+    try:
+        result = supabase.table("workouts") \
+            .select("id, title, description, workout_data, device, android_companion_synced_at, created_at") \
+            .eq("profile_id", profile_id) \
+            .not_.is_("android_companion_synced_at", "null") \
+            .order("android_companion_synced_at", desc=True) \
+            .limit(limit) \
+            .execute()
+
+        workouts = result.data if result.data else []
+
+        # Filter out completed workouts if requested
+        if exclude_completed and workouts:
+            completed_ids = get_completed_workout_ids(profile_id)
+            workouts = [w for w in workouts if w["id"] not in completed_ids]
+
+        return workouts
+    except Exception as e:
+        logger.error(f"Failed to get Android companion pending workouts for {profile_id}: {e}")
+        return []
+
+
+# =============================================================================
 # Account Deletion Preview (AMA-200)
 # =============================================================================
 
