@@ -1152,6 +1152,198 @@ def get_ios_companion_pending_endpoint(
     }
 
 
+# =============================================================================
+# Android Companion App Push (AMA-246)
+# =============================================================================
+
+class PushWorkoutToAndroidCompanionRequest(BaseModel):
+    userId: str | None = None  # Deprecated: use auth instead
+
+
+@app.post("/workouts/{workout_id}/push/android-companion")
+def push_workout_to_android_companion_endpoint(
+    workout_id: str,
+    request: PushWorkoutToAndroidCompanionRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Push a regular (blocks-based) workout to Android Companion App.
+    Transforms the workout structure into the Android app's interval format.
+
+    This endpoint is for workouts created through the standard workflow,
+    not follow-along workouts.
+    """
+    from backend.database import get_workout, update_workout_android_companion_sync
+
+    # Get workout
+    workout_record = get_workout(workout_id, user_id)
+    if not workout_record:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "Workout not found"
+        }
+
+    workout_data = workout_record.get("workout_data", {})
+    title = workout_record.get("title") or workout_data.get("title", "Workout")
+
+    # Detect sport type from workout structure
+    blocks = workout_data.get("blocks", [])
+    sport = "strength"  # Default
+
+    for block in blocks:
+        structure = block.get("structure", "")
+        if structure in ["tabata", "hiit", "circuit", "emom", "amrap"]:
+            sport = "cardio"
+            break
+
+    # Build intervals from blocks (same transformation as iOS)
+    intervals = []
+    total_duration = 0
+
+    for block in blocks:
+        structure = block.get("structure", "regular")
+        exercises = block.get("exercises", [])
+        rounds = block.get("rounds", 1) or 1
+        rest_between_rounds = block.get("rest_between_rounds_sec") or block.get("rest_between_sec", 60)
+
+        # Warmup block
+        if block.get("label", "").lower() in ["warmup", "warm up", "warm-up"]:
+            warmup_duration = sum(
+                e.get("duration_sec", 60) for e in exercises
+            ) or 300
+            intervals.append({
+                "kind": "warmup",
+                "seconds": warmup_duration,
+                "target": block.get("label", "Warmup")
+            })
+            total_duration += warmup_duration
+            continue
+
+        # Cooldown block
+        if block.get("label", "").lower() in ["cooldown", "cool down", "cool-down"]:
+            cooldown_duration = sum(
+                e.get("duration_sec", 60) for e in exercises
+            ) or 300
+            intervals.append({
+                "kind": "cooldown",
+                "seconds": cooldown_duration,
+                "target": block.get("label", "Cooldown")
+            })
+            total_duration += cooldown_duration
+            continue
+
+        # Create repeat block if rounds > 1
+        if rounds > 1:
+            inner_intervals = []
+            for exercise in exercises:
+                inner_interval = convert_exercise_to_interval(exercise)
+                inner_intervals.append(inner_interval)
+
+            intervals.append({
+                "kind": "repeat",
+                "reps": rounds,
+                "intervals": inner_intervals
+            })
+
+            # Calculate duration for repeat
+            inner_duration = sum(
+                (e.get("duration_sec", 0) or 0) + (e.get("rest_sec", 0) or 0)
+                for e in exercises
+            )
+            total_duration += (inner_duration * rounds) + (rest_between_rounds * (rounds - 1))
+        else:
+            # Single round - add exercises directly
+            for exercise in exercises:
+                interval = convert_exercise_to_interval(exercise)
+                intervals.append(interval)
+                total_duration += (exercise.get("duration_sec", 0) or 0) + (exercise.get("rest_sec", 0) or 0)
+
+    # Create payload for Android Companion App
+    payload = {
+        "id": workout_id,
+        "name": title,
+        "sport": sport,
+        "duration": total_duration,
+        "source": "amakaflow",
+        "sourceUrl": None,
+        "intervals": intervals
+    }
+
+    # Mark workout as synced to Android Companion (AMA-246)
+    update_workout_android_companion_sync(workout_id, user_id)
+
+    return {
+        "success": True,
+        "status": "success",
+        "androidCompanionWorkoutId": workout_id,
+        "payload": payload
+    }
+
+
+@app.get("/android-companion/pending")
+def get_android_companion_pending_endpoint(
+    user_id: str = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts"),
+    exclude_completed: bool = Query(True, description="Exclude workouts that have been completed")
+):
+    """
+    Get workouts that have been pushed to Android Companion App.
+
+    This endpoint is called by the Android Companion App to discover workouts
+    that are ready to be synced to Wear OS/Health Connect watches. Returns
+    workouts where android_companion_synced_at is set, ordered by most recently pushed.
+
+    By default, excludes workouts that have been marked as completed.
+
+    The Android app authenticates using a Mobile JWT obtained through pairing.
+    """
+    from backend.database import get_android_companion_pending_workouts
+
+    workouts = get_android_companion_pending_workouts(user_id, limit=limit, exclude_completed=exclude_completed)
+
+    # Transform each workout to companion format
+    transformed = []
+    for workout_record in workouts:
+        workout_data = workout_record.get("workout_data", {})
+        title = workout_record.get("title") or workout_data.get("title", "Workout")
+
+        # Use to_workoutkit to properly transform intervals
+        try:
+            workoutkit_dto = to_workoutkit(workout_data)
+            intervals = [interval.model_dump() for interval in workoutkit_dto.intervals]
+            sport = workoutkit_dto.sportType
+        except Exception as e:
+            logger.warning(f"Failed to transform workout {workout_record.get('id')}: {e}")
+            # Fallback to simple transformation
+            intervals = []
+            sport = "strengthTraining"
+            for block in workout_data.get("blocks", []):
+                for exercise in block.get("exercises", []):
+                    intervals.append(convert_exercise_to_interval(exercise))
+
+        # Calculate total duration from intervals
+        total_duration = calculate_intervals_duration(intervals)
+
+        transformed.append({
+            "id": workout_record.get("id"),
+            "name": title,
+            "sport": sport,
+            "duration": total_duration,
+            "source": "amakaflow",
+            "sourceUrl": None,
+            "intervals": intervals,
+            "pushedAt": workout_record.get("android_companion_synced_at"),
+            "createdAt": workout_record.get("created_at"),
+        })
+
+    return {
+        "success": True,
+        "workouts": transformed,
+        "count": len(transformed)
+    }
+
+
 def calculate_intervals_duration(intervals: list) -> int:
     """Calculate total duration in seconds from intervals list."""
     total = 0
