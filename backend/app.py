@@ -88,6 +88,8 @@ from backend.database import (
     get_incoming_workouts,
     # AMA-200: Account Deletion
     get_account_deletion_preview,
+    # AMA-268: Mobile Profile
+    get_profile,
 )
 from backend.follow_along_database import (
     save_follow_along_workout,
@@ -2615,6 +2617,34 @@ async def revoke_device_endpoint(
     except Exception as e:
         logger.error(f"Failed to revoke device {device_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/mobile/profile")
+async def get_mobile_profile_endpoint(
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Get current user's profile for mobile apps (AMA-268).
+
+    Returns the authenticated user's profile information.
+    Supports both JWT authentication and X-Test-Auth for E2E testing.
+    """
+    profile = get_profile(user_id)
+    if not profile:
+        # Return minimal profile if not found in database
+        return {
+            "success": True,
+            "profile": {
+                "id": user_id,
+                "email": None,
+                "name": None,
+                "avatar_url": None
+            }
+        }
+    return {
+        "success": True,
+        "profile": profile
+    }
 
 
 # =============================================================================
