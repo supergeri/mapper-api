@@ -783,6 +783,7 @@ def record_workout_completion_endpoint(
 def list_workout_completions_endpoint(
     limit: int = Query(default=50, le=100),
     offset: int = Query(default=0),
+    include_simulated: bool = Query(default=True),  # AMA-273
     user_id: str = Depends(get_current_user)
 ):
     """
@@ -794,12 +795,13 @@ def list_workout_completions_endpoint(
     Args:
         limit: Max number of records to return (default 50, max 100)
         offset: Number of records to skip for pagination
+        include_simulated: Whether to include simulated completions (default True)
         user_id: Authenticated user ID (from Clerk JWT)
 
     Returns:
         List of completions and total count
     """
-    result = get_user_completions(user_id, limit, offset)
+    result = get_user_completions(user_id, limit, offset, include_simulated)
     return {
         "success": True,
         "completions": result["completions"],

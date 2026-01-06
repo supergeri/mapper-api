@@ -25,6 +25,13 @@ class HealthMetrics(BaseModel):
     steps: Optional[int] = None
 
 
+class SimulationConfig(BaseModel):
+    """Simulation parameters when workout is run in simulation mode (AMA-273)."""
+    speed: Optional[float] = None  # e.g., 10.0 for 10x speed
+    behavior_profile: Optional[str] = None  # "efficient", "casual", "distracted"
+    hr_profile: Optional[str] = None  # "athletic", "average"
+
+
 class WorkoutCompletionRequest(BaseModel):
     """Request from iOS app when workout completes."""
     workout_event_id: Optional[str] = None
@@ -39,6 +46,9 @@ class WorkoutCompletionRequest(BaseModel):
     heart_rate_samples: Optional[List[Dict[str, Any]]] = None  # [{t, bpm}, ...]
     workout_structure: Optional[List[Dict[str, Any]]] = None  # Original workout intervals (AMA-240)
     intervals: Optional[List[Dict[str, Any]]] = None  # Backwards compat alias for workout_structure
+    # Simulation fields (AMA-273)
+    is_simulated: bool = False
+    simulation_config: Optional[SimulationConfig] = None
 
 
 class WorkoutCompletionSummary(BaseModel):
@@ -145,6 +155,9 @@ def save_workout_completion(
             "device_info": request.device_info,
             "heart_rate_samples": request.heart_rate_samples,
             "workout_structure": workout_structure,  # AMA-240
+            # Simulation fields (AMA-273)
+            "is_simulated": request.is_simulated,
+            "simulation_config": request.simulation_config.model_dump() if request.simulation_config else None,
         }
 
         # Insert into database
@@ -165,6 +178,7 @@ def save_workout_completion(
                 "success": True,
                 "id": saved["id"],
                 "summary": summary.model_dump(),
+                "is_simulated": request.is_simulated,  # AMA-273
             }
         else:
             logger.error("Failed to insert workout completion: empty result from database")
@@ -228,7 +242,8 @@ def save_workout_completion(
 def get_user_completions(
     user_id: str,
     limit: int = 50,
-    offset: int = 0
+    offset: int = 0,
+    include_simulated: bool = True  # AMA-273: Filter simulated completions
 ) -> Dict[str, Any]:
     """
     Get workout completions for a user.
@@ -237,6 +252,7 @@ def get_user_completions(
         user_id: The Clerk user ID
         limit: Max number of records to return
         offset: Number of records to skip
+        include_simulated: Whether to include simulated completions (default True)
 
     Returns:
         Dict with completions list and total count
@@ -249,14 +265,21 @@ def get_user_completions(
     try:
         # Get completions with workout names via joins
         # Note: We select basic fields, excluding heart_rate_samples for list view
-        result = supabase.table("workout_completions") \
+        query = supabase.table("workout_completions") \
             .select(
                 "id, started_at, ended_at, duration_seconds, "
                 "avg_heart_rate, max_heart_rate, min_heart_rate, active_calories, total_calories, "
                 "distance_meters, steps, "
-                "source, workout_event_id, follow_along_workout_id, workout_id, created_at"
+                "source, workout_event_id, follow_along_workout_id, workout_id, created_at, "
+                "is_simulated"  # AMA-273
             ) \
-            .eq("user_id", user_id) \
+            .eq("user_id", user_id)
+
+        # AMA-273: Filter out simulated completions if requested
+        if not include_simulated:
+            query = query.or_("is_simulated.eq.false,is_simulated.is.null")
+
+        result = query \
             .order("started_at", desc=True) \
             .range(offset, offset + limit - 1) \
             .execute()
@@ -315,13 +338,18 @@ def get_user_completions(
                 "distance_meters": record.get("distance_meters"),
                 "steps": record.get("steps"),
                 "source": record["source"],
+                "is_simulated": record.get("is_simulated", False),  # AMA-273
             })
 
-        # Get total count
-        count_result = supabase.table("workout_completions") \
+        # Get total count (respecting the same filter)
+        count_query = supabase.table("workout_completions") \
             .select("id", count="exact") \
-            .eq("user_id", user_id) \
-            .execute()
+            .eq("user_id", user_id)
+
+        if not include_simulated:
+            count_query = count_query.or_("is_simulated.eq.false,is_simulated.is.null")
+
+        count_result = count_query.execute()
 
         total = count_result.count if count_result.count is not None else len(completions)
 
@@ -412,6 +440,17 @@ def get_completion_by_id(
             except Exception:
                 pass
 
+        # AMA-273: Build simulation badge if completion is simulated
+        is_simulated = record.get("is_simulated", False)
+        simulation_config = record.get("simulation_config")
+        simulation_badge = None
+        if is_simulated:
+            simulation_badge = {
+                "label": "Simulated",
+                "speed": simulation_config.get("speed") if simulation_config else None,
+                "profile": simulation_config.get("behavior_profile") if simulation_config else None,
+            }
+
         return {
             "id": record["id"],
             "workout_name": workout_name or "Workout",
@@ -433,6 +472,10 @@ def get_completion_by_id(
             "workout_structure": workout_structure,  # AMA-240: stored or fetched from source
             "intervals": workout_structure,  # Backwards compat alias for iOS (AMA-240)
             "created_at": record["created_at"],
+            # AMA-273: Simulation fields
+            "is_simulated": is_simulated,
+            "simulation_config": simulation_config,
+            "simulation_badge": simulation_badge,
         }
 
     except Exception as e:
