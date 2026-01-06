@@ -26,6 +26,34 @@ def get_supabase_client() -> Optional[Client]:
         return None
 
 
+def get_profile(profile_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get a user's profile from the profiles table.
+
+    Args:
+        profile_id: The user's profile ID (Clerk user ID)
+
+    Returns:
+        Profile dict with id, email, name, avatar_url, or None if not found
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        logger.error("Supabase client not available")
+        return None
+
+    try:
+        result = supabase.table("profiles").select("id,email,name,avatar_url").eq("id", profile_id).execute()
+
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+
+        logger.warning(f"Profile not found for user: {profile_id}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to get profile for {profile_id}: {e}")
+        return None
+
+
 def save_workout(
     profile_id: str,
     workout_data: Dict[str, Any],
