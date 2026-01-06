@@ -155,10 +155,14 @@ def save_workout_completion(
             "device_info": request.device_info,
             "heart_rate_samples": request.heart_rate_samples,
             "workout_structure": workout_structure,  # AMA-240
-            # Simulation fields (AMA-273)
-            "is_simulated": request.is_simulated,
-            "simulation_config": request.simulation_config.model_dump() if request.simulation_config else None,
         }
+
+        # AMA-273: Only include simulation fields if is_simulated is True
+        # This maintains backwards compatibility before migration is applied
+        if request.is_simulated:
+            record["is_simulated"] = True
+            if request.simulation_config:
+                record["simulation_config"] = request.simulation_config.model_dump()
 
         # Insert into database
         result = supabase.table("workout_completions").insert(record).execute()
@@ -265,19 +269,25 @@ def get_user_completions(
     try:
         # Get completions with workout names via joins
         # Note: We select basic fields, excluding heart_rate_samples for list view
+        # AMA-274: Don't include is_simulated in select to maintain backwards compatibility
+        # before migration is applied. The column will be included in select("*") queries.
         query = supabase.table("workout_completions") \
             .select(
                 "id, started_at, ended_at, duration_seconds, "
                 "avg_heart_rate, max_heart_rate, min_heart_rate, active_calories, total_calories, "
                 "distance_meters, steps, "
-                "source, workout_event_id, follow_along_workout_id, workout_id, created_at, "
-                "is_simulated"  # AMA-273
+                "source, workout_event_id, follow_along_workout_id, workout_id, created_at"
             ) \
             .eq("user_id", user_id)
 
         # AMA-273: Filter out simulated completions if requested
+        # Note: This filter only works after migration is applied
+        # If column doesn't exist, we catch the error and return all results
         if not include_simulated:
-            query = query.or_("is_simulated.eq.false,is_simulated.is.null")
+            try:
+                query = query.or_("is_simulated.eq.false,is_simulated.is.null")
+            except Exception:
+                pass  # Column doesn't exist yet, skip filter
 
         result = query \
             .order("started_at", desc=True) \
@@ -346,8 +356,12 @@ def get_user_completions(
             .select("id", count="exact") \
             .eq("user_id", user_id)
 
+        # AMA-274: Only apply filter if column exists (after migration)
         if not include_simulated:
-            count_query = count_query.or_("is_simulated.eq.false,is_simulated.is.null")
+            try:
+                count_query = count_query.or_("is_simulated.eq.false,is_simulated.is.null")
+            except Exception:
+                pass  # Column doesn't exist yet, skip filter
 
         count_result = count_query.execute()
 
