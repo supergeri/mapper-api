@@ -41,7 +41,17 @@ class RepsStep(BaseModel):
     restSec: Optional[int] = None
 
 
-WKStepDTO = Union[TimeStep, DistanceStep, RepsStep]
+class RestStep(BaseModel):
+    """Rest period between exercises.
+
+    - seconds > 0: Timed rest with countdown
+    - seconds = None: Manual rest ("tap when ready")
+    """
+    kind: Literal["rest"]
+    seconds: Optional[int] = None  # None = manual rest
+
+
+WKStepDTO = Union[TimeStep, DistanceStep, RepsStep, RestStep]
 
 
 class WarmupInterval(BaseModel):

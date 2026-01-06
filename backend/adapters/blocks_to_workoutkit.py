@@ -8,6 +8,7 @@ from backend.adapters.workoutkit_schemas import (
     TimeStep,
     DistanceStep,
     RepsStep,
+    RestStep,
     WarmupInterval,
     CooldownInterval,
     RepeatInterval,
@@ -170,9 +171,9 @@ def block_to_intervals(block: dict, default_rest_sec: Optional[int] = None) -> L
             work_step = TimeStep(kind="time", seconds=duration_sec, target=ex_name or None)
             interval_steps: List[WKStepDTO] = [work_step]
 
-            # Add rest interval (no target for rest)
+            # Add rest interval
             if rest_sec:
-                rest_step = TimeStep(kind="time", seconds=rest_sec, target=None)
+                rest_step = RestStep(kind="rest", seconds=rest_sec)
                 interval_steps.append(rest_step)
 
             # Get number of sets/reps from exercise or block structure
@@ -189,7 +190,7 @@ def block_to_intervals(block: dict, default_rest_sec: Optional[int] = None) -> L
             interval_steps: List[WKStepDTO] = [work_step]
 
             if rest_between_sec or default_rest_sec:
-                rest_step = TimeStep(kind="time", seconds=rest_between_sec or default_rest_sec, target=None)
+                rest_step = RestStep(kind="rest", seconds=rest_between_sec or default_rest_sec)
                 interval_steps.append(rest_step)
 
             if rounds > 1:
@@ -209,7 +210,7 @@ def block_to_intervals(block: dict, default_rest_sec: Optional[int] = None) -> L
                 # Create interval with exercise step and rest between sets
                 set_intervals: List[WKStepDTO] = [step]
                 if rest_sec:
-                    set_intervals.append(TimeStep(kind="time", seconds=rest_sec, target=None))
+                    set_intervals.append(RestStep(kind="rest", seconds=rest_sec))
                 intervals.append(RepeatInterval(kind="repeat", reps=sets, intervals=set_intervals))
             else:
                 intervals.append(step)
@@ -226,12 +227,12 @@ def block_to_intervals(block: dict, default_rest_sec: Optional[int] = None) -> L
                 superset_rest = superset.get("rest_between_sec")
                 if superset_rest and ex_idx < len(superset.get("exercises", [])) - 1:
                     # Add rest step between exercises (not after last one)
-                    rest_step = TimeStep(kind="time", seconds=superset_rest, target=None)
+                    rest_step = RestStep(kind="rest", seconds=superset_rest)
                     superset_steps.append(rest_step)
 
         # Add rest between supersets if specified and not the last superset
         if rest_between_sec and superset_idx < len(block.get("supersets", [])) - 1:
-            rest_step = TimeStep(kind="time", seconds=rest_between_sec, target=None)
+            rest_step = RestStep(kind="rest", seconds=rest_between_sec)
             superset_steps.append(rest_step)
 
         # Handle superset sets - wrap in repeat if needed
