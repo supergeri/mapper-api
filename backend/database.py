@@ -1331,20 +1331,21 @@ def reset_user_data(profile_id: str) -> Dict[str, Any]:
     deleted_counts = {}
 
     try:
-        # Delete workouts
+        # Delete workout completions FIRST (before workouts due to FK constraint)
+        try:
+            result = supabase.table("workout_completions").delete().eq("user_id", profile_id).execute()
+            deleted_counts["workout_completions"] = len(result.data) if result.data else 0
+        except Exception as e:
+            logger.warning(f"Error deleting workout_completions during reset: {e}")
+            deleted_counts["workout_completions"] = 0
+
+        # Delete workouts (after completions to avoid FK constraint violation)
         try:
             result = supabase.table("workouts").delete().eq("profile_id", profile_id).execute()
             deleted_counts["workouts"] = len(result.data) if result.data else 0
         except Exception as e:
             logger.warning(f"Error deleting workouts during reset: {e}")
             deleted_counts["workouts"] = 0
-
-        # Delete workout completions
-        try:
-            result = supabase.table("workout_completions").delete().eq("user_id", profile_id).execute()
-            deleted_counts["workout_completions"] = len(result.data) if result.data else 0
-        except Exception:
-            deleted_counts["workout_completions"] = 0
 
         # Delete workout programs
         try:
