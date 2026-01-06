@@ -155,10 +155,14 @@ def save_workout_completion(
             "device_info": request.device_info,
             "heart_rate_samples": request.heart_rate_samples,
             "workout_structure": workout_structure,  # AMA-240
-            # Simulation fields (AMA-273)
-            "is_simulated": request.is_simulated,
-            "simulation_config": request.simulation_config.model_dump() if request.simulation_config else None,
         }
+
+        # AMA-273: Only add simulation fields if simulated (backwards compat for pre-migration)
+        # This allows inserts to work even if the columns don't exist yet
+        if request.is_simulated:
+            record["is_simulated"] = True
+            if request.simulation_config:
+                record["simulation_config"] = request.simulation_config.model_dump()
 
         # Insert into database
         result = supabase.table("workout_completions").insert(record).execute()
@@ -174,12 +178,15 @@ def save_workout_completion(
                 calories=request.health_metrics.active_calories
             )
 
-            return {
+            response = {
                 "success": True,
                 "id": saved["id"],
                 "summary": summary.model_dump(),
-                "is_simulated": request.is_simulated,  # AMA-273
             }
+            # AMA-273: Only include is_simulated in response if true
+            if request.is_simulated:
+                response["is_simulated"] = True
+            return response
         else:
             logger.error("Failed to insert workout completion: empty result from database")
             return {
@@ -265,19 +272,23 @@ def get_user_completions(
     try:
         # Get completions with workout names via joins
         # Note: We select basic fields, excluding heart_rate_samples for list view
+        # AMA-274: Don't explicitly select is_simulated (column may not exist yet)
         query = supabase.table("workout_completions") \
             .select(
                 "id, started_at, ended_at, duration_seconds, "
                 "avg_heart_rate, max_heart_rate, min_heart_rate, active_calories, total_calories, "
                 "distance_meters, steps, "
-                "source, workout_event_id, follow_along_workout_id, workout_id, created_at, "
-                "is_simulated"  # AMA-273
+                "source, workout_event_id, follow_along_workout_id, workout_id, created_at"
             ) \
             .eq("user_id", user_id)
 
         # AMA-273: Filter out simulated completions if requested
+        # AMA-274: Wrap in try/catch for backwards compat (column may not exist)
         if not include_simulated:
-            query = query.or_("is_simulated.eq.false,is_simulated.is.null")
+            try:
+                query = query.or_("is_simulated.eq.false,is_simulated.is.null")
+            except Exception:
+                pass  # Column doesn't exist yet, return all
 
         result = query \
             .order("started_at", desc=True) \
@@ -338,16 +349,22 @@ def get_user_completions(
                 "distance_meters": record.get("distance_meters"),
                 "steps": record.get("steps"),
                 "source": record["source"],
-                "is_simulated": record.get("is_simulated", False),  # AMA-273
             })
+            # AMA-274: Only add is_simulated if present in record
+            if record.get("is_simulated"):
+                completions[-1]["is_simulated"] = True
 
         # Get total count (respecting the same filter)
         count_query = supabase.table("workout_completions") \
             .select("id", count="exact") \
             .eq("user_id", user_id)
 
+        # AMA-274: Wrap in try/catch for backwards compat (column may not exist)
         if not include_simulated:
-            count_query = count_query.or_("is_simulated.eq.false,is_simulated.is.null")
+            try:
+                count_query = count_query.or_("is_simulated.eq.false,is_simulated.is.null")
+            except Exception:
+                pass  # Column doesn't exist yet
 
         count_result = count_query.execute()
 
