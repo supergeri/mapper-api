@@ -113,6 +113,7 @@ from backend.mobile_pairing import (
     get_paired_devices,
     revoke_device,
     refresh_jwt_for_device,
+    fetch_clerk_profile,  # AMA-269: Fetch user profile from Clerk
 )
 from backend.workout_completions import (
     WorkoutCompletionRequest,
@@ -2624,26 +2625,50 @@ async def get_mobile_profile_endpoint(
     user_id: str = Depends(get_current_user)
 ):
     """
-    Get current user's profile for mobile apps (AMA-268).
+    Get current user's profile for mobile apps (AMA-268, AMA-269).
 
     Returns the authenticated user's profile information.
+    Fetches from Clerk API for accurate data, with database fallback.
     Supports both JWT authentication and X-Test-Auth for E2E testing.
     """
-    profile = get_profile(user_id)
-    if not profile:
-        # Return minimal profile if not found in database
+    # Try Clerk API first for most accurate profile data (AMA-269)
+    clerk_profile = fetch_clerk_profile(user_id)
+    if clerk_profile:
+        # Combine first_name + last_name for name field
+        name_parts = []
+        if clerk_profile.get("first_name"):
+            name_parts.append(clerk_profile["first_name"])
+        if clerk_profile.get("last_name"):
+            name_parts.append(clerk_profile["last_name"])
+        name = " ".join(name_parts) if name_parts else None
+
         return {
             "success": True,
             "profile": {
-                "id": user_id,
-                "email": None,
-                "name": None,
-                "avatar_url": None
+                "id": clerk_profile["id"],
+                "email": clerk_profile.get("email"),
+                "name": name,
+                "avatar_url": clerk_profile.get("image_url")
             }
         }
+
+    # Fallback to database profile
+    db_profile = get_profile(user_id)
+    if db_profile:
+        return {
+            "success": True,
+            "profile": db_profile
+        }
+
+    # Return minimal profile if neither source has data
     return {
         "success": True,
-        "profile": profile
+        "profile": {
+            "id": user_id,
+            "email": None,
+            "name": None,
+            "avatar_url": None
+        }
     }
 
 
