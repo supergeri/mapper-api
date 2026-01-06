@@ -3554,3 +3554,94 @@ async def match_exercises_batch(request: ExerciseMatchBatchRequest):
         needs_review=review_count,
         unmapped=unmapped_count,
     )
+
+
+# =============================================================================
+# Testing Endpoints (AMA-250)
+# =============================================================================
+
+# Environment check and secret for reset endpoint
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+TEST_RESET_SECRET = os.getenv("TEST_RESET_SECRET", "")
+
+
+@app.post("/testing/reset-user-data")
+async def reset_user_data_endpoint(
+    user_id: str = Depends(get_current_user),
+    x_test_secret: Optional[str] = Header(None, alias="X-Test-Secret"),
+):
+    """
+    Reset all user data without deleting the account.
+
+    **WARNING:** This endpoint permanently deletes user data.
+    Only available in dev/staging environments.
+
+    Security requirements:
+    - Must be authenticated (valid JWT or API key)
+    - Must provide X-Test-Secret header matching TEST_RESET_SECRET env var
+    - Only works in non-production environments
+
+    Deletes:
+    - All workouts
+    - All workout completions
+    - All programs and tags
+    - All follow-along workouts
+    - All paired devices
+    - Voice settings and corrections
+    - Calendar events
+
+    Keeps:
+    - Clerk user account (authentication continues to work)
+    - External service connections (Strava, Garmin)
+    - User profile entry
+    """
+    from datetime import datetime, timezone
+    from backend.database import reset_user_data
+
+    # Security check 1: Environment restriction
+    if ENVIRONMENT == "production":
+        logger.warning(f"Reset user data attempted in production by {user_id} - denied")
+        raise HTTPException(
+            status_code=403,
+            detail="This endpoint is not available in production"
+        )
+
+    # Security check 2: Verify TEST_RESET_SECRET is configured
+    if not TEST_RESET_SECRET:
+        logger.warning(f"Reset user data attempted but TEST_RESET_SECRET not configured")
+        raise HTTPException(
+            status_code=403,
+            detail="Reset endpoint not configured (TEST_RESET_SECRET missing)"
+        )
+
+    # Security check 3: Validate the secret header
+    if not x_test_secret or x_test_secret != TEST_RESET_SECRET:
+        logger.warning(f"Reset user data attempted by {user_id} with invalid secret")
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid X-Test-Secret header"
+        )
+
+    # All checks passed - perform the reset
+    logger.info(f"Resetting user data for {user_id} (environment: {ENVIRONMENT})")
+
+    try:
+        result = reset_user_data(user_id)
+
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error", "Failed to reset user data")
+            )
+
+        return {
+            "success": True,
+            "deleted": result.get("deleted", {}),
+            "user_id": user_id,
+            "reset_at": datetime.now(timezone.utc).isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to reset user data for {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -1301,3 +1301,110 @@ def delete_user_account(profile_id: str) -> Dict[str, Any]:
         logger.error(f"Failed to delete user account {profile_id}: {e}")
         return {"success": False, "error": str(e)}
 
+
+# =============================================================================
+# Reset User Data (AMA-250) - For Testing Only
+# =============================================================================
+
+def reset_user_data(profile_id: str) -> Dict[str, Any]:
+    """
+    Reset all user data without deleting the account.
+
+    This clears all user-generated data while keeping:
+    - The Clerk user account
+    - External service connections (Strava, Garmin tokens)
+    - The user profile entry
+
+    Useful for testing/development to get a "clean slate" without
+    recreating accounts.
+
+    Args:
+        profile_id: User profile ID (Clerk user ID)
+
+    Returns:
+        Dict with deletion results including counts per table
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        return {"success": False, "error": "Database not available"}
+
+    deleted_counts = {}
+
+    try:
+        # Delete workouts
+        try:
+            result = supabase.table("workouts").delete().eq("profile_id", profile_id).execute()
+            deleted_counts["workouts"] = len(result.data) if result.data else 0
+        except Exception as e:
+            logger.warning(f"Error deleting workouts during reset: {e}")
+            deleted_counts["workouts"] = 0
+
+        # Delete workout completions
+        try:
+            result = supabase.table("workout_completions").delete().eq("user_id", profile_id).execute()
+            deleted_counts["workout_completions"] = len(result.data) if result.data else 0
+        except Exception:
+            deleted_counts["workout_completions"] = 0
+
+        # Delete workout programs
+        try:
+            result = supabase.table("workout_programs").delete().eq("profile_id", profile_id).execute()
+            deleted_counts["programs"] = len(result.data) if result.data else 0
+        except Exception:
+            deleted_counts["programs"] = 0
+
+        # Delete user tags
+        try:
+            result = supabase.table("user_tags").delete().eq("profile_id", profile_id).execute()
+            deleted_counts["tags"] = len(result.data) if result.data else 0
+        except Exception:
+            deleted_counts["tags"] = 0
+
+        # Delete follow-along workouts
+        try:
+            result = supabase.table("follow_along_workouts").delete().eq("user_id", profile_id).execute()
+            deleted_counts["follow_along_workouts"] = len(result.data) if result.data else 0
+        except Exception:
+            deleted_counts["follow_along_workouts"] = 0
+
+        # Delete mobile pairing tokens (paired devices)
+        try:
+            result = supabase.table("mobile_pairing_tokens").delete().eq("clerk_user_id", profile_id).execute()
+            deleted_counts["paired_devices"] = len(result.data) if result.data else 0
+        except Exception:
+            deleted_counts["paired_devices"] = 0
+
+        # Delete voice settings
+        try:
+            result = supabase.table("user_voice_settings").delete().eq("user_id", profile_id).execute()
+            deleted_counts["voice_settings"] = len(result.data) if result.data else 0
+        except Exception:
+            deleted_counts["voice_settings"] = 0
+
+        # Delete voice corrections
+        try:
+            result = supabase.table("user_voice_corrections").delete().eq("user_id", profile_id).execute()
+            deleted_counts["voice_corrections"] = len(result.data) if result.data else 0
+        except Exception:
+            deleted_counts["voice_corrections"] = 0
+
+        # Delete workout events (calendar)
+        try:
+            result = supabase.table("workout_events").delete().eq("user_id", profile_id).execute()
+            deleted_counts["workout_events"] = len(result.data) if result.data else 0
+        except Exception:
+            deleted_counts["workout_events"] = 0
+
+        # NOTE: We intentionally DO NOT delete:
+        # - strava_tokens (keep external connections)
+        # - garmin_tokens (keep external connections)
+        # - profiles (keep the user account)
+        # - clerk user (keep authentication working)
+
+        logger.info(f"Reset user data for {profile_id}: {deleted_counts}")
+        return {"success": True, "deleted": deleted_counts}
+
+    except Exception as e:
+        logger.error(f"Failed to reset user data for {profile_id}: {e}")
+        return {"success": False, "error": str(e)}
+
