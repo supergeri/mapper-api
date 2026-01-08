@@ -32,6 +32,21 @@ class SimulationConfig(BaseModel):
     hr_profile: Optional[str] = None  # "athletic", "average"
 
 
+class SetEntry(BaseModel):
+    """Individual set within an exercise log (AMA-281)."""
+    set_number: int
+    weight: Optional[float] = None  # Weight used (null if skipped)
+    unit: Optional[str] = None  # "lbs" or "kg" (null if weight not logged)
+    completed: bool = True  # Whether the set was completed
+
+
+class SetLog(BaseModel):
+    """Log of sets for a single exercise (AMA-281)."""
+    exercise_name: str
+    exercise_index: int  # Position in the workout structure
+    sets: List[SetEntry]
+
+
 class WorkoutCompletionRequest(BaseModel):
     """Request from iOS app when workout completes."""
     workout_event_id: Optional[str] = None
@@ -46,6 +61,8 @@ class WorkoutCompletionRequest(BaseModel):
     heart_rate_samples: Optional[List[Dict[str, Any]]] = None  # [{t, bpm}, ...]
     workout_structure: Optional[List[Dict[str, Any]]] = None  # Original workout intervals (AMA-240)
     intervals: Optional[List[Dict[str, Any]]] = None  # Backwards compat alias for workout_structure
+    # Weight tracking (AMA-281)
+    set_logs: Optional[List[SetLog]] = None  # Logged weights per exercise/set
     # Simulation fields (AMA-273)
     is_simulated: bool = False
     simulation_config: Optional[SimulationConfig] = None
@@ -156,6 +173,10 @@ def save_workout_completion(
             "heart_rate_samples": request.heart_rate_samples,
             "workout_structure": workout_structure,  # AMA-240
         }
+
+        # AMA-281: Add set_logs if provided (weight tracking)
+        if request.set_logs:
+            record["set_logs"] = [log.model_dump() for log in request.set_logs]
 
         # AMA-273: Only add simulation fields if simulated (backwards compat for pre-migration)
         # This allows inserts to work even if the columns don't exist yet
@@ -488,6 +509,7 @@ def get_completion_by_id(
             "heart_rate_samples": record.get("heart_rate_samples"),
             "workout_structure": workout_structure,  # AMA-240: stored or fetched from source
             "intervals": workout_structure,  # Backwards compat alias for iOS (AMA-240)
+            "set_logs": record.get("set_logs"),  # AMA-281: Weight tracking per exercise/set
             "created_at": record["created_at"],
             # AMA-273: Simulation fields
             "is_simulated": is_simulated,

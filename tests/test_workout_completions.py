@@ -845,3 +845,175 @@ def test_get_completion_returns_workout_structure():
         assert result is not None
         assert result["workout_structure"] == workout_structure
         assert result["intervals"] == workout_structure  # Backwards compat alias
+
+
+# ============================================================================
+# AMA-281: set_logs field tests for weight tracking
+# ============================================================================
+
+def test_set_log_model_structure():
+    """Test SetLog and SetEntry models accept valid data."""
+    from backend.workout_completions import SetLog, SetEntry
+
+    entry = SetEntry(set_number=1, weight=135.0, unit="lbs", completed=True)
+    assert entry.set_number == 1
+    assert entry.weight == 135.0
+    assert entry.unit == "lbs"
+    assert entry.completed is True
+
+    log = SetLog(
+        exercise_name="Bench Press",
+        exercise_index=2,
+        sets=[entry]
+    )
+    assert log.exercise_name == "Bench Press"
+    assert log.exercise_index == 2
+    assert len(log.sets) == 1
+
+
+def test_set_entry_allows_null_weight():
+    """Test SetEntry allows null weight for skipped weight entries."""
+    from backend.workout_completions import SetEntry
+
+    entry = SetEntry(set_number=1, weight=None, unit=None, completed=True)
+    assert entry.weight is None
+    assert entry.unit is None
+    assert entry.completed is True
+
+
+def test_save_completion_with_set_logs():
+    """save_workout_completion stores set_logs field (AMA-281)."""
+    from backend.workout_completions import SetLog, SetEntry
+
+    mock_supabase = MagicMock()
+    mock_supabase.table.return_value.insert.return_value.execute.return_value = MagicMock(
+        data=[{"id": "completion-123"}]
+    )
+
+    with patch('backend.workout_completions.get_supabase_client', return_value=mock_supabase):
+        set_logs = [
+            SetLog(
+                exercise_name="Bench Press",
+                exercise_index=2,
+                sets=[
+                    SetEntry(set_number=1, weight=135.0, unit="lbs", completed=True),
+                    SetEntry(set_number=2, weight=135.0, unit="lbs", completed=True),
+                    SetEntry(set_number=3, weight=None, unit=None, completed=True),
+                ]
+            )
+        ]
+        request = _make_completion_request(set_logs=set_logs)
+        result = save_workout_completion("user-123", request)
+
+        assert result["success"] is True
+        # Verify set_logs was passed to insert
+        insert_call = mock_supabase.table.return_value.insert.call_args
+        record = insert_call[0][0]
+        assert "set_logs" in record
+        assert len(record["set_logs"]) == 1
+        assert record["set_logs"][0]["exercise_name"] == "Bench Press"
+        assert len(record["set_logs"][0]["sets"]) == 3
+
+
+def test_save_completion_without_set_logs():
+    """save_workout_completion works without set_logs field (backwards compat)."""
+    mock_supabase = MagicMock()
+    mock_supabase.table.return_value.insert.return_value.execute.return_value = MagicMock(
+        data=[{"id": "completion-123"}]
+    )
+
+    with patch('backend.workout_completions.get_supabase_client', return_value=mock_supabase):
+        request = _make_completion_request()  # No set_logs
+        result = save_workout_completion("user-123", request)
+
+        assert result["success"] is True
+        # Verify set_logs was NOT included in the record
+        insert_call = mock_supabase.table.return_value.insert.call_args
+        record = insert_call[0][0]
+        assert "set_logs" not in record
+
+
+def test_get_completion_returns_set_logs():
+    """get_completion_by_id returns stored set_logs (AMA-281)."""
+    from backend.workout_completions import get_completion_by_id
+
+    mock_supabase = MagicMock()
+    set_logs = [
+        {
+            "exercise_name": "Squat",
+            "exercise_index": 0,
+            "sets": [
+                {"set_number": 1, "weight": 185.0, "unit": "lbs", "completed": True},
+                {"set_number": 2, "weight": 185.0, "unit": "lbs", "completed": True},
+            ]
+        }
+    ]
+
+    # Mock completion record with set_logs
+    mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value = MagicMock(
+        data={
+            "id": "completion-123",
+            "user_id": "user-123",
+            "started_at": "2026-01-08T10:00:00Z",
+            "ended_at": "2026-01-08T10:30:00Z",
+            "duration_seconds": 1800,
+            "source": "apple_watch",
+            "created_at": "2026-01-08T10:30:00Z",
+            "workout_structure": None,
+            "set_logs": set_logs,
+            "workout_id": None,
+            "follow_along_workout_id": None,
+            "workout_event_id": None,
+        }
+    )
+
+    with patch('backend.workout_completions.get_supabase_client', return_value=mock_supabase):
+        result = get_completion_by_id("user-123", "completion-123")
+
+        assert result is not None
+        assert result["set_logs"] == set_logs
+        assert result["set_logs"][0]["exercise_name"] == "Squat"
+        assert len(result["set_logs"][0]["sets"]) == 2
+
+
+def test_complete_workout_endpoint_accepts_set_logs(client):
+    """POST /workouts/complete accepts set_logs in request body (AMA-281)."""
+    with patch('backend.app.save_workout_completion') as mock_save:
+        mock_save.return_value = {
+            "success": True,
+            "id": str(uuid.uuid4()),
+            "summary": {"duration_formatted": "30:00", "avg_heart_rate": 135, "calories": 250}
+        }
+
+        resp = client.post("/workouts/complete", json={
+            "workout_id": str(uuid.uuid4()),
+            "started_at": "2026-01-08T14:00:00Z",
+            "ended_at": "2026-01-08T14:30:00Z",
+            "source": "apple_watch",
+            "health_metrics": {
+                "avg_heart_rate": 135,
+                "active_calories": 250
+            },
+            "set_logs": [
+                {
+                    "exercise_name": "Bench Press",
+                    "exercise_index": 2,
+                    "sets": [
+                        {"set_number": 1, "weight": 135, "unit": "lbs", "completed": True},
+                        {"set_number": 2, "weight": 140, "unit": "lbs", "completed": True},
+                    ]
+                }
+            ]
+        })
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+
+        # Verify set_logs was passed to save function
+        mock_save.assert_called_once()
+        call_args = mock_save.call_args
+        request_obj = call_args[0][1]  # Second positional arg is the request
+        assert request_obj.set_logs is not None
+        assert len(request_obj.set_logs) == 1
+        assert request_obj.set_logs[0].exercise_name == "Bench Press"
