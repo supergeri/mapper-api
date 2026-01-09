@@ -1017,3 +1017,200 @@ def test_complete_workout_endpoint_accepts_set_logs(client):
         assert request_obj.set_logs is not None
         assert len(request_obj.set_logs) == 1
         assert request_obj.set_logs[0].exercise_name == "Bench Press"
+
+
+# ============================================================================
+# AMA-290: execution_log field tests
+# ============================================================================
+
+def test_execution_log_models():
+    """Test ExecutionLog and related models accept valid data (AMA-290)."""
+    from backend.workout_completions import (
+        IntervalSetExecution,
+        IntervalExecution,
+        ExecutionSummary,
+        ExecutionLog
+    )
+
+    set_exec = IntervalSetExecution(
+        set_number=1,
+        status="completed",
+        weight=135.0,
+        unit="lbs"
+    )
+    assert set_exec.set_number == 1
+    assert set_exec.status == "completed"
+    assert set_exec.weight == 135.0
+
+    interval = IntervalExecution(
+        interval_index=0,
+        kind="reps",
+        name="Bench Press",
+        status="completed",
+        sets=[set_exec]
+    )
+    assert interval.interval_index == 0
+    assert interval.kind == "reps"
+    assert len(interval.sets) == 1
+
+    summary = ExecutionSummary(
+        total_intervals=5,
+        completed=4,
+        skipped=1,
+        completion_percentage=80.0
+    )
+    assert summary.total_intervals == 5
+    assert summary.completion_percentage == 80.0
+
+    log = ExecutionLog(intervals=[interval], summary=summary)
+    assert len(log.intervals) == 1
+    assert log.summary.completed == 4
+
+
+def test_merge_set_logs_to_execution_log_basic():
+    """Test merge_set_logs_to_execution_log converts set_logs correctly (AMA-290)."""
+    from backend.workout_completions import merge_set_logs_to_execution_log
+
+    workout_structure = [
+        {"kind": "warmup", "name": "Warmup", "duration": 300},
+        {"kind": "reps", "name": "Bench Press", "sets": 3, "reps": 10},
+        {"kind": "rest", "name": "Rest", "duration": 60},
+    ]
+
+    set_logs = [
+        {
+            "exercise_name": "Bench Press",
+            "exercise_index": 1,
+            "sets": [
+                {"set_number": 1, "weight": 135.0, "unit": "lbs", "completed": True},
+                {"set_number": 2, "weight": 140.0, "unit": "lbs", "completed": True},
+            ]
+        }
+    ]
+
+    result = merge_set_logs_to_execution_log(workout_structure, set_logs)
+
+    assert result is not None
+    assert "intervals" in result
+    assert "summary" in result
+    assert len(result["intervals"]) == 3
+
+    # Check the reps interval has sets merged
+    reps_interval = result["intervals"][1]
+    assert reps_interval["name"] == "Bench Press"
+    assert "sets" in reps_interval
+    assert len(reps_interval["sets"]) == 2
+    assert reps_interval["sets"][0]["weight"] == 135.0
+
+
+def test_merge_set_logs_empty_returns_none():
+    """Test merge_set_logs_to_execution_log returns None for empty set_logs."""
+    from backend.workout_completions import merge_set_logs_to_execution_log
+
+    result = merge_set_logs_to_execution_log(None, None)
+    assert result is None
+
+    result = merge_set_logs_to_execution_log([], [])
+    assert result is None
+
+
+def test_save_completion_with_execution_log():
+    """save_workout_completion stores execution_log field directly (AMA-290)."""
+    mock_supabase = MagicMock()
+    mock_supabase.table.return_value.insert.return_value.execute.return_value = MagicMock(
+        data=[{"id": "completion-123"}]
+    )
+
+    with patch('backend.workout_completions.get_supabase_client', return_value=mock_supabase):
+        execution_log = {
+            "intervals": [
+                {"interval_index": 0, "kind": "reps", "name": "Squat", "status": "completed"}
+            ],
+            "summary": {"total_intervals": 1, "completed": 1, "skipped": 0}
+        }
+        request = _make_completion_request(execution_log=execution_log)
+        result = save_workout_completion("user-123", request)
+
+        assert result["success"] is True
+        # Verify execution_log was passed to insert
+        insert_call = mock_supabase.table.return_value.insert.call_args
+        record = insert_call[0][0]
+        assert "execution_log" in record
+        assert record["execution_log"]["intervals"][0]["name"] == "Squat"
+
+
+def test_save_completion_merges_set_logs_to_execution_log():
+    """save_workout_completion merges set_logs to execution_log when not provided (AMA-290)."""
+    from backend.workout_completions import SetLog, SetEntry
+
+    mock_supabase = MagicMock()
+    mock_supabase.table.return_value.insert.return_value.execute.return_value = MagicMock(
+        data=[{"id": "completion-123"}]
+    )
+
+    with patch('backend.workout_completions.get_supabase_client', return_value=mock_supabase):
+        workout_structure = [
+            {"kind": "reps", "name": "Bench Press", "sets": 2, "reps": 10},
+        ]
+        set_logs = [
+            SetLog(
+                exercise_name="Bench Press",
+                exercise_index=0,
+                sets=[
+                    SetEntry(set_number=1, weight=135.0, unit="lbs", completed=True),
+                ]
+            )
+        ]
+        request = _make_completion_request(
+            workout_structure=workout_structure,
+            set_logs=set_logs
+            # Note: execution_log not provided, should be auto-generated
+        )
+        result = save_workout_completion("user-123", request)
+
+        assert result["success"] is True
+        # Verify execution_log was auto-generated from set_logs
+        insert_call = mock_supabase.table.return_value.insert.call_args
+        record = insert_call[0][0]
+        assert "execution_log" in record
+        assert len(record["execution_log"]["intervals"]) == 1
+        assert record["execution_log"]["intervals"][0]["sets"][0]["weight"] == 135.0
+
+
+def test_get_completion_returns_execution_log():
+    """get_completion_by_id returns stored execution_log (AMA-290)."""
+    from backend.workout_completions import get_completion_by_id
+
+    mock_supabase = MagicMock()
+    execution_log = {
+        "intervals": [
+            {"interval_index": 0, "kind": "reps", "name": "Deadlift", "status": "completed"}
+        ],
+        "summary": {"total_intervals": 1, "completed": 1, "skipped": 0}
+    }
+
+    # Mock completion record with execution_log
+    mock_supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.single.return_value.execute.return_value = MagicMock(
+        data={
+            "id": "completion-123",
+            "user_id": "user-123",
+            "started_at": "2026-01-09T10:00:00Z",
+            "ended_at": "2026-01-09T10:30:00Z",
+            "duration_seconds": 1800,
+            "source": "apple_watch",
+            "created_at": "2026-01-09T10:30:00Z",
+            "workout_structure": None,
+            "set_logs": None,
+            "execution_log": execution_log,
+            "workout_id": None,
+            "follow_along_workout_id": None,
+            "workout_event_id": None,
+        }
+    )
+
+    with patch('backend.workout_completions.get_supabase_client', return_value=mock_supabase):
+        result = get_completion_by_id("user-123", "completion-123")
+
+        assert result is not None
+        assert result["execution_log"] == execution_log
+        assert result["execution_log"]["intervals"][0]["name"] == "Deadlift"
