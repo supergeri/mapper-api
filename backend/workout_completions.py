@@ -47,6 +47,47 @@ class SetLog(BaseModel):
     sets: List[SetEntry]
 
 
+# AMA-290: Execution log models for capturing actual workout execution
+class IntervalSetExecution(BaseModel):
+    """Execution data for a single set within an interval (AMA-290)."""
+    set_number: int
+    status: str = "completed"  # "completed", "skipped"
+    reps_completed: Optional[int] = None
+    weight: Optional[float] = None
+    unit: Optional[str] = None  # "lbs" or "kg"
+    duration_sec: Optional[int] = None
+    rpe: Optional[int] = None  # Rate of Perceived Exertion (1-10)
+
+
+class IntervalExecution(BaseModel):
+    """Execution data for a single interval (AMA-290)."""
+    interval_index: int
+    kind: Optional[str] = None  # "warmup", "cooldown", "work", "rest", "reps"
+    name: Optional[str] = None
+    status: str = "completed"  # "completed", "skipped", "modified"
+    planned_duration_sec: Optional[int] = None
+    actual_duration_sec: Optional[int] = None
+    started_at: Optional[str] = None
+    ended_at: Optional[str] = None
+    planned: Optional[Dict[str, Any]] = None  # For reps: {"sets": 4, "reps": 10}
+    sets: Optional[List[IntervalSetExecution]] = None  # For reps-based intervals
+
+
+class ExecutionSummary(BaseModel):
+    """Summary statistics for execution log (AMA-290)."""
+    total_intervals: int = 0
+    completed: int = 0
+    skipped: int = 0
+    modified: int = 0
+    completion_percentage: float = 0
+
+
+class ExecutionLog(BaseModel):
+    """Full execution log structure (AMA-290)."""
+    intervals: List[IntervalExecution] = []
+    summary: Optional[ExecutionSummary] = None
+
+
 class WorkoutCompletionRequest(BaseModel):
     """Request from iOS app when workout completes."""
     workout_event_id: Optional[str] = None
@@ -61,8 +102,10 @@ class WorkoutCompletionRequest(BaseModel):
     heart_rate_samples: Optional[List[Dict[str, Any]]] = None  # [{t, bpm}, ...]
     workout_structure: Optional[List[Dict[str, Any]]] = None  # Original workout intervals (AMA-240)
     intervals: Optional[List[Dict[str, Any]]] = None  # Backwards compat alias for workout_structure
-    # Weight tracking (AMA-281)
+    # Weight tracking (AMA-281) - deprecated, use execution_log instead
     set_logs: Optional[List[SetLog]] = None  # Logged weights per exercise/set
+    # Execution log (AMA-290) - captures actual execution vs planned
+    execution_log: Optional[Dict[str, Any]] = None
     # Simulation fields (AMA-273)
     is_simulated: bool = False
     simulation_config: Optional[SimulationConfig] = None
@@ -107,6 +150,106 @@ def calculate_duration_seconds(started_at: str, ended_at: str) -> int:
     except Exception as e:
         logger.error(f"Error calculating duration: {e}")
         return 0
+
+
+def merge_set_logs_to_execution_log(
+    workout_structure: Optional[List[Dict[str, Any]]],
+    set_logs: Optional[List[Dict[str, Any]]]
+) -> Optional[Dict[str, Any]]:
+    """
+    Convert legacy set_logs to execution_log format (AMA-290).
+
+    When set_logs is provided but execution_log is not, build an execution_log
+    from the set_logs data merged with workout_structure intervals.
+
+    Args:
+        workout_structure: List of planned intervals from the workout
+        set_logs: Legacy set_logs data with weight entries
+
+    Returns:
+        ExecutionLog dict or None if no data to merge
+    """
+    if not set_logs:
+        return None
+
+    # Build a lookup map from exercise_index to set_log
+    set_log_map = {}
+    for log in set_logs:
+        idx = log.get("exercise_index")
+        if idx is not None:
+            set_log_map[idx] = log
+
+    intervals = []
+    completed_count = 0
+    skipped_count = 0
+
+    # If we have workout_structure, iterate through all intervals
+    if workout_structure:
+        for i, interval in enumerate(workout_structure):
+            interval_log = {
+                "interval_index": i,
+                "kind": interval.get("kind") or interval.get("type"),
+                "name": interval.get("name") or interval.get("target"),
+                "status": "completed",  # Default for intervals with set_logs
+            }
+
+            # Check if this interval has matching set_log data
+            matching_log = set_log_map.get(i)
+
+            if matching_log and matching_log.get("sets"):
+                # Convert set_logs format to execution_log sets format
+                exec_sets = []
+                for set_entry in matching_log["sets"]:
+                    exec_set = {
+                        "set_number": set_entry.get("set_number", 1),
+                        "status": "completed" if set_entry.get("completed", True) else "skipped",
+                        "weight": set_entry.get("weight"),
+                        "unit": set_entry.get("unit"),
+                    }
+                    exec_sets.append(exec_set)
+                interval_log["sets"] = exec_sets
+                completed_count += 1
+            else:
+                # Interval without set_log data - mark as completed (we only have data for reps exercises)
+                completed_count += 1
+
+            intervals.append(interval_log)
+    else:
+        # No workout_structure, just convert set_logs directly
+        for log in set_logs:
+            interval_log = {
+                "interval_index": log.get("exercise_index", 0),
+                "kind": "reps",
+                "name": log.get("exercise_name"),
+                "status": "completed",
+            }
+            if log.get("sets"):
+                exec_sets = []
+                for set_entry in log["sets"]:
+                    exec_set = {
+                        "set_number": set_entry.get("set_number", 1),
+                        "status": "completed" if set_entry.get("completed", True) else "skipped",
+                        "weight": set_entry.get("weight"),
+                        "unit": set_entry.get("unit"),
+                    }
+                    exec_sets.append(exec_set)
+                interval_log["sets"] = exec_sets
+            intervals.append(interval_log)
+            completed_count += 1
+
+    total = len(intervals)
+    summary = {
+        "total_intervals": total,
+        "completed": completed_count,
+        "skipped": skipped_count,
+        "modified": 0,
+        "completion_percentage": round((completed_count / total) * 100, 1) if total > 0 else 0
+    }
+
+    return {
+        "intervals": intervals,
+        "summary": summary
+    }
 
 
 # ============================================================================
@@ -177,6 +320,21 @@ def save_workout_completion(
         # AMA-281: Add set_logs if provided (weight tracking)
         if request.set_logs:
             record["set_logs"] = [log.model_dump() for log in request.set_logs]
+
+        # AMA-290: Handle execution_log
+        # If execution_log provided directly, use it
+        # Otherwise, if set_logs provided, merge into execution_log format
+        if request.execution_log:
+            record["execution_log"] = request.execution_log
+        elif request.set_logs:
+            # Convert set_logs to execution_log format for unified storage
+            set_logs_dicts = [log.model_dump() for log in request.set_logs]
+            merged_execution_log = merge_set_logs_to_execution_log(
+                workout_structure,
+                set_logs_dicts
+            )
+            if merged_execution_log:
+                record["execution_log"] = merged_execution_log
 
         # AMA-273: Only add simulation fields if simulated (backwards compat for pre-migration)
         # This allows inserts to work even if the columns don't exist yet
@@ -510,6 +668,7 @@ def get_completion_by_id(
             "workout_structure": workout_structure,  # AMA-240: stored or fetched from source
             "intervals": workout_structure,  # Backwards compat alias for iOS (AMA-240)
             "set_logs": record.get("set_logs"),  # AMA-281: Weight tracking per exercise/set
+            "execution_log": record.get("execution_log"),  # AMA-290: Actual execution data
             "created_at": record["created_at"],
             # AMA-273: Simulation fields
             "is_simulated": is_simulated,
