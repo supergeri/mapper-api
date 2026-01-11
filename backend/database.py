@@ -1437,3 +1437,247 @@ def reset_user_data(profile_id: str) -> Dict[str, Any]:
         logger.error(f"Failed to reset user data for {profile_id}: {e}")
         return {"success": False, "error": str(e)}
 
+
+# =============================================================================
+# Workout Sync Queue (AMA-307)
+# =============================================================================
+
+def queue_workout_sync(
+    workout_id: str,
+    user_id: str,
+    device_type: str,
+    device_id: str = ""
+) -> Optional[Dict[str, Any]]:
+    """
+    Queue a workout for sync to a device.
+    Creates a 'pending' entry in the workout_sync_queue table.
+
+    Args:
+        workout_id: The workout UUID
+        user_id: The user's Clerk ID
+        device_type: Target device type ('ios', 'android', 'garmin')
+        device_id: Optional device identifier for multi-device support
+
+    Returns:
+        Dict with status and queued_at, or None on failure
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        logger.error("Supabase client not available")
+        return None
+
+    try:
+        result = supabase.table("workout_sync_queue").upsert({
+            "workout_id": workout_id,
+            "user_id": user_id,
+            "device_type": device_type,
+            "device_id": device_id or "",
+            "status": "pending",
+            "queued_at": "now()",
+            "synced_at": None,
+            "failed_at": None,
+            "error_message": None,
+        }, on_conflict="workout_id,device_type,device_id").execute()
+
+        if result.data and len(result.data) > 0:
+            return {
+                "status": "pending",
+                "queued_at": result.data[0].get("queued_at")
+            }
+
+        logger.warning(f"No data returned from sync queue upsert for workout {workout_id}")
+        return None
+
+    except Exception as e:
+        logger.error(f"Failed to queue workout sync: {e}")
+        return None
+
+
+def get_pending_syncs(
+    user_id: str,
+    device_type: str,
+    device_id: str = ""
+) -> List[Dict[str, Any]]:
+    """
+    Get pending workout syncs for a device.
+
+    Args:
+        user_id: The user's Clerk ID
+        device_type: Target device type ('ios', 'android', 'garmin')
+        device_id: Optional device identifier
+
+    Returns:
+        List of pending sync entries with workout details
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        logger.error("Supabase client not available")
+        return []
+
+    try:
+        # Query pending syncs joined with workouts
+        query = supabase.table("workout_sync_queue").select(
+            "id, workout_id, queued_at, workouts(id, title, workout_data, created_at)"
+        ).eq("user_id", user_id).eq("device_type", device_type).eq("status", "pending")
+
+        if device_id:
+            # Match specific device or any device
+            query = query.in_("device_id", [device_id, ""])
+        else:
+            query = query.eq("device_id", "")
+
+        result = query.order("queued_at", desc=False).execute()
+
+        if result.data:
+            return result.data
+
+        return []
+
+    except Exception as e:
+        logger.error(f"Failed to get pending syncs: {e}")
+        return []
+
+
+def confirm_sync(
+    workout_id: str,
+    user_id: str,
+    device_type: str,
+    device_id: str = ""
+) -> Optional[Dict[str, Any]]:
+    """
+    Confirm that a workout was successfully downloaded by the device.
+
+    Args:
+        workout_id: The workout UUID
+        user_id: The user's Clerk ID
+        device_type: Device type ('ios', 'android', 'garmin')
+        device_id: Optional device identifier
+
+    Returns:
+        Dict with status and synced_at, or None on failure
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        logger.error("Supabase client not available")
+        return None
+
+    try:
+        result = supabase.table("workout_sync_queue").update({
+            "status": "synced",
+            "synced_at": "now()",
+        }).eq("workout_id", workout_id).eq(
+            "user_id", user_id
+        ).eq("device_type", device_type).eq(
+            "device_id", device_id or ""
+        ).execute()
+
+        if result.data and len(result.data) > 0:
+            return {
+                "status": "synced",
+                "synced_at": result.data[0].get("synced_at")
+            }
+
+        logger.warning(f"No sync queue entry found for workout {workout_id}")
+        return None
+
+    except Exception as e:
+        logger.error(f"Failed to confirm sync: {e}")
+        return None
+
+
+def report_sync_failed(
+    workout_id: str,
+    user_id: str,
+    device_type: str,
+    error_message: str,
+    device_id: str = ""
+) -> Optional[Dict[str, Any]]:
+    """
+    Report that a workout sync failed.
+
+    Args:
+        workout_id: The workout UUID
+        user_id: The user's Clerk ID
+        device_type: Device type ('ios', 'android', 'garmin')
+        error_message: Error description
+        device_id: Optional device identifier
+
+    Returns:
+        Dict with status and failed_at, or None on failure
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        logger.error("Supabase client not available")
+        return None
+
+    try:
+        result = supabase.table("workout_sync_queue").update({
+            "status": "failed",
+            "failed_at": "now()",
+            "error_message": error_message,
+        }).eq("workout_id", workout_id).eq(
+            "user_id", user_id
+        ).eq("device_type", device_type).eq(
+            "device_id", device_id or ""
+        ).execute()
+
+        if result.data and len(result.data) > 0:
+            return {
+                "status": "failed",
+                "failed_at": result.data[0].get("failed_at"),
+                "error_message": error_message
+            }
+
+        logger.warning(f"No sync queue entry found for workout {workout_id}")
+        return None
+
+    except Exception as e:
+        logger.error(f"Failed to report sync failure: {e}")
+        return None
+
+
+def get_workout_sync_status(
+    workout_id: str,
+    user_id: str
+) -> Dict[str, Any]:
+    """
+    Get sync status for a workout across all device types.
+
+    Args:
+        workout_id: The workout UUID
+        user_id: The user's Clerk ID
+
+    Returns:
+        Dict with sync status for each device type (ios, android, garmin)
+    """
+    supabase = get_supabase_client()
+    if not supabase:
+        logger.error("Supabase client not available")
+        return {"ios": None, "android": None, "garmin": None}
+
+    try:
+        result = supabase.table("workout_sync_queue").select(
+            "device_type, device_id, status, queued_at, synced_at, failed_at, error_message"
+        ).eq("workout_id", workout_id).eq("user_id", user_id).execute()
+
+        sync_status = {"ios": None, "android": None, "garmin": None}
+
+        if result.data:
+            for entry in result.data:
+                device_type = entry.get("device_type")
+                if device_type in sync_status:
+                    sync_status[device_type] = {
+                        "status": entry.get("status"),
+                        "queued_at": entry.get("queued_at"),
+                        "synced_at": entry.get("synced_at"),
+                        "failed_at": entry.get("failed_at"),
+                        "error_message": entry.get("error_message"),
+                        "device_id": entry.get("device_id") or None,
+                    }
+
+        return sync_status
+
+    except Exception as e:
+        logger.error(f"Failed to get workout sync status: {e}")
+        return {"ios": None, "android": None, "garmin": None}
+

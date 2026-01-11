@@ -90,6 +90,12 @@ from backend.database import (
     get_account_deletion_preview,
     # AMA-268: Mobile Profile
     get_profile,
+    # AMA-307: Sync Queue
+    queue_workout_sync,
+    get_pending_syncs,
+    confirm_sync,
+    report_sync_failed,
+    get_workout_sync_status,
 )
 from backend.follow_along_database import (
     save_follow_along_workout,
@@ -903,8 +909,11 @@ def get_workout_endpoint(
 ):
     """Get a single workout by ID."""
     workout = get_workout(workout_id, user_id)
-    
+
     if workout:
+        # Include sync status in response (AMA-307)
+        sync_status = get_workout_sync_status(workout_id, user_id)
+        workout["sync_status"] = sync_status
         return {
             "success": True,
             "workout": workout
@@ -2413,6 +2422,194 @@ def push_to_ios_companion_endpoint(workout_id: str, request: PushToIOSCompanionR
         "status": "success",
         "iosCompanionWorkoutId": workout_id,
         "payload": payload
+    }
+
+
+# =============================================================================
+# Sync Queue Endpoints (AMA-307: Proper Sync State Tracking)
+# =============================================================================
+
+class QueueSyncRequest(BaseModel):
+    device_type: str  # 'ios', 'android', 'garmin'
+    device_id: str | None = None
+
+
+class ConfirmSyncRequest(BaseModel):
+    workout_id: str
+    device_type: str
+    device_id: str | None = None
+
+
+class ReportSyncFailedRequest(BaseModel):
+    workout_id: str
+    device_type: str
+    error: str
+    device_id: str | None = None
+
+
+@app.post("/workouts/{workout_id}/sync")
+def queue_workout_sync_endpoint(
+    workout_id: str,
+    request: QueueSyncRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Queue a workout for sync to a device (AMA-307).
+
+    Creates a 'pending' entry in the sync queue. The device will fetch
+    pending workouts and confirm download to mark as 'synced'.
+
+    This replaces the immediate 'synced' status from the old push endpoints.
+    """
+    if request.device_type not in ['ios', 'android', 'garmin']:
+        raise HTTPException(status_code=400, detail="Invalid device_type. Must be ios, android, or garmin")
+
+    # Verify workout exists and belongs to user
+    workout = get_workout(workout_id, user_id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    result = queue_workout_sync(
+        workout_id=workout_id,
+        user_id=user_id,
+        device_type=request.device_type,
+        device_id=request.device_id or ""
+    )
+
+    if not result:
+        raise HTTPException(status_code=500, detail="Failed to queue workout for sync")
+
+    return {
+        "success": True,
+        "status": result.get("status"),
+        "queued_at": result.get("queued_at")
+    }
+
+
+@app.get("/sync/pending")
+def get_pending_syncs_endpoint(
+    device_type: str = Query(..., description="Device type: ios, android, or garmin"),
+    device_id: str = Query(None, description="Optional device identifier"),
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Get workouts pending sync for a device (AMA-307).
+
+    Called by mobile apps to discover workouts queued for download.
+    Returns workouts in the order they were queued.
+    """
+    if device_type not in ['ios', 'android', 'garmin']:
+        raise HTTPException(status_code=400, detail="Invalid device_type")
+
+    pending = get_pending_syncs(
+        user_id=user_id,
+        device_type=device_type,
+        device_id=device_id or ""
+    )
+
+    # Transform to a simpler response format
+    workouts = []
+    for entry in pending:
+        workout_data = entry.get("workouts", {})
+        if workout_data:
+            workouts.append({
+                "id": entry.get("workout_id"),
+                "name": workout_data.get("title", "Workout"),
+                "queued_at": entry.get("queued_at"),
+                "created_at": workout_data.get("created_at"),
+            })
+
+    return {
+        "success": True,
+        "workouts": workouts,
+        "count": len(workouts)
+    }
+
+
+@app.post("/sync/confirm")
+def confirm_sync_endpoint(
+    request: ConfirmSyncRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Confirm that a workout was successfully downloaded (AMA-307).
+
+    Called by mobile apps after successfully downloading a workout.
+    Updates the sync status from 'pending' to 'synced'.
+    """
+    if request.device_type not in ['ios', 'android', 'garmin']:
+        raise HTTPException(status_code=400, detail="Invalid device_type")
+
+    result = confirm_sync(
+        workout_id=request.workout_id,
+        user_id=user_id,
+        device_type=request.device_type,
+        device_id=request.device_id or ""
+    )
+
+    if not result:
+        raise HTTPException(status_code=404, detail="No pending sync found for this workout")
+
+    return {
+        "success": True,
+        "status": result.get("status"),
+        "synced_at": result.get("synced_at")
+    }
+
+
+@app.post("/sync/failed")
+def report_sync_failed_endpoint(
+    request: ReportSyncFailedRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Report that a workout sync failed (AMA-307).
+
+    Called by mobile apps when download fails.
+    Updates the sync status from 'pending' to 'failed' with error message.
+    """
+    if request.device_type not in ['ios', 'android', 'garmin']:
+        raise HTTPException(status_code=400, detail="Invalid device_type")
+
+    result = report_sync_failed(
+        workout_id=request.workout_id,
+        user_id=user_id,
+        device_type=request.device_type,
+        error_message=request.error,
+        device_id=request.device_id or ""
+    )
+
+    if not result:
+        raise HTTPException(status_code=404, detail="No pending sync found for this workout")
+
+    return {
+        "success": True,
+        "status": result.get("status"),
+        "failed_at": result.get("failed_at")
+    }
+
+
+@app.get("/workouts/{workout_id}/sync-status")
+def get_workout_sync_status_endpoint(
+    workout_id: str,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Get sync status for a workout across all device types (AMA-307).
+
+    Returns the current sync status (pending/synced/failed) for iOS, Android, and Garmin.
+    """
+    # Verify workout exists and belongs to user
+    workout = get_workout(workout_id, user_id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    sync_status = get_workout_sync_status(workout_id, user_id)
+
+    return {
+        "success": True,
+        "workout_id": workout_id,
+        "sync_status": sync_status
     }
 
 
