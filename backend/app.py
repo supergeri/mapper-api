@@ -3635,8 +3635,8 @@ async def reset_user_data_endpoint(
 
     Security requirements:
     - Must be authenticated (valid JWT or API key)
-    - Must provide X-Test-Secret header matching TEST_RESET_SECRET env var
     - Only works in non-production environments
+    - X-Test-Secret header is optional (validated if provided for automated testing)
 
     Deletes:
     - All workouts
@@ -3663,21 +3663,19 @@ async def reset_user_data_endpoint(
             detail="This endpoint is not available in production"
         )
 
-    # Security check 2: Verify TEST_RESET_SECRET is configured
-    if not TEST_RESET_SECRET:
-        logger.warning(f"Reset user data attempted but TEST_RESET_SECRET not configured")
-        raise HTTPException(
-            status_code=403,
-            detail="Reset endpoint not configured (TEST_RESET_SECRET missing)"
-        )
-
-    # Security check 3: Validate the secret header
-    if not x_test_secret or x_test_secret != TEST_RESET_SECRET:
-        logger.warning(f"Reset user data attempted by {user_id} with invalid secret")
-        raise HTTPException(
-            status_code=403,
-            detail="Invalid X-Test-Secret header"
-        )
+    # Security check 2: X-Test-Secret is optional when user is authenticated via JWT
+    # The JWT authentication (get_current_user) already ensures:
+    # - User is authenticated
+    # - User can only reset their own data
+    # If TEST_RESET_SECRET is configured and header is provided, validate it
+    # (supports automated testing scenarios)
+    if TEST_RESET_SECRET and x_test_secret:
+        if x_test_secret != TEST_RESET_SECRET:
+            logger.warning(f"Reset user data attempted by {user_id} with invalid secret")
+            raise HTTPException(
+                status_code=403,
+                detail="Invalid X-Test-Secret header"
+            )
 
     # All checks passed - perform the reset
     logger.info(f"Resetting user data for {user_id} (environment: {ENVIRONMENT})")
