@@ -666,6 +666,12 @@ def get_workouts_endpoint(
         limit=limit
     )
 
+    # Include sync status for each workout (AMA-307)
+    for workout in workouts:
+        workout_id = workout.get("id")
+        if workout_id:
+            workout["sync_status"] = get_workout_sync_status(workout_id, user_id)
+
     return {
         "success": True,
         "workouts": workouts,
@@ -1086,7 +1092,11 @@ def push_workout_to_ios_companion_endpoint(
         "intervals": intervals
     }
 
-    # Mark workout as synced to iOS Companion (AMA-199)
+    # Queue workout for sync to iOS (AMA-307)
+    # This creates a pending entry in the sync queue that iOS will confirm when downloaded
+    queue_workout_sync(workout_id, user_id, device_type="ios")
+
+    # Also update legacy column for backward compatibility
     update_workout_ios_companion_sync(workout_id, user_id)
 
     return {
@@ -1284,7 +1294,11 @@ def push_workout_to_android_companion_endpoint(
         "intervals": intervals
     }
 
-    # Mark workout as synced to Android Companion (AMA-246)
+    # Queue workout for sync to Android (AMA-307)
+    # This creates a pending entry in the sync queue that Android will confirm when downloaded
+    queue_workout_sync(workout_id, user_id, device_type="android")
+
+    # Also update legacy column for backward compatibility
     update_workout_android_companion_sync(workout_id, user_id)
 
     return {
