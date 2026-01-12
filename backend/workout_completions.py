@@ -164,16 +164,26 @@ def _get_or_build_execution_log(
     """
     set_logs = record.get("set_logs")
     stored_execution_log = record.get("execution_log")
+    completion_id = record.get("id", "unknown")
+
+    logger.info(f"[AMA-292] _get_or_build_execution_log for {completion_id}: "
+                f"set_logs={bool(set_logs)} ({len(set_logs) if set_logs else 0} items), "
+                f"stored_execution_log={bool(stored_execution_log)}")
 
     # If we have set_logs, always rebuild to ensure correct grouping
     if set_logs:
-        return merge_set_logs_to_execution_log(workout_structure, set_logs)
+        result = merge_set_logs_to_execution_log(workout_structure, set_logs)
+        logger.info(f"[AMA-292] Built execution_log from set_logs: {len(result.get('intervals', []))} intervals")
+        return result
 
     # Fall back to stored execution_log (from watch app direct submission)
     # but fix any missing names
     if stored_execution_log:
-        return _fix_execution_log_names(stored_execution_log, workout_structure)
+        result = _fix_execution_log_names(stored_execution_log, workout_structure)
+        logger.info(f"[AMA-292] Using stored execution_log: {len(result.get('intervals', []))} intervals")
+        return result
 
+    logger.info(f"[AMA-292] No execution_log data available for {completion_id}")
     return None
 
 
