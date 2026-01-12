@@ -2510,7 +2510,7 @@ def get_pending_syncs_endpoint(
     Get workouts pending sync for a device (AMA-307).
 
     Called by mobile apps to discover workouts queued for download.
-    Returns workouts in the order they were queued.
+    Returns full workout data including intervals, in the order they were queued.
     """
     if device_type not in ['ios', 'android', 'garmin']:
         raise HTTPException(status_code=400, detail="Invalid device_type")
@@ -2521,17 +2521,45 @@ def get_pending_syncs_endpoint(
         device_id=device_id or ""
     )
 
-    # Transform to a simpler response format
+    # Transform to full workout format (same as /ios-companion/pending)
     workouts = []
     for entry in pending:
-        workout_data = entry.get("workouts", {})
-        if workout_data:
-            workouts.append({
-                "id": entry.get("workout_id"),
-                "name": workout_data.get("title", "Workout"),
-                "queued_at": entry.get("queued_at"),
-                "created_at": workout_data.get("created_at"),
-            })
+        workout_record = entry.get("workouts", {})
+        if not workout_record:
+            continue
+
+        workout_data = workout_record.get("workout_data", {})
+        title = workout_record.get("title") or workout_data.get("title", "Workout")
+
+        # Use to_workoutkit to properly transform intervals
+        # This handles warmup, sets as RepeatInterval, and default rest
+        try:
+            workoutkit_dto = to_workoutkit(workout_data)
+            intervals = [interval.model_dump() for interval in workoutkit_dto.intervals]
+            sport = workoutkit_dto.sportType
+        except Exception as e:
+            logger.warning(f"Failed to transform workout {entry.get('workout_id')}: {e}")
+            # Fallback to simple transformation
+            intervals = []
+            sport = "strengthTraining"
+            for block in workout_data.get("blocks", []):
+                for exercise in block.get("exercises", []):
+                    intervals.append(convert_exercise_to_interval(exercise))
+
+        # Calculate total duration from intervals
+        total_duration = calculate_intervals_duration(intervals)
+
+        workouts.append({
+            "id": entry.get("workout_id"),
+            "name": title,
+            "sport": sport,
+            "duration": total_duration,
+            "source": "amakaflow",
+            "sourceUrl": None,
+            "intervals": intervals,
+            "queued_at": entry.get("queued_at"),
+            "created_at": workout_record.get("created_at"),
+        })
 
     return {
         "success": True,
