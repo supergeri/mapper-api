@@ -1097,10 +1097,12 @@ def test_merge_set_logs_to_execution_log_basic():
 
     # Check the reps interval has sets merged
     reps_interval = result["intervals"][1]
-    assert reps_interval["name"] == "Bench Press"
+    assert reps_interval["planned_name"] == "Bench Press"
     assert "sets" in reps_interval
     assert len(reps_interval["sets"]) == 2
-    assert reps_interval["sets"][0]["weight"] == 135.0
+    # Weight is now a WeightEntry object with components and display_label (AMA-292)
+    assert reps_interval["sets"][0]["weight"]["display_label"] == "135.0 lbs"
+    assert reps_interval["sets"][0]["weight"]["components"][0]["value"] == 135.0
 
 
 def test_merge_set_logs_empty_returns_none():
@@ -1174,7 +1176,10 @@ def test_save_completion_merges_set_logs_to_execution_log():
         record = insert_call[0][0]
         assert "execution_log" in record
         assert len(record["execution_log"]["intervals"]) == 1
-        assert record["execution_log"]["intervals"][0]["sets"][0]["weight"] == 135.0
+        # Weight is now a WeightEntry object with components and display_label (AMA-292)
+        weight_obj = record["execution_log"]["intervals"][0]["sets"][0]["weight"]
+        assert weight_obj["display_label"] == "135.0 lbs"
+        assert weight_obj["components"][0]["value"] == 135.0
 
 
 def test_get_completion_returns_execution_log():
@@ -1212,5 +1217,9 @@ def test_get_completion_returns_execution_log():
         result = get_completion_by_id("user-123", "completion-123")
 
         assert result is not None
-        assert result["execution_log"] == execution_log
+        # Check execution_log structure is preserved
+        # Note: _fix_execution_log_names adds planned_name field (AMA-292)
         assert result["execution_log"]["intervals"][0]["name"] == "Deadlift"
+        assert result["execution_log"]["intervals"][0]["interval_index"] == 0
+        assert result["execution_log"]["intervals"][0]["status"] == "completed"
+        assert result["execution_log"]["summary"]["total_intervals"] == 1
