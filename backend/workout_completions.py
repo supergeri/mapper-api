@@ -152,6 +152,91 @@ def calculate_duration_seconds(started_at: str, ended_at: str) -> int:
         return 0
 
 
+def _execution_log_has_detailed_data(execution_log: Dict[str, Any]) -> bool:
+    """
+    Check if execution_log has detailed data that would be lost if rebuilt from set_logs.
+
+    AMA-314: Returns True if the execution_log has interval-level data like
+    actual_duration_seconds or set-level data like reps_planned that isn't in set_logs.
+    """
+    intervals = execution_log.get("intervals", [])
+    if not intervals:
+        return False
+
+    # Check if any interval has duration data or detailed set data
+    for interval in intervals:
+        # Check for duration data
+        if interval.get("actual_duration_seconds") is not None:
+            return True
+        if interval.get("started_at") is not None:
+            return True
+
+        # Check sets for detailed data
+        sets = interval.get("sets", [])
+        for set_data in sets:
+            if set_data.get("reps_planned") is not None:
+                return True
+            if set_data.get("duration_seconds") is not None:
+                return True
+
+    return False
+
+
+def _merge_weights_into_execution_log(
+    execution_log: Dict[str, Any],
+    set_logs: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """
+    Merge weight data from set_logs into an existing execution_log.
+
+    AMA-314: This preserves the detailed interval data (duration, reps_planned, etc.)
+    from execution_log while adding weight information from set_logs.
+    """
+    if not set_logs:
+        return execution_log
+
+    # Build lookup: exercise_index -> set_log
+    set_log_map = {}
+    for log in set_logs:
+        idx = log.get("exercise_index")
+        if idx is not None:
+            set_log_map[idx] = log
+
+    intervals = execution_log.get("intervals", [])
+    updated_intervals = []
+
+    for interval in intervals:
+        idx = interval.get("interval_index")
+        matching_log = set_log_map.get(idx)
+
+        if matching_log and matching_log.get("sets"):
+            # Merge weight data into existing sets
+            existing_sets = interval.get("sets", [])
+            set_logs_data = matching_log["sets"]
+
+            updated_sets = []
+            for i, existing_set in enumerate(existing_sets):
+                updated_set = {**existing_set}
+                # Find matching set_log entry by set_number
+                set_num = existing_set.get("set_number", i + 1)
+                if set_num <= len(set_logs_data):
+                    set_entry = set_logs_data[set_num - 1]
+                    weight_val = set_entry.get("weight")
+                    unit = set_entry.get("unit", "lbs")
+                    if weight_val is not None and updated_set.get("weight") is None:
+                        updated_set["weight"] = {
+                            "components": [{"source": "manual", "value": weight_val, "unit": unit}],
+                            "display_label": f"{weight_val} {unit}"
+                        }
+                updated_sets.append(updated_set)
+
+            updated_intervals.append({**interval, "sets": updated_sets})
+        else:
+            updated_intervals.append(interval)
+
+    return {**execution_log, "intervals": updated_intervals}
+
+
 def _get_or_build_execution_log(
     record: Dict[str, Any],
     workout_structure: Optional[List[Dict[str, Any]]]
@@ -159,31 +244,46 @@ def _get_or_build_execution_log(
     """
     Get execution_log from record or build it from set_logs.
 
-    Always rebuilds from set_logs if available to ensure consistency
-    and fix any previously malformed data.
+    AMA-314: Prioritize stored execution_log when it has detailed data
+    (duration, reps_planned) that would be lost if rebuilt from set_logs.
     """
     set_logs = record.get("set_logs")
     stored_execution_log = record.get("execution_log")
     completion_id = record.get("id", "unknown")
 
-    logger.info(f"[AMA-292] _get_or_build_execution_log for {completion_id}: "
+    logger.info(f"[AMA-314] _get_or_build_execution_log for {completion_id}: "
                 f"set_logs={bool(set_logs)} ({len(set_logs) if set_logs else 0} items), "
                 f"stored_execution_log={bool(stored_execution_log)}")
 
-    # If we have set_logs, always rebuild to ensure correct grouping
+    # AMA-314: If we have stored execution_log with detailed data, use it
+    # and optionally merge weight data from set_logs
+    if stored_execution_log and _execution_log_has_detailed_data(stored_execution_log):
+        result = _fix_execution_log_names(stored_execution_log, workout_structure)
+        if set_logs:
+            # Merge weight data from set_logs into the detailed execution_log
+            result = _merge_weights_into_execution_log(result, set_logs)
+            logger.info(f"[AMA-314] Using detailed execution_log with merged weights: "
+                        f"{len(result.get('intervals', []))} intervals")
+        else:
+            logger.info(f"[AMA-314] Using detailed execution_log: "
+                        f"{len(result.get('intervals', []))} intervals")
+        return result
+
+    # If we have set_logs but no detailed execution_log, rebuild from set_logs
     if set_logs:
         result = merge_set_logs_to_execution_log(workout_structure, set_logs)
-        logger.info(f"[AMA-292] Built execution_log from set_logs: {len(result.get('intervals', []))} intervals")
+        logger.info(f"[AMA-314] Built execution_log from set_logs: "
+                    f"{len(result.get('intervals', []))} intervals")
         return result
 
-    # Fall back to stored execution_log (from watch app direct submission)
-    # but fix any missing names
+    # Fall back to stored execution_log (even without detailed data)
     if stored_execution_log:
         result = _fix_execution_log_names(stored_execution_log, workout_structure)
-        logger.info(f"[AMA-292] Using stored execution_log: {len(result.get('intervals', []))} intervals")
+        logger.info(f"[AMA-314] Using stored execution_log: "
+                    f"{len(result.get('intervals', []))} intervals")
         return result
 
-    logger.info(f"[AMA-292] No execution_log data available for {completion_id}")
+    logger.info(f"[AMA-314] No execution_log data available for {completion_id}")
     return None
 
 
