@@ -152,6 +152,79 @@ def calculate_duration_seconds(started_at: str, ended_at: str) -> int:
         return 0
 
 
+def _get_or_build_execution_log(
+    record: Dict[str, Any],
+    workout_structure: Optional[List[Dict[str, Any]]]
+) -> Optional[Dict[str, Any]]:
+    """
+    Get execution_log from record or build it from set_logs.
+
+    Always rebuilds from set_logs if available to ensure consistency
+    and fix any previously malformed data.
+    """
+    set_logs = record.get("set_logs")
+    stored_execution_log = record.get("execution_log")
+
+    # If we have set_logs, always rebuild to ensure correct grouping
+    if set_logs:
+        return merge_set_logs_to_execution_log(workout_structure, set_logs)
+
+    # Fall back to stored execution_log (from watch app direct submission)
+    # but fix any missing names
+    if stored_execution_log:
+        return _fix_execution_log_names(stored_execution_log, workout_structure)
+
+    return None
+
+
+def _fix_execution_log_names(
+    execution_log: Dict[str, Any],
+    workout_structure: Optional[List[Dict[str, Any]]]
+) -> Dict[str, Any]:
+    """
+    Fix missing planned_name values in stored execution_log.
+
+    Adds fallback names from workout_structure or generates "Exercise N" names.
+    Also ensures sequential set numbering within each interval.
+    """
+    intervals = execution_log.get("intervals", [])
+    if not intervals:
+        return execution_log
+
+    # Build name lookup from workout_structure
+    structure_names = {}
+    if workout_structure:
+        for i, interval in enumerate(workout_structure):
+            name = interval.get("name") or interval.get("target")
+            if name:
+                structure_names[i] = name
+
+    # Fix each interval
+    fixed_intervals = []
+    for interval in intervals:
+        idx = interval.get("interval_index", 0)
+        planned_name = interval.get("planned_name")
+
+        # Fix missing name
+        if not planned_name:
+            planned_name = structure_names.get(idx) or f"Exercise {idx + 1}"
+
+        fixed_interval = {**interval, "planned_name": planned_name}
+
+        # Fix set numbering if sets exist
+        sets = fixed_interval.get("sets", [])
+        if sets:
+            fixed_sets = []
+            for i, s in enumerate(sets):
+                fixed_set = {**s, "set_number": i + 1}
+                fixed_sets.append(fixed_set)
+            fixed_interval["sets"] = fixed_sets
+
+        fixed_intervals.append(fixed_interval)
+
+    return {**execution_log, "intervals": fixed_intervals}
+
+
 def merge_set_logs_to_execution_log(
     workout_structure: Optional[List[Dict[str, Any]]],
     set_logs: Optional[List[Dict[str, Any]]]
@@ -186,19 +259,28 @@ def merge_set_logs_to_execution_log(
     # If we have workout_structure, iterate through all intervals
     if workout_structure:
         for i, interval in enumerate(workout_structure):
+            # Check if this interval has matching set_log data
+            matching_log = set_log_map.get(i)
+
+            # Get planned_name from workout_structure, fallback to exercise_name from set_log
+            planned_name = (
+                interval.get("name") or
+                interval.get("target") or
+                (matching_log.get("exercise_name") if matching_log else None) or
+                f"Exercise {i + 1}"  # Last resort fallback
+            )
+
             interval_log = {
                 "interval_index": i,
                 "planned_kind": interval.get("kind") or interval.get("type"),
-                "planned_name": interval.get("name") or interval.get("target"),
+                "planned_name": planned_name,
                 "status": "completed",  # Default for intervals with set_logs
             }
-
-            # Check if this interval has matching set_log data
-            matching_log = set_log_map.get(i)
 
             if matching_log and matching_log.get("sets"):
                 # Convert set_logs format to execution_log sets format
                 exec_sets = []
+                set_number = 1  # Sequential numbering within this interval
                 for set_entry in matching_log["sets"]:
                     # Build weight object in the format iOS expects
                     weight_obj = None
@@ -210,12 +292,13 @@ def merge_set_logs_to_execution_log(
                             "display_label": f"{weight_val} {unit}"
                         }
                     exec_set = {
-                        "set_number": set_entry.get("set_number", 1),
+                        "set_number": set_number,  # Sequential within interval
                         "status": "completed" if set_entry.get("completed", True) else "skipped",
                         "weight": weight_obj,
                         "reps_completed": set_entry.get("reps_completed"),
                     }
                     exec_sets.append(exec_set)
+                    set_number += 1
                 interval_log["sets"] = exec_sets
                 completed_count += 1
             else:
@@ -224,34 +307,50 @@ def merge_set_logs_to_execution_log(
 
             intervals.append(interval_log)
     else:
-        # No workout_structure, just convert set_logs directly
+        # No workout_structure - group set_logs by exercise name
+        # Group by exercise_name to combine sets for the same exercise
+        from collections import OrderedDict
+        exercise_groups: OrderedDict[str, list] = OrderedDict()
+
         for log in set_logs:
+            exercise_name = log.get("exercise_name", "Unknown Exercise")
+            if exercise_name not in exercise_groups:
+                exercise_groups[exercise_name] = []
+            exercise_groups[exercise_name].append(log)
+
+        # Create one interval per exercise group
+        for interval_idx, (exercise_name, logs) in enumerate(exercise_groups.items()):
             interval_log = {
-                "interval_index": log.get("exercise_index", 0),
+                "interval_index": interval_idx,
                 "planned_kind": "reps",
-                "planned_name": log.get("exercise_name"),
+                "planned_name": exercise_name,
                 "status": "completed",
             }
-            if log.get("sets"):
-                exec_sets = []
-                for set_entry in log["sets"]:
-                    # Build weight object in the format iOS expects
-                    weight_obj = None
-                    weight_val = set_entry.get("weight")
-                    unit = set_entry.get("unit", "lbs")
-                    if weight_val is not None:
-                        weight_obj = {
-                            "components": [{"source": "manual", "value": weight_val, "unit": unit}],
-                            "display_label": f"{weight_val} {unit}"
+
+            exec_sets = []
+            set_number = 1
+            for log in logs:
+                if log.get("sets"):
+                    for set_entry in log["sets"]:
+                        # Build weight object in the format iOS expects
+                        weight_obj = None
+                        weight_val = set_entry.get("weight")
+                        unit = set_entry.get("unit", "lbs")
+                        if weight_val is not None:
+                            weight_obj = {
+                                "components": [{"source": "manual", "value": weight_val, "unit": unit}],
+                                "display_label": f"{weight_val} {unit}"
+                            }
+                        exec_set = {
+                            "set_number": set_number,
+                            "status": "completed" if set_entry.get("completed", True) else "skipped",
+                            "weight": weight_obj,
+                            "reps_completed": set_entry.get("reps_completed"),
                         }
-                    exec_set = {
-                        "set_number": set_entry.get("set_number", 1),
-                        "status": "completed" if set_entry.get("completed", True) else "skipped",
-                        "weight": weight_obj,
-                        "reps_completed": set_entry.get("reps_completed"),
-                    }
-                    exec_sets.append(exec_set)
-                interval_log["sets"] = exec_sets
+                        exec_sets.append(exec_set)
+                        set_number += 1
+
+            interval_log["sets"] = exec_sets
             intervals.append(interval_log)
             completed_count += 1
 
@@ -700,7 +799,8 @@ def get_completion_by_id(
             "workout_structure": workout_structure,  # AMA-240: stored or fetched from source
             "intervals": workout_structure,  # Backwards compat alias for iOS (AMA-240)
             "set_logs": record.get("set_logs"),  # AMA-281: Weight tracking per exercise/set
-            "execution_log": record.get("execution_log"),  # AMA-290: Actual execution data
+            # AMA-290: Regenerate execution_log from set_logs on every fetch for consistency
+            "execution_log": _get_or_build_execution_log(record, workout_structure),
             "created_at": record["created_at"],
             # AMA-273: Simulation fields
             "is_simulated": is_simulated,
