@@ -188,8 +188,8 @@ def merge_set_logs_to_execution_log(
         for i, interval in enumerate(workout_structure):
             interval_log = {
                 "interval_index": i,
-                "kind": interval.get("kind") or interval.get("type"),
-                "name": interval.get("name") or interval.get("target"),
+                "planned_kind": interval.get("kind") or interval.get("type"),
+                "planned_name": interval.get("name") or interval.get("target"),
                 "status": "completed",  # Default for intervals with set_logs
             }
 
@@ -200,11 +200,20 @@ def merge_set_logs_to_execution_log(
                 # Convert set_logs format to execution_log sets format
                 exec_sets = []
                 for set_entry in matching_log["sets"]:
+                    # Build weight object in the format iOS expects
+                    weight_obj = None
+                    weight_val = set_entry.get("weight")
+                    unit = set_entry.get("unit", "lbs")
+                    if weight_val is not None:
+                        weight_obj = {
+                            "components": [{"source": "manual", "value": weight_val, "unit": unit}],
+                            "display_label": f"{weight_val} {unit}"
+                        }
                     exec_set = {
                         "set_number": set_entry.get("set_number", 1),
                         "status": "completed" if set_entry.get("completed", True) else "skipped",
-                        "weight": set_entry.get("weight"),
-                        "unit": set_entry.get("unit"),
+                        "weight": weight_obj,
+                        "reps_completed": set_entry.get("reps_completed"),
                     }
                     exec_sets.append(exec_set)
                 interval_log["sets"] = exec_sets
@@ -219,18 +228,27 @@ def merge_set_logs_to_execution_log(
         for log in set_logs:
             interval_log = {
                 "interval_index": log.get("exercise_index", 0),
-                "kind": "reps",
-                "name": log.get("exercise_name"),
+                "planned_kind": "reps",
+                "planned_name": log.get("exercise_name"),
                 "status": "completed",
             }
             if log.get("sets"):
                 exec_sets = []
                 for set_entry in log["sets"]:
+                    # Build weight object in the format iOS expects
+                    weight_obj = None
+                    weight_val = set_entry.get("weight")
+                    unit = set_entry.get("unit", "lbs")
+                    if weight_val is not None:
+                        weight_obj = {
+                            "components": [{"source": "manual", "value": weight_val, "unit": unit}],
+                            "display_label": f"{weight_val} {unit}"
+                        }
                     exec_set = {
                         "set_number": set_entry.get("set_number", 1),
                         "status": "completed" if set_entry.get("completed", True) else "skipped",
-                        "weight": set_entry.get("weight"),
-                        "unit": set_entry.get("unit"),
+                        "weight": weight_obj,
+                        "reps_completed": set_entry.get("reps_completed"),
                     }
                     exec_sets.append(exec_set)
                 interval_log["sets"] = exec_sets
@@ -238,15 +256,29 @@ def merge_set_logs_to_execution_log(
             completed_count += 1
 
     total = len(intervals)
+    # Count total sets from intervals
+    total_sets = sum(len(i.get("sets", [])) for i in intervals)
+    sets_completed = sum(
+        sum(1 for s in i.get("sets", []) if s.get("status") == "completed")
+        for i in intervals
+    )
+    sets_skipped = total_sets - sets_completed
+
     summary = {
         "total_intervals": total,
         "completed": completed_count,
         "skipped": skipped_count,
-        "modified": 0,
-        "completion_percentage": round((completed_count / total) * 100, 1) if total > 0 else 0
+        "not_reached": 0,  # iOS expects this field
+        "completion_percentage": round((completed_count / total) * 100, 1) if total > 0 else 0,
+        "total_sets": total_sets,
+        "sets_completed": sets_completed,
+        "sets_skipped": sets_skipped,
+        "total_duration_seconds": 0,  # Not available from set_logs
+        "active_duration_seconds": 0,  # Not available from set_logs
     }
 
     return {
+        "version": 2,  # v2 execution_log format
         "intervals": intervals,
         "summary": summary
     }
