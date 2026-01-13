@@ -820,6 +820,9 @@ def get_completion_by_id(
         return None
 
     try:
+        # AMA-291: Log the exact query parameters
+        logger.info(f"[AMA-291] get_completion_by_id: querying with id={completion_id}, user_id={user_id}")
+
         result = supabase.table("workout_completions") \
             .select("*") \
             .eq("id", completion_id) \
@@ -828,6 +831,17 @@ def get_completion_by_id(
             .execute()
 
         if not result.data:
+            # AMA-291: Try to find the completion without user_id filter to diagnose mismatch
+            logger.warning(f"[AMA-291] No result with user_id filter, checking if completion exists...")
+            check_result = supabase.table("workout_completions") \
+                .select("id, user_id") \
+                .eq("id", completion_id) \
+                .execute()
+            if check_result.data and len(check_result.data) > 0:
+                actual_user_id = check_result.data[0].get("user_id")
+                logger.error(f"[AMA-291] USER_ID MISMATCH! Completion exists with user_id={actual_user_id}, but request user_id={user_id}")
+            else:
+                logger.warning(f"[AMA-291] Completion {completion_id} does not exist in database at all")
             return None
 
         record = result.data

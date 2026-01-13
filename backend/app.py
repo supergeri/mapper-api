@@ -767,6 +767,9 @@ def record_workout_completion_endpoint(
     Returns:
         Success status, completion ID, and summary
     """
+    # AMA-291: Debug logging for completion save
+    logger.info(f"[AMA-291] Saving workout completion for user {user_id}, workout_id={request.workout_id}")
+
     # Validate at least one workout link
     if not request.workout_event_id and not request.follow_along_workout_id and not request.workout_id:
         return {
@@ -777,6 +780,8 @@ def record_workout_completion_endpoint(
     result = save_workout_completion(user_id, request)
 
     if result.get("success"):
+        # AMA-291: Log the completion ID for debugging
+        logger.info(f"[AMA-291] Saved completion {result['id']} for user {user_id}")
         return {
             "success": True,
             "id": result["id"],
@@ -784,6 +789,7 @@ def record_workout_completion_endpoint(
         }
     else:
         # Return specific error from save_workout_completion
+        logger.error(f"[AMA-291] Failed to save completion for user {user_id}: {result.get('error')}")
         return {
             "success": False,
             "message": result.get("error", "Failed to save workout completion"),
@@ -839,14 +845,19 @@ def get_workout_completion_endpoint(
     Returns:
         Full completion record or error if not found
     """
+    # AMA-291: Debug logging for completion fetch issues
+    logger.info(f"[AMA-291] Fetching completion {completion_id} for user {user_id}")
+
     result = get_completion_by_id(user_id, completion_id)
 
     if result:
+        logger.info(f"[AMA-291] Found completion {completion_id}: {result.get('workout_name')}")
         return {
             "success": True,
             "completion": result
         }
     else:
+        logger.warning(f"[AMA-291] Completion {completion_id} not found for user {user_id}")
         return {
             "success": False,
             "message": "Completion not found"
