@@ -159,7 +159,7 @@ def _execution_log_has_detailed_data(execution_log: Dict[str, Any]) -> bool:
     AMA-314: Returns True if the execution_log has interval-level data like
     actual_duration_seconds or set-level data like reps_planned that isn't in set_logs.
     """
-    intervals = execution_log.get("intervals", [])
+    intervals = execution_log.get("intervals") or []
     if not intervals:
         return False
 
@@ -172,7 +172,7 @@ def _execution_log_has_detailed_data(execution_log: Dict[str, Any]) -> bool:
             return True
 
         # Check sets for detailed data
-        sets = interval.get("sets", [])
+        sets = interval.get("sets") or []
         for set_data in sets:
             if set_data.get("reps_planned") is not None:
                 return True
@@ -202,7 +202,7 @@ def _merge_weights_into_execution_log(
         if idx is not None:
             set_log_map[idx] = log
 
-    intervals = execution_log.get("intervals", [])
+    intervals = execution_log.get("intervals") or []
     updated_intervals = []
 
     for interval in intervals:
@@ -211,7 +211,8 @@ def _merge_weights_into_execution_log(
 
         if matching_log and matching_log.get("sets"):
             # Merge weight data into existing sets
-            existing_sets = interval.get("sets", [])
+            # Note: use `or []` because sets might be None, not just missing
+            existing_sets = interval.get("sets") or []
             set_logs_data = matching_log["sets"]
 
             updated_sets = []
@@ -297,7 +298,7 @@ def _fix_execution_log_names(
     Adds fallback names from workout_structure or generates "Exercise N" names.
     Also ensures sequential set numbering within each interval.
     """
-    intervals = execution_log.get("intervals", [])
+    intervals = execution_log.get("intervals") or []
     if not intervals:
         return execution_log
 
@@ -322,7 +323,7 @@ def _fix_execution_log_names(
         fixed_interval = {**interval, "planned_name": planned_name}
 
         # Fix set numbering if sets exist
-        sets = fixed_interval.get("sets", [])
+        sets = fixed_interval.get("sets") or []
         if sets:
             fixed_sets = []
             for i, s in enumerate(sets):
@@ -465,10 +466,10 @@ def merge_set_logs_to_execution_log(
             completed_count += 1
 
     total = len(intervals)
-    # Count total sets from intervals
-    total_sets = sum(len(i.get("sets", [])) for i in intervals)
+    # Count total sets from intervals (use `or []` in case sets is None)
+    total_sets = sum(len(i.get("sets") or []) for i in intervals)
     sets_completed = sum(
-        sum(1 for s in i.get("sets", []) if s.get("status") == "completed")
+        sum(1 for s in (i.get("sets") or []) if s.get("status") == "completed")
         for i in intervals
     )
     sets_skipped = total_sets - sets_completed
