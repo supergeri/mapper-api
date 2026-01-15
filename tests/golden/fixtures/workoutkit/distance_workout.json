@@ -1,0 +1,21 @@
+{
+  "intervals": [
+    {
+      "kind": "distance",
+      "meters": 50,
+      "target": "Farmer Walk"
+    },
+    {
+      "kind": "distance",
+      "meters": 30,
+      "target": "Sled Push"
+    },
+    {
+      "kind": "distance",
+      "meters": 25,
+      "target": "Lunges"
+    }
+  ],
+  "sportType": "strengthTraining",
+  "title": "Distance Training"
+}

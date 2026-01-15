@@ -1,0 +1,26 @@
+{
+  "intervals": [
+    {
+      "intervals": [
+        {
+          "kind": "reps",
+          "name": "Banded Pull Ups",
+          "reps": 10
+        },
+        {
+          "kind": "rest",
+          "seconds": 30
+        },
+        {
+          "kind": "reps",
+          "name": "Triceps Extension",
+          "reps": 12
+        }
+      ],
+      "kind": "repeat",
+      "reps": 3
+    }
+  ],
+  "sportType": "strengthTraining",
+  "title": "Superset Circuit"
+}

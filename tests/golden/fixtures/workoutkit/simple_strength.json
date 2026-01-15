@@ -1,0 +1,29 @@
+{
+  "intervals": [
+    {
+      "kind": "warmup",
+      "seconds": 300
+    },
+    {
+      "kind": "reps",
+      "name": "Push Up",
+      "reps": 15
+    },
+    {
+      "kind": "reps",
+      "name": "Row",
+      "reps": 12
+    },
+    {
+      "kind": "reps",
+      "name": "Alternating Dumbbell Shoulder Press",
+      "reps": 10
+    },
+    {
+      "kind": "cooldown",
+      "seconds": 180
+    }
+  ],
+  "sportType": "strengthTraining",
+  "title": "Upper Body Basics"
+}

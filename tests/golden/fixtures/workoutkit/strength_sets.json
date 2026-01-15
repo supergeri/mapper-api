@@ -1,0 +1,54 @@
+{
+  "intervals": [
+    {
+      "intervals": [
+        {
+          "kind": "reps",
+          "name": "Bench Press",
+          "reps": 8,
+          "restSec": 90
+        },
+        {
+          "kind": "rest",
+          "seconds": 90
+        }
+      ],
+      "kind": "repeat",
+      "reps": 4
+    },
+    {
+      "intervals": [
+        {
+          "kind": "reps",
+          "name": "Barbell Box Squat",
+          "reps": 6,
+          "restSec": 120
+        },
+        {
+          "kind": "rest",
+          "seconds": 120
+        }
+      ],
+      "kind": "repeat",
+      "reps": 3
+    },
+    {
+      "intervals": [
+        {
+          "kind": "reps",
+          "name": "Deadlift",
+          "reps": 5,
+          "restSec": 120
+        },
+        {
+          "kind": "rest",
+          "seconds": 120
+        }
+      ],
+      "kind": "repeat",
+      "reps": 3
+    }
+  ],
+  "sportType": "strengthTraining",
+  "title": "Strength Training - Sets"
+}
