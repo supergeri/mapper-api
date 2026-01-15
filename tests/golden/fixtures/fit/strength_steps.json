@@ -1,0 +1,58 @@
+[
+  {
+    "category_id": 2,
+    "category_name": "Cardio",
+    "display_name": "Warm-Up",
+    "duration_type": 5,
+    "duration_value": 0,
+    "intensity": 1,
+    "type": "warmup"
+  },
+  {
+    "category_id": 0,
+    "display_name": "Bench Press",
+    "duration_type": 29,
+    "duration_value": 8,
+    "intensity": 0,
+    "type": "exercise"
+  },
+  {
+    "display_name": "Rest",
+    "duration_type": 0,
+    "duration_value": 90000,
+    "intensity": 1,
+    "type": "rest"
+  },
+  {
+    "duration_step": 1,
+    "repeat_count": 3,
+    "type": "repeat"
+  },
+  {
+    "display_name": "Rest",
+    "duration_type": 0,
+    "duration_value": 90000,
+    "intensity": 1,
+    "type": "rest"
+  },
+  {
+    "category_id": 23,
+    "display_name": "Barbell Row",
+    "duration_type": 29,
+    "duration_value": 10,
+    "intensity": 0,
+    "type": "exercise"
+  },
+  {
+    "display_name": "Rest",
+    "duration_type": 0,
+    "duration_value": 60000,
+    "intensity": 1,
+    "type": "rest"
+  },
+  {
+    "duration_step": 5,
+    "repeat_count": 3,
+    "type": "repeat"
+  }
+]
