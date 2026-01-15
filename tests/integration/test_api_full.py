@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-Test the full API workflow with blocks JSON.
-Tests both the conversion and the exercise suggestion API.
+CLI utility to test the full API workflow with blocks JSON.
+
+NOTE: This is a CLI script, not a pytest test suite. Run it directly:
+    python tests/integration/test_api_full.py [input_file.json]
+
+The functions are prefixed with 'run_' to avoid pytest collection.
 """
 import json
 import requests
@@ -10,8 +14,8 @@ import sys
 BASE_URL = "http://localhost:8000"
 
 
-def test_exercise_suggestions(exercise_name):
-    """Test the exercise suggestion endpoint."""
+def run_exercise_suggestions(exercise_name):
+    """Call the exercise suggestion endpoint."""
     response = requests.post(
         f"{BASE_URL}/exercise/suggest",
         json={
@@ -22,8 +26,8 @@ def test_exercise_suggestions(exercise_name):
     return response.json()
 
 
-def test_full_conversion(input_file):
-    """Test the full blocks to YAML conversion via API."""
+def run_full_conversion(input_file):
+    """Run the full blocks to YAML conversion via API."""
     print("=" * 80)
     print("API TEST - FULL CONVERSION WORKFLOW")
     print("=" * 80)
@@ -59,7 +63,7 @@ def test_full_conversion(input_file):
         
         print(f"Testing: {ex_name}")
         try:
-            suggestions = test_exercise_suggestions(ex_name)
+            suggestions = run_exercise_suggestions(ex_name)
             
             best_match = suggestions.get("best_match")
             if best_match:
@@ -130,5 +134,5 @@ if __name__ == "__main__":
         sys.exit(1)
     
     input_file = sys.argv[1] if len(sys.argv) > 1 else "test_week7_full.json"
-    test_full_conversion(input_file)
+    run_full_conversion(input_file)
 

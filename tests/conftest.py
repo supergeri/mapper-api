@@ -148,17 +148,6 @@ def mock_env_vars(monkeypatch):
     monkeypatch.setenv("SUPABASE_KEY", "test-supabase-key")
 
 
-# --- Temporary fixtures for legacy integration tests ------------------------
-# These tests expect fixtures named `exercise_name` and `input_file`.
-# Until we fully wire those integration scenarios, we skip them explicitly
-# so the suite is green but the TODO is obvious.
-
-
-@pytest.fixture
-def exercise_name():
-    pytest.skip("TODO: implement exercise_name fixture for full API integration tests")
-
-
-@pytest.fixture
-def input_file():
-    pytest.skip("TODO: implement input_file fixture for full conversion tests")
+# NOTE: Legacy CLI utilities in tests/integration/ (test_api_full.py, test_full_conversion.py)
+# have been renamed from test_* to run_* to avoid pytest collection.
+# They are CLI scripts meant to be run directly, not pytest test functions.

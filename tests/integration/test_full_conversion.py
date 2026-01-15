@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-Full test script for blocks JSON to Hyrox YAML conversion.
-Tests the conversion and exercise mapping with suggestions.
+CLI utility for blocks JSON to Hyrox YAML conversion.
+
+NOTE: This is a CLI script, not a pytest test suite. Run it directly:
+    python tests/integration/test_full_conversion.py [input_file.json]
+
+The functions are prefixed with 'run_' to avoid pytest collection.
 """
 import json
 import sys
@@ -24,7 +28,7 @@ def extract_all_exercises(blocks_json):
     return exercises
 
 
-def test_conversion(input_file):
+def run_conversion(input_file):
     """Test the full conversion pipeline."""
     print("=" * 80)
     print("FULL CONVERSION TEST")
@@ -132,5 +136,5 @@ def test_conversion(input_file):
 
 if __name__ == "__main__":
     input_file = sys.argv[1] if len(sys.argv) > 1 else "test_week7_full.json"
-    sys.exit(test_conversion(input_file))
+    sys.exit(run_conversion(input_file))
 
