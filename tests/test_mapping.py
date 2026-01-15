@@ -2,6 +2,9 @@
 
 import pytest
 
+# All tests in this module use api_client (TestClient) - mark as integration
+pytestmark = pytest.mark.integration
+
 
 class TestExerciseSuggestions:
     """Test /exercise/suggest endpoint."""

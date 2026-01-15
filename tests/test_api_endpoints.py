@@ -1,3 +1,8 @@
+import pytest
+
+# All tests in this module use api_client (TestClient) - mark as integration tests
+pytestmark = pytest.mark.integration
+
 BASE_HEADERS = {}  # placeholder if you later need auth headers
 
 

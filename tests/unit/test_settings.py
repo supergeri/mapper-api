@@ -29,6 +29,7 @@ def clean_env(monkeypatch):
         monkeypatch.delenv(var, raising=False)
 
 
+@pytest.mark.unit
 class TestSettingsDefaults:
     """Test that Settings applies correct defaults."""
 
@@ -82,6 +83,7 @@ class TestSettingsDefaults:
         assert settings.sentry_dsn is None
 
 
+@pytest.mark.unit
 class TestSettingsValidation:
     """Test Settings validation behavior."""
 
@@ -103,6 +105,7 @@ class TestSettingsValidation:
         assert "Invalid environment" in str(exc_info.value)
 
 
+@pytest.mark.unit
 class TestSettingsProperties:
     """Test Settings computed properties."""
 
@@ -166,6 +169,7 @@ class TestSettingsProperties:
         assert dev_settings.is_test is False
 
 
+@pytest.mark.unit
 class TestGetSettings:
     """Test get_settings() function."""
 
@@ -194,6 +198,7 @@ class TestGetSettings:
         assert isinstance(settings2, Settings)
 
 
+@pytest.mark.unit
 class TestSettingsFromEnv:
     """Test Settings loading from environment variables."""
 

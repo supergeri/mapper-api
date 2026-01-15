@@ -4,6 +4,7 @@ from shared.schemas.cir import CIR, Workout, Block, Exercise
 from backend.adapters.cir_to_garmin_yaml import step_from_ex, to_garmin_yaml
 
 
+@pytest.mark.unit
 class TestCIRToGarmin:
     """Tests for the CIR to Garmin YAML conversion."""
 

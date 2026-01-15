@@ -32,6 +32,7 @@ from backend.mobile_pairing import (
 )
 
 
+@pytest.mark.unit
 class TestGeneratePairingTokens:
     """Tests for generate_pairing_tokens function."""
 
@@ -91,6 +92,7 @@ class TestGeneratePairingTokens:
             assert unique_chars >= 10  # Should have good character diversity
 
 
+@pytest.mark.unit
 class TestGenerateQrData:
     """Tests for generate_qr_data function."""
 
@@ -150,6 +152,7 @@ class TestGenerateQrData:
         assert ", " not in qr_data
 
 
+@pytest.mark.unit
 class TestGenerateJwtForUser:
     """Tests for generate_jwt_for_user function."""
 
@@ -212,6 +215,7 @@ class TestGenerateJwtForUser:
         assert abs((jwt_exp - expiry).total_seconds()) < 1
 
 
+@pytest.mark.unit
 class TestConstants:
     """Tests for module constants."""
 
@@ -238,6 +242,7 @@ class TestConstants:
             assert char not in SHORT_CODE_ALPHABET
 
 
+@pytest.mark.unit
 class TestCreatePairingTokenMocked:
     """Tests for create_pairing_token with mocked database."""
 
@@ -303,6 +308,7 @@ class TestCreatePairingTokenMocked:
         assert result["expires_in_seconds"] == TOKEN_EXPIRY_MINUTES * 60
 
 
+@pytest.mark.unit
 class TestValidateAndUseTokenMocked:
     """Tests for validate_and_use_token with mocked database."""
 
@@ -388,6 +394,7 @@ class TestValidateAndUseTokenMocked:
         assert result.get("error") == "token_expired"
 
 
+@pytest.mark.unit
 class TestGetPairingStatusMocked:
     """Tests for get_pairing_status with mocked database."""
 
@@ -466,6 +473,7 @@ class TestGetPairingStatusMocked:
         assert result["expired"] is True
 
 
+@pytest.mark.unit
 class TestRevokeUserTokensMocked:
     """Tests for revoke_user_tokens with mocked database."""
 
@@ -496,6 +504,7 @@ class TestRevokeUserTokensMocked:
         assert result == 3
 
 
+@pytest.mark.unit
 class TestPydanticModels:
     """Tests for Pydantic request/response models."""
 
@@ -561,6 +570,7 @@ class TestPydanticModels:
 # Clerk Integration Tests (AMA-180)
 # ============================================================================
 
+@pytest.mark.unit
 class TestGetClerkClient:
     """Tests for get_clerk_client function."""
 
@@ -599,6 +609,7 @@ class TestGetClerkClient:
         assert result is mock_client
 
 
+@pytest.mark.unit
 class TestFetchClerkProfile:
     """Tests for fetch_clerk_profile function."""
 
@@ -680,6 +691,7 @@ class TestFetchClerkProfile:
         assert result is None
 
 
+@pytest.mark.unit
 class TestValidateAndUseTokenWithClerkProfile:
     """Tests for validate_and_use_token with Clerk profile integration."""
 
@@ -846,6 +858,7 @@ class TestValidateAndUseTokenWithClerkProfile:
         assert result["profile"]["last_name"] is None
 
 
+@pytest.mark.unit
 class TestProfileResponseFormat:
     """Tests for profile response format (AMA-180)."""
 

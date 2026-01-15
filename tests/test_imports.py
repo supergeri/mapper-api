@@ -1,4 +1,8 @@
 """Verify all modules can be imported without errors."""
+import pytest
+
+# All tests in this module are pure import checks - mark as unit tests
+pytestmark = pytest.mark.unit
 
 
 def test_core_module_imports():

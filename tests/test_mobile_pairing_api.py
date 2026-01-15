@@ -13,6 +13,9 @@ from fastapi.testclient import TestClient
 from backend.app import app
 from api.deps import get_device_repo
 
+# All tests in this module use TestClient - mark as integration
+pytestmark = pytest.mark.integration
+
 
 class TestMobilePairingEndpoints:
     """Tests for /mobile/pairing/* API endpoints."""

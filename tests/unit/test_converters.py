@@ -29,6 +29,7 @@ from domain.models import Block, BlockType, Exercise, Load, Workout, WorkoutMeta
 # =============================================================================
 
 
+@pytest.mark.unit
 class TestIngestToWorkout:
     """Tests for ingest_to_workout converter."""
 
@@ -198,6 +199,7 @@ class TestIngestToWorkout:
 # =============================================================================
 
 
+@pytest.mark.unit
 class TestBlocksToWorkout:
     """Tests for blocks_to_workout converter."""
 
@@ -448,6 +450,7 @@ class TestBlocksToWorkout:
 # =============================================================================
 
 
+@pytest.mark.unit
 class TestDbRowToWorkout:
     """Tests for db_row_to_workout converter."""
 
@@ -609,6 +612,7 @@ class TestDbRowToWorkout:
 # =============================================================================
 
 
+@pytest.mark.unit
 class TestWorkoutToDbRow:
     """Tests for workout_to_db_row converter."""
 
@@ -819,6 +823,7 @@ class TestWorkoutToDbRow:
 # =============================================================================
 
 
+@pytest.mark.unit
 class TestRoundTrip:
     """Test round-trip conversions preserve data."""
 

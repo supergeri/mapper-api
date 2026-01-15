@@ -2,6 +2,7 @@ import pytest
 from backend.core.catalog import all_synonyms, lookup
 
 
+@pytest.mark.unit
 class TestCatalog:
     """Tests for the catalog functions."""
 

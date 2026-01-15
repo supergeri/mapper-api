@@ -9,6 +9,7 @@ from backend.adapters.blocks_to_workoutkit import (
 from backend.adapters.workoutkit_schemas import RestStep, TimeStep, RepsStep
 
 
+@pytest.mark.unit
 class TestParseExerciseName:
     """Tests for exercise name parsing."""
 
@@ -25,6 +26,7 @@ class TestParseExerciseName:
         assert parse_exercise_name(None) == ""
 
 
+@pytest.mark.unit
 class TestExerciseToStepTarget:
     """Tests for exercise name in target field (AMA-243)."""
 
@@ -90,6 +92,7 @@ class TestExerciseToStepTarget:
         assert step.target == "Plank Hold"
 
 
+@pytest.mark.unit
 class TestBlockToIntervalsTarget:
     """Tests for exercise names in block intervals (AMA-243)."""
 
@@ -114,6 +117,7 @@ class TestBlockToIntervalsTarget:
         assert work_step.target == "Skier"
 
 
+@pytest.mark.unit
 class TestToWorkoutkitIntegration:
     """Integration tests for full workout conversion."""
 
@@ -142,6 +146,7 @@ class TestToWorkoutkitIntegration:
         assert result.intervals[2].target == "Bicep Curl Negatives"
 
 
+@pytest.mark.unit
 class TestRestStepSerialization:
     """Tests for explicit RestStep kind (AMA-260)."""
 
@@ -162,6 +167,7 @@ class TestRestStepSerialization:
         assert data["seconds"] is None
 
 
+@pytest.mark.unit
 class TestRestStepInIntervalBlock:
     """Tests for RestStep emission in interval blocks (AMA-260)."""
 
@@ -225,6 +231,7 @@ class TestRestStepInIntervalBlock:
         assert intervals[0].kind == "time"
 
 
+@pytest.mark.unit
 class TestRestStepInStrengthExercises:
     """Tests for RestStep in strength training exercises (AMA-260)."""
 
@@ -266,6 +273,7 @@ class TestRestStepInStrengthExercises:
         assert intervals[0].kind == "time"
 
 
+@pytest.mark.unit
 class TestRestStepInSupersets:
     """Tests for RestStep in superset blocks (AMA-260)."""
 
@@ -314,6 +322,7 @@ class TestRestStepInSupersets:
         assert intervals[2].kind == "reps"
 
 
+@pytest.mark.unit
 class TestRestStepWithDefaultRest:
     """Tests for RestStep with default rest settings (AMA-260)."""
 

@@ -3,6 +3,7 @@
 import pytest
 
 
+@pytest.mark.integration
 class TestBatchExerciseMatch:
     """Test /exercises/match/batch endpoint."""
 
@@ -182,6 +183,7 @@ class TestBatchExerciseMatch:
             assert data["total"] <= 2
 
 
+@pytest.mark.integration
 class TestBatchMappingIntegration:
     """Integration tests for batch mapping with workflow."""
 

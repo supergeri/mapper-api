@@ -13,6 +13,9 @@ import pytest
 from typing import Dict, Any
 from unittest.mock import Mock, MagicMock
 
+# All tests in this module are pure logic tests with mocks - mark as unit
+pytestmark = pytest.mark.unit
+
 
 # ============================================================================
 # Unit Tests (no database required)

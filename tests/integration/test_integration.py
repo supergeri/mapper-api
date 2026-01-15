@@ -7,6 +7,7 @@ from backend.adapters.cir_to_garmin_yaml import to_garmin_yaml
 import yaml
 
 
+@pytest.mark.integration
 class TestIntegration:
     """Integration tests for the full pipeline."""
 

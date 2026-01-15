@@ -3,6 +3,7 @@
 import pytest
 
 
+@pytest.mark.integration
 class TestHealthEndpoints:
     """Test health check API endpoints."""
 
@@ -22,6 +23,7 @@ class TestHealthEndpoints:
         response.json()
 
 
+@pytest.mark.integration
 class TestApiBasics:
     """Test basic API functionality."""
 
