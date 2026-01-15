@@ -1,7 +1,7 @@
 # Coverage configuration for mapper-api
 # Part of AMA-375: Baseline coverage tracking for architecture refactor
 #
-# Baseline established: [TBD - will be updated after first run]
+# Baseline established: 32.6% (2026-01-15)
 # Threshold set slightly below baseline to allow refactoring headroom
 
 [run]
@@ -36,7 +36,7 @@ omit =
 [report]
 # Fail if coverage drops below this threshold
 # Set to baseline minus small buffer for refactoring headroom
-fail_under = 50
+fail_under = 30
 
 # Exclude lines from coverage analysis
 exclude_lines =
