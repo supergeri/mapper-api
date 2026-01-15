@@ -1,0 +1,29 @@
+[
+  {
+    "category_id": 2,
+    "category_name": "Cardio",
+    "display_name": "Warm-Up",
+    "duration_type": 5,
+    "duration_value": 0,
+    "intensity": 1,
+    "type": "warmup"
+  },
+  {
+    "category_id": 19,
+    "display_name": "Plank",
+    "duration_type": 0,
+    "duration_value": 60000,
+    "exercise_name_id": 43,
+    "intensity": 0,
+    "type": "exercise"
+  },
+  {
+    "category_id": 14,
+    "display_name": "Wall Sit",
+    "duration_type": 0,
+    "duration_value": 45000,
+    "exercise_name_id": 30,
+    "intensity": 0,
+    "type": "exercise"
+  }
+]

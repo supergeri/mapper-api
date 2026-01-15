@@ -1,0 +1,15 @@
+{
+  "category_ids": [
+    0,
+    23
+  ],
+  "detected_sport": "strength",
+  "detected_sport_id": 10,
+  "detected_sub_sport_id": 20,
+  "exercise_count": 2,
+  "has_cardio": false,
+  "has_running": false,
+  "has_strength": true,
+  "use_lap_button": false,
+  "warnings": []
+}

@@ -1,0 +1,58 @@
+[
+  {
+    "category_id": 2,
+    "category_name": "Cardio",
+    "display_name": "Warm-Up",
+    "duration_type": 5,
+    "duration_value": 0,
+    "intensity": 1,
+    "type": "warmup"
+  },
+  {
+    "category_id": 29,
+    "display_name": "Back Squat (Warm-Up)",
+    "duration_type": 29,
+    "duration_value": 8,
+    "intensity": 1,
+    "type": "exercise"
+  },
+  {
+    "display_name": "Rest",
+    "duration_type": 0,
+    "duration_value": 120000,
+    "intensity": 1,
+    "type": "rest"
+  },
+  {
+    "duration_step": 1,
+    "repeat_count": 2,
+    "type": "repeat"
+  },
+  {
+    "display_name": "Rest",
+    "duration_type": 0,
+    "duration_value": 120000,
+    "intensity": 1,
+    "type": "rest"
+  },
+  {
+    "category_id": 29,
+    "display_name": "Back Squat",
+    "duration_type": 29,
+    "duration_value": 5,
+    "intensity": 0,
+    "type": "exercise"
+  },
+  {
+    "display_name": "Rest",
+    "duration_type": 0,
+    "duration_value": 120000,
+    "intensity": 1,
+    "type": "rest"
+  },
+  {
+    "duration_step": 5,
+    "repeat_count": 3,
+    "type": "repeat"
+  }
+]

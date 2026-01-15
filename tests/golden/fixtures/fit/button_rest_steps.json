@@ -1,0 +1,32 @@
+[
+  {
+    "category_id": 2,
+    "category_name": "Cardio",
+    "display_name": "Warm-Up",
+    "duration_type": 5,
+    "duration_value": 0,
+    "intensity": 1,
+    "type": "warmup"
+  },
+  {
+    "category_id": 28,
+    "display_name": "Goblet Squat",
+    "duration_type": 29,
+    "duration_value": 10,
+    "exercise_name_id": 37,
+    "intensity": 0,
+    "type": "exercise"
+  },
+  {
+    "display_name": "Rest",
+    "duration_type": 5,
+    "duration_value": 0,
+    "intensity": 1,
+    "type": "rest"
+  },
+  {
+    "duration_step": 1,
+    "repeat_count": 3,
+    "type": "repeat"
+  }
+]
