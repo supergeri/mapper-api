@@ -3,6 +3,7 @@ Application Use Cases for AmakaFlow Mapper API.
 
 Part of AMA-391: Create MapWorkout use case
 Part of AMA-392: Create ExportWorkout use case
+Part of AMA-393: Create SaveWorkout use case
 Phase 3 - Canonical Model + Use Cases
 
 This package contains application-level use cases that orchestrate domain logic
@@ -20,6 +21,8 @@ Usage:
         MapWorkoutResult,
         ExportWorkoutUseCase,
         ExportWorkoutResult,
+        SaveWorkoutUseCase,
+        SaveWorkoutResult,
     )
 
     # Map a parsed workout
@@ -41,6 +44,14 @@ Usage:
         profile_id="user-123",
         export_format="yaml",
     )
+
+    # Save a workout
+    save_use_case = SaveWorkoutUseCase(workout_repo=workout_repo)
+    result = save_use_case.execute(
+        workout=workout,
+        user_id="user-123",
+        device="garmin",
+    )
 """
 
 from application.use_cases.export_workout import (
@@ -49,6 +60,11 @@ from application.use_cases.export_workout import (
     ExportWorkoutUseCase,
 )
 from application.use_cases.map_workout import MapWorkoutResult, MapWorkoutUseCase
+from application.use_cases.save_workout import (
+    SaveWorkoutResult,
+    SaveWorkoutUseCase,
+    WorkoutValidationError,
+)
 
 __all__ = [
     # MapWorkout
@@ -58,4 +74,8 @@ __all__ = [
     "ExportWorkoutUseCase",
     "ExportWorkoutResult",
     "ExportFormat",
+    # SaveWorkout
+    "SaveWorkoutUseCase",
+    "SaveWorkoutResult",
+    "WorkoutValidationError",
 ]
