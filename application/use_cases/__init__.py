@@ -2,6 +2,7 @@
 Application Use Cases for AmakaFlow Mapper API.
 
 Part of AMA-391: Create MapWorkout use case
+Part of AMA-392: Create ExportWorkout use case
 Phase 3 - Canonical Model + Use Cases
 
 This package contains application-level use cases that orchestrate domain logic
@@ -14,30 +15,47 @@ Architecture follows Clean Architecture / Hexagonal pattern:
 - Use cases return domain models, not API responses
 
 Usage:
-    from application.use_cases import MapWorkoutUseCase, MapWorkoutResult
+    from application.use_cases import (
+        MapWorkoutUseCase,
+        MapWorkoutResult,
+        ExportWorkoutUseCase,
+        ExportWorkoutResult,
+    )
 
-    # Create use case with injected dependencies
-    use_case = MapWorkoutUseCase(
+    # Map a parsed workout
+    map_use_case = MapWorkoutUseCase(
         exercise_match_repo=exercise_match_repo,
         user_mapping_repo=user_mapping_repo,
         workout_repo=workout_repo,
     )
-
-    # Execute the use case
-    result = use_case.execute(
+    result = map_use_case.execute(
         parsed_workout=parsed,
         user_id="user-123",
         device="garmin",
     )
 
-    if result.success:
-        workout = result.workout
-        print(f"Mapped {result.exercises_mapped} exercises")
+    # Export a workout
+    export_use_case = ExportWorkoutUseCase(workout_repo=workout_repo)
+    result = export_use_case.execute(
+        workout_id="w-123",
+        profile_id="user-123",
+        export_format="yaml",
+    )
 """
 
+from application.use_cases.export_workout import (
+    ExportFormat,
+    ExportWorkoutResult,
+    ExportWorkoutUseCase,
+)
 from application.use_cases.map_workout import MapWorkoutResult, MapWorkoutUseCase
 
 __all__ = [
+    # MapWorkout
     "MapWorkoutUseCase",
     "MapWorkoutResult",
+    # ExportWorkout
+    "ExportWorkoutUseCase",
+    "ExportWorkoutResult",
+    "ExportFormat",
 ]
