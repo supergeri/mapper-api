@@ -1,28 +1,12 @@
 from typing import Optional, Dict, Any, List
-from fastapi import FastAPI, Query, Response, Depends, Header, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Query, Response, Depends, Header, HTTPException
 from backend.auth import get_current_user
+from backend.main import app  # Import app from factory (AMA-377)
+from backend.settings import get_settings
 import logging
 import httpx
-import os
 import json
-from dotenv import load_dotenv
-import sentry_sdk
-
-# Load environment variables from .env file
-load_dotenv()
-
-# Initialize Sentry for error tracking (AMA-225)
-sentry_dsn = os.getenv("SENTRY_DSN")
-if sentry_dsn:
-    sentry_sdk.init(
-        dsn=sentry_dsn,
-        environment=os.getenv("ENVIRONMENT", "development"),
-        traces_sample_rate=0.1,  # 10% of transactions for performance monitoring
-        profiles_sample_rate=0.1,
-        enable_tracing=True,
-    )
-    logging.getLogger(__name__).info("Sentry initialized for mapper-api")
+import os  # Still needed for env vars not yet in settings
 
 from pydantic import BaseModel
 
@@ -131,29 +115,13 @@ from backend.workout_completions import (
     save_voice_workout_with_completion,
 )
 
-# Feature flag for unofficial Garmin sync
-GARMIN_UNOFFICIAL_SYNC_ENABLED = os.getenv("GARMIN_UNOFFICIAL_SYNC_ENABLED", "false").lower() == "true"
+# Feature flags accessed via settings (AMA-377)
+_settings = get_settings()
+GARMIN_UNOFFICIAL_SYNC_ENABLED = _settings.garmin_unofficial_sync_enabled
+GARMIN_EXPORT_DEBUG = _settings.garmin_export_debug
 
-
-
-app = FastAPI()
-
-# Garmin export debug flag - log status at startup
-GARMIN_EXPORT_DEBUG = os.getenv("GARMIN_EXPORT_DEBUG", "false").lower() == "true"
-
-if GARMIN_EXPORT_DEBUG:
-    logger.warning("=== GARMIN_EXPORT_DEBUG ACTIVE (mapper-api) ===")
-else:
-    logger.info("GARMIN_EXPORT_DEBUG is disabled (mapper-api)")
-
-# Configure CORS to allow requests from the UI and iOS app
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "*"],  # Allow all for iOS
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Note: FastAPI app is imported from backend.main (AMA-377)
+# CORS middleware is configured in backend.main.create_app()
 
 
 
