@@ -36,7 +36,7 @@ class TestMobilePairingEndpoints:
             if original_override:
                 app.dependency_overrides[get_current_user] = original_override
 
-    @patch("backend.app.create_pairing_token")
+    @patch("api.routers.pairing.create_pairing_token")
     def test_generate_success(self, mock_create, client: TestClient):
         """Generate endpoint should return token data on success."""
         mock_create.return_value = {
@@ -56,7 +56,7 @@ class TestMobilePairingEndpoints:
         assert data["qr_data"] == '{"type":"amakaflow_pairing"}'
         assert data["expires_in_seconds"] == 300
 
-    @patch("backend.app.create_pairing_token")
+    @patch("api.routers.pairing.create_pairing_token")
     def test_generate_returns_500_on_failure(self, mock_create, client: TestClient):
         """Generate endpoint should return 500 when token creation fails."""
         mock_create.return_value = None
@@ -66,7 +66,7 @@ class TestMobilePairingEndpoints:
         assert response.status_code == 500
         assert "Failed to create pairing token" in response.json()["detail"]
 
-    @patch("backend.app.create_pairing_token")
+    @patch("api.routers.pairing.create_pairing_token")
     def test_generate_returns_429_on_rate_limit(self, mock_create, client: TestClient):
         """Generate endpoint should return 429 when rate limited."""
         mock_create.return_value = {
@@ -83,7 +83,7 @@ class TestMobilePairingEndpoints:
     # POST /mobile/pairing/pair
     # -------------------------------------------------------------------------
 
-    @patch("backend.app.validate_and_use_token")
+    @patch("api.routers.pairing.validate_and_use_token")
     def test_pair_is_public(self, mock_validate, client: TestClient):
         """Pair endpoint should be public (no auth required)."""
         mock_validate.return_value = {"error": "invalid_token", "message": "Token not found"}
@@ -96,7 +96,7 @@ class TestMobilePairingEndpoints:
         # Should get 400 (bad request) not 401 (unauthorized)
         assert response.status_code == 400
 
-    @patch("backend.app.validate_and_use_token")
+    @patch("api.routers.pairing.validate_and_use_token")
     def test_pair_with_token_success(self, mock_validate, client: TestClient):
         """Pair endpoint should return JWT when valid token provided."""
         mock_validate.return_value = {
@@ -115,7 +115,7 @@ class TestMobilePairingEndpoints:
         assert "jwt" in data
         assert data["profile"]["id"] == "user-123"
 
-    @patch("backend.app.validate_and_use_token")
+    @patch("api.routers.pairing.validate_and_use_token")
     def test_pair_with_short_code_success(self, mock_validate, client: TestClient):
         """Pair endpoint should accept short_code instead of token."""
         mock_validate.return_value = {
@@ -135,7 +135,7 @@ class TestMobilePairingEndpoints:
         call_kwargs = mock_validate.call_args[1]
         assert call_kwargs["short_code"] == "ABC123"
 
-    @patch("backend.app.validate_and_use_token")
+    @patch("api.routers.pairing.validate_and_use_token")
     def test_pair_with_device_info(self, mock_validate, client: TestClient):
         """Pair endpoint should accept device_info."""
         mock_validate.return_value = {
@@ -155,7 +155,7 @@ class TestMobilePairingEndpoints:
         call_kwargs = mock_validate.call_args[1]
         assert call_kwargs["device_info"] == device_info
 
-    @patch("backend.app.validate_and_use_token")
+    @patch("api.routers.pairing.validate_and_use_token")
     def test_pair_invalid_token(self, mock_validate, client: TestClient):
         """Pair endpoint should return 400 for invalid token."""
         mock_validate.return_value = {
@@ -171,7 +171,7 @@ class TestMobilePairingEndpoints:
         assert response.status_code == 400
         assert "Token not found" in response.json()["detail"]
 
-    @patch("backend.app.validate_and_use_token")
+    @patch("api.routers.pairing.validate_and_use_token")
     def test_pair_already_used_token(self, mock_validate, client: TestClient):
         """Pair endpoint should return 400 for already used token."""
         mock_validate.return_value = {
@@ -187,7 +187,7 @@ class TestMobilePairingEndpoints:
         assert response.status_code == 400
         assert "already been used" in response.json()["detail"]
 
-    @patch("backend.app.validate_and_use_token")
+    @patch("api.routers.pairing.validate_and_use_token")
     def test_pair_expired_token(self, mock_validate, client: TestClient):
         """Pair endpoint should return 400 for expired token."""
         mock_validate.return_value = {
@@ -203,7 +203,7 @@ class TestMobilePairingEndpoints:
         assert response.status_code == 400
         assert "expired" in response.json()["detail"]
 
-    @patch("backend.app.validate_and_use_token")
+    @patch("api.routers.pairing.validate_and_use_token")
     def test_pair_missing_both_token_and_code(self, mock_validate, client: TestClient):
         """Pair endpoint should return 400 when neither token nor short_code provided."""
         mock_validate.return_value = {
@@ -218,7 +218,7 @@ class TestMobilePairingEndpoints:
 
         assert response.status_code == 400
 
-    @patch("backend.app.validate_and_use_token")
+    @patch("api.routers.pairing.validate_and_use_token")
     def test_pair_returns_400_on_none(self, mock_validate, client: TestClient):
         """Pair endpoint should return 400 when validation returns None."""
         mock_validate.return_value = None
@@ -234,7 +234,7 @@ class TestMobilePairingEndpoints:
     # GET /mobile/pairing/status/{token}
     # -------------------------------------------------------------------------
 
-    @patch("backend.app.get_pairing_status")
+    @patch("api.routers.pairing.get_pairing_status")
     def test_status_is_public(self, mock_status, client: TestClient):
         """Status endpoint should be public (web app polls it)."""
         mock_status.return_value = {"paired": False, "expired": False, "device_info": None}
@@ -244,7 +244,7 @@ class TestMobilePairingEndpoints:
         # Should succeed without auth
         assert response.status_code == 200
 
-    @patch("backend.app.get_pairing_status")
+    @patch("api.routers.pairing.get_pairing_status")
     def test_status_not_paired(self, mock_status, client: TestClient):
         """Status endpoint should return paired=false for unpaired token."""
         mock_status.return_value = {
@@ -260,7 +260,7 @@ class TestMobilePairingEndpoints:
         assert data["paired"] is False
         assert data["expired"] is False
 
-    @patch("backend.app.get_pairing_status")
+    @patch("api.routers.pairing.get_pairing_status")
     def test_status_paired(self, mock_status, client: TestClient):
         """Status endpoint should return paired=true after successful pairing."""
         mock_status.return_value = {
@@ -276,7 +276,7 @@ class TestMobilePairingEndpoints:
         assert data["paired"] is True
         assert data["device_info"]["device"] == "iPhone 15"
 
-    @patch("backend.app.get_pairing_status")
+    @patch("api.routers.pairing.get_pairing_status")
     def test_status_expired(self, mock_status, client: TestClient):
         """Status endpoint should return expired=true for expired token."""
         mock_status.return_value = {
@@ -312,7 +312,7 @@ class TestMobilePairingEndpoints:
             if original_override:
                 app.dependency_overrides[get_current_user] = original_override
 
-    @patch("backend.app.revoke_user_tokens")
+    @patch("api.routers.pairing.revoke_user_tokens")
     def test_revoke_success(self, mock_revoke, client: TestClient):
         """Revoke endpoint should return count of revoked tokens."""
         mock_revoke.return_value = 3
@@ -325,7 +325,7 @@ class TestMobilePairingEndpoints:
         assert data["revoked_count"] == 3
         assert "3 pairing token" in data["message"]
 
-    @patch("backend.app.revoke_user_tokens")
+    @patch("api.routers.pairing.revoke_user_tokens")
     def test_revoke_zero_tokens(self, mock_revoke, client: TestClient):
         """Revoke endpoint should handle case with no tokens to revoke."""
         mock_revoke.return_value = 0
@@ -340,7 +340,7 @@ class TestMobilePairingEndpoints:
 class TestMobilePairingEndToEnd:
     """End-to-end tests for the pairing flow (with mocked database)."""
 
-    @patch("backend.app.create_pairing_token")
+    @patch("api.routers.pairing.create_pairing_token")
     def test_full_pairing_flow_generate(self, mock_create, client: TestClient):
         """Test token generation returns expected format."""
         from backend.mobile_pairing import TOKEN_EXPIRY_MINUTES
@@ -361,7 +361,7 @@ class TestMobilePairingEndToEnd:
         assert len(data["short_code"]) == 6
         assert data["expires_in_seconds"] == TOKEN_EXPIRY_MINUTES * 60
 
-    @patch("backend.app.get_pairing_status")
+    @patch("api.routers.pairing.get_pairing_status")
     def test_polling_flow(self, mock_status, client: TestClient):
         """Test that status polling works correctly."""
         # First poll - not paired
@@ -382,7 +382,7 @@ class TestMobilePairingEndToEnd:
 class TestShortCodeCaseInsensitivity:
     """Tests for short code case handling."""
 
-    @patch("backend.app.validate_and_use_token")
+    @patch("api.routers.pairing.validate_and_use_token")
     def test_short_code_passed_to_validator(self, mock_validate, client: TestClient):
         """Short codes should be passed to validator."""
         mock_validate.return_value = {
@@ -405,7 +405,7 @@ class TestShortCodeCaseInsensitivity:
 class TestResponseFormats:
     """Tests for API response format consistency."""
 
-    @patch("backend.app.create_pairing_token")
+    @patch("api.routers.pairing.create_pairing_token")
     def test_generate_response_uses_snake_case(self, mock_create, client: TestClient):
         """Generate response should use snake_case for field names."""
         mock_create.return_value = {
@@ -430,7 +430,7 @@ class TestResponseFormats:
         assert "qrData" not in data
         assert "expiresAt" not in data
 
-    @patch("backend.app.get_pairing_status")
+    @patch("api.routers.pairing.get_pairing_status")
     def test_status_response_format(self, mock_status, client: TestClient):
         """Status response should have consistent format."""
         mock_status.return_value = {
@@ -458,7 +458,7 @@ class TestResponseFormats:
 class TestJWTRefreshEndpoint:
     """Tests for /mobile/pairing/refresh endpoint."""
 
-    @patch("backend.app.refresh_jwt_for_device")
+    @patch("api.routers.pairing.refresh_jwt_for_device")
     def test_refresh_is_public(self, mock_refresh, client: TestClient):
         """Refresh endpoint should be public (no auth required)."""
         mock_refresh.return_value = {
@@ -475,7 +475,7 @@ class TestJWTRefreshEndpoint:
         # Should get 401 (not found) not 403 (forbidden for missing auth)
         assert response.status_code == 401
 
-    @patch("backend.app.refresh_jwt_for_device")
+    @patch("api.routers.pairing.refresh_jwt_for_device")
     def test_refresh_success(self, mock_refresh, client: TestClient):
         """Refresh endpoint should return new JWT on success."""
         mock_refresh.return_value = {
@@ -497,7 +497,7 @@ class TestJWTRefreshEndpoint:
         assert "expires_at" in data
         assert "refreshed_at" in data
 
-    @patch("backend.app.refresh_jwt_for_device")
+    @patch("api.routers.pairing.refresh_jwt_for_device")
     def test_refresh_device_not_found(self, mock_refresh, client: TestClient):
         """Refresh endpoint should return 401 when device not found."""
         mock_refresh.return_value = {
@@ -514,7 +514,7 @@ class TestJWTRefreshEndpoint:
         assert response.status_code == 401
         assert "not found" in response.json()["detail"].lower()
 
-    @patch("backend.app.refresh_jwt_for_device")
+    @patch("api.routers.pairing.refresh_jwt_for_device")
     def test_refresh_device_not_paired(self, mock_refresh, client: TestClient):
         """Refresh endpoint should return 401 when device exists but not paired."""
         mock_refresh.return_value = {
@@ -531,7 +531,7 @@ class TestJWTRefreshEndpoint:
         assert response.status_code == 401
         assert "not paired" in response.json()["detail"].lower()
 
-    @patch("backend.app.refresh_jwt_for_device")
+    @patch("api.routers.pairing.refresh_jwt_for_device")
     def test_refresh_db_unavailable(self, mock_refresh, client: TestClient):
         """Refresh endpoint should return 500 on database error."""
         mock_refresh.return_value = {
@@ -556,7 +556,7 @@ class TestJWTRefreshEndpoint:
 
         assert response.status_code == 422
 
-    @patch("backend.app.refresh_jwt_for_device")
+    @patch("api.routers.pairing.refresh_jwt_for_device")
     def test_refresh_response_format(self, mock_refresh, client: TestClient):
         """Refresh response should use snake_case for field names."""
         mock_refresh.return_value = {
