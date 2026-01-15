@@ -104,7 +104,7 @@ def test_list_completions_limit_validation(client):
 
 def test_list_completions_response_structure(client):
     """Verify the completions list response structure."""
-    with patch('api.routers.workouts.get_user_completions') as mock_get:
+    with patch('api.routers.completions.get_user_completions') as mock_get:
         mock_get.return_value = {
             "completions": [
                 {
@@ -150,7 +150,7 @@ def test_get_completion_by_id_returns_success(client):
 
 def test_get_completion_not_found(client):
     """GET /workouts/completions/{id} returns not found for missing completion."""
-    with patch('api.routers.workouts.get_completion_by_id') as mock_get:
+    with patch('api.routers.completions.get_completion_by_id') as mock_get:
         mock_get.return_value = None
 
         completion_id = str(uuid.uuid4())
@@ -164,7 +164,7 @@ def test_get_completion_not_found(client):
 
 def test_get_completion_found(client):
     """GET /workouts/completions/{id} returns completion when found."""
-    with patch('api.routers.workouts.get_completion_by_id') as mock_get:
+    with patch('api.routers.completions.get_completion_by_id') as mock_get:
         mock_completion = {
             "id": str(uuid.uuid4()),
             "workout_name": "HIIT Cardio",
@@ -216,7 +216,7 @@ def test_complete_workout_requires_workout_link(client):
 
 def test_complete_workout_with_event_id(client):
     """POST /workouts/complete accepts workout_event_id."""
-    with patch('api.routers.workouts.save_workout_completion') as mock_save:
+    with patch('api.routers.completions.save_workout_completion') as mock_save:
         mock_save.return_value = {
             "success": True,
             "id": str(uuid.uuid4()),
@@ -243,7 +243,7 @@ def test_complete_workout_with_event_id(client):
 
 def test_complete_workout_with_follow_along_id(client):
     """POST /workouts/complete accepts follow_along_workout_id."""
-    with patch('api.routers.workouts.save_workout_completion') as mock_save:
+    with patch('api.routers.completions.save_workout_completion') as mock_save:
         mock_save.return_value = {
             "success": True,
             "id": str(uuid.uuid4()),
@@ -265,7 +265,7 @@ def test_complete_workout_with_follow_along_id(client):
 
 def test_complete_workout_with_workout_id(client):
     """POST /workouts/complete accepts workout_id (for iOS Companion workouts)."""
-    with patch('api.routers.workouts.save_workout_completion') as mock_save:
+    with patch('api.routers.completions.save_workout_completion') as mock_save:
         mock_save.return_value = {
             "success": True,
             "id": str(uuid.uuid4()),
@@ -317,7 +317,7 @@ def test_completions_requires_auth(api_client):
 
 def test_completions_empty_list(client):
     """GET /workouts/completions returns empty list when no completions."""
-    with patch('api.routers.workouts.get_user_completions') as mock_get:
+    with patch('api.routers.completions.get_user_completions') as mock_get:
         mock_get.return_value = {
             "completions": [],
             "total": 0
@@ -538,7 +538,7 @@ def test_save_completion_unknown_error():
 
 def test_complete_endpoint_returns_error_code(client):
     """POST /workouts/complete returns error_code in response on failure."""
-    with patch('api.routers.workouts.save_workout_completion') as mock_save:
+    with patch('api.routers.completions.save_workout_completion') as mock_save:
         mock_save.return_value = {
             "success": False,
             "error": "User profile not found. Please ensure your account is fully set up.",
@@ -562,7 +562,7 @@ def test_complete_endpoint_returns_error_code(client):
 
 def test_complete_endpoint_rls_error_code(client):
     """POST /workouts/complete returns RLS_ERROR code on permission issues."""
-    with patch('api.routers.workouts.save_workout_completion') as mock_save:
+    with patch('api.routers.completions.save_workout_completion') as mock_save:
         mock_save.return_value = {
             "success": False,
             "error": "Permission denied. Please contact support.",
@@ -978,7 +978,7 @@ def test_get_completion_returns_set_logs():
 
 def test_complete_workout_endpoint_accepts_set_logs(client):
     """POST /workouts/complete accepts set_logs in request body (AMA-281)."""
-    with patch('api.routers.workouts.save_workout_completion') as mock_save:
+    with patch('api.routers.completions.save_workout_completion') as mock_save:
         mock_save.return_value = {
             "success": True,
             "id": str(uuid.uuid4()),

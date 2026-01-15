@@ -114,9 +114,11 @@ def _include_routers(app: FastAPI) -> None:
     # Domain routers (with prefixes defined in each router)
     app.include_router(mapping_router)
     app.include_router(exports_router)
+    # IMPORTANT: completions_router MUST come before workouts_router
+    # so /workouts/completions routes match before /workouts/{workout_id}
+    app.include_router(completions_router)
     app.include_router(workouts_router)
     app.include_router(pairing_router)
-    app.include_router(completions_router)
 
 
 def _log_feature_flags(settings: Settings) -> None:
