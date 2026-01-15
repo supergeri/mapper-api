@@ -1,0 +1,17 @@
+settings:
+  deleteSameNameWorkout: true
+workouts:
+  supersetworkout:
+  - warmup:
+      cardio: lap
+  - repeat(4):
+    - 'Incline Dumbbell Bench Press [category: BENCH_PRESS]': DB Incline Bench Press
+        X8 (chosen as exact match)
+    - rest: 30s
+    - 'Row [category: ROW]': x10
+    - rest: 60s
+    - rest: lap
+schedulePlan:
+  start_from: 'NORMALIZED_DATE'
+  workouts:
+  - supersetworkout
