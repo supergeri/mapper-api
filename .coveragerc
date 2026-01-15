@@ -1,0 +1,75 @@
+# Coverage configuration for mapper-api
+# Part of AMA-375: Baseline coverage tracking for architecture refactor
+#
+# Baseline established: 32.6% (2026-01-15)
+# Threshold set slightly below baseline to allow refactoring headroom
+
+[run]
+# Source directories to measure
+source = backend
+
+# Enable branch coverage for more thorough analysis
+branch = True
+
+# Omit files from coverage measurement
+omit =
+    # Test files
+    tests/*
+    */tests/*
+    *_test.py
+    test_*.py
+
+    # Python cache and build artifacts
+    */__pycache__/*
+    */.pytest_cache/*
+
+    # Virtual environments
+    .venv/*
+    venv/*
+
+    # Migrations (if any)
+    */migrations/*
+
+    # Configuration files
+    conftest.py
+
+[report]
+# Fail if coverage drops below this threshold
+# Set to baseline minus small buffer for refactoring headroom
+fail_under = 30
+
+# Exclude lines from coverage analysis
+exclude_lines =
+    # Standard exclusions
+    pragma: no cover
+
+    # Debug/development code
+    if __name__ == .__main__.:
+    if DEBUG:
+    if settings.DEBUG:
+
+    # Type checking blocks
+    if TYPE_CHECKING:
+    if typing.TYPE_CHECKING:
+
+    # Abstract methods (implementations should be tested, not declarations)
+    @abstractmethod
+    raise NotImplementedError
+
+    # Defensive assertions that shouldn't normally execute
+    assert False
+    raise AssertionError
+
+# Show missing line numbers in report
+show_missing = True
+
+# Precision for coverage percentage
+precision = 1
+
+[html]
+# Output directory for HTML coverage reports
+directory = htmlcov
+
+[xml]
+# Output file for XML coverage reports (CI integration)
+output = coverage.xml
