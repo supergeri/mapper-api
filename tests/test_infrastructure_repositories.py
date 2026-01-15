@@ -294,23 +294,41 @@ class TestExerciseMatchRepository:
 
 
 # ============================================================================
-# Integration Tests (require database connection)
+# E2E Tests (require real database connection - nightly runs only)
 # ============================================================================
 
-@pytest.mark.integration
+def _is_real_supabase_url(url: str) -> bool:
+    """Check if URL looks like a real Supabase URL (not a test placeholder)."""
+    if not url:
+        return False
+    # Real Supabase URLs look like: https://<project-id>.supabase.co
+    # Test/CI placeholders use things like: https://test.supabase.co
+    return (
+        url.startswith("https://") and
+        ".supabase.co" in url and
+        url != "https://test.supabase.co" and
+        len(url) > 30  # Real project IDs are long
+    )
+
+
+@pytest.mark.e2e
 class TestWorkoutRepositoryIntegration:
-    """Integration tests for SupabaseWorkoutRepository."""
+    """E2E tests for SupabaseWorkoutRepository (requires real database)."""
 
     @pytest.fixture
     def supabase_client(self):
-        """Get a real Supabase client for integration tests."""
+        """Get a real Supabase client for e2e tests."""
         import os
         from supabase import create_client
 
         url = os.getenv("SUPABASE_URL")
         key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
         if not url or not key:
-            pytest.skip("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required for integration tests")
+            pytest.skip("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required for e2e tests")
+
+        if not _is_real_supabase_url(url):
+            pytest.skip("Real Supabase credentials required for e2e tests (not test placeholders)")
 
         return create_client(url, key)
 
@@ -345,20 +363,24 @@ class TestWorkoutRepositoryIntegration:
             repo.delete(result["id"], test_user_id)
 
 
-@pytest.mark.integration
+@pytest.mark.e2e
 class TestCompletionRepositoryIntegration:
-    """Integration tests for SupabaseCompletionRepository."""
+    """E2E tests for SupabaseCompletionRepository (requires real database)."""
 
     @pytest.fixture
     def supabase_client(self):
-        """Get a real Supabase client for integration tests."""
+        """Get a real Supabase client for e2e tests."""
         import os
         from supabase import create_client
 
         url = os.getenv("SUPABASE_URL")
         key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
         if not url or not key:
-            pytest.skip("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required for integration tests")
+            pytest.skip("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required for e2e tests")
+
+        if not _is_real_supabase_url(url):
+            pytest.skip("Real Supabase credentials required for e2e tests (not test placeholders)")
 
         return create_client(url, key)
 
