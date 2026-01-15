@@ -10,56 +10,75 @@ from pydantic import ValidationError
 from backend.settings import Settings, get_settings
 
 
+# Environment variables that CI might set which we need to clear for default tests
+CI_ENV_VARS = [
+    "ENVIRONMENT",
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_ANON_KEY",
+    "INGESTOR_URL",
+    "GARMIN_EXPORT_DEBUG",
+    "GARMIN_UNOFFICIAL_SYNC_ENABLED",
+]
+
+
+@pytest.fixture
+def clean_env(monkeypatch):
+    """Clear CI environment variables to test true defaults."""
+    for var in CI_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+
 class TestSettingsDefaults:
     """Test that Settings applies correct defaults."""
 
-    def test_environment_default(self):
+    def test_environment_default(self, clean_env):
         """Default environment should be development."""
-        settings = Settings()
+        settings = Settings(_env_file=None)
         assert settings.environment == "development"
 
-    def test_supabase_fields_default_to_none(self):
+    def test_supabase_fields_default_to_none(self, clean_env):
         """Supabase fields should default to None."""
-        settings = Settings()
+        settings = Settings(_env_file=None)
         assert settings.supabase_url is None
         assert settings.supabase_service_role_key is None
         assert settings.supabase_anon_key is None
 
-    def test_clerk_fields_defaults(self):
+    def test_clerk_fields_defaults(self, clean_env):
         """Clerk fields should have correct defaults."""
-        settings = Settings()
+        settings = Settings(_env_file=None)
         assert settings.clerk_secret_key is None
         assert settings.clerk_domain == ""
 
-    def test_jwt_secret_has_default(self):
+    def test_jwt_secret_has_default(self, clean_env):
         """JWT secret should have a default value."""
-        settings = Settings()
+        settings = Settings(_env_file=None)
         assert settings.jwt_secret == "amakaflow-mobile-jwt-secret-change-in-production"
 
-    def test_garmin_service_url_default(self):
+    def test_garmin_service_url_default(self, clean_env):
         """Garmin service URL should have default."""
-        settings = Settings()
+        settings = Settings(_env_file=None)
         assert settings.garmin_service_url == "http://garmin-sync-api:8002"
 
-    def test_ingestor_url_default(self):
+    def test_ingestor_url_default(self, clean_env):
         """Ingestor URL should have default."""
-        settings = Settings()
+        settings = Settings(_env_file=None)
         assert settings.ingestor_url == "http://workout-ingestor-api:8004"
 
-    def test_mapper_api_public_url_default(self):
+    def test_mapper_api_public_url_default(self, clean_env):
         """Mapper API public URL should have default."""
-        settings = Settings()
+        settings = Settings(_env_file=None)
         assert settings.mapper_api_public_url == "https://api.amakaflow.com"
 
-    def test_garmin_flags_default_to_false(self):
+    def test_garmin_flags_default_to_false(self, clean_env):
         """Garmin feature flags should default to False."""
-        settings = Settings()
+        settings = Settings(_env_file=None)
         assert settings.garmin_unofficial_sync_enabled is False
         assert settings.garmin_export_debug is False
 
-    def test_sentry_dsn_default_to_none(self):
+    def test_sentry_dsn_default_to_none(self, clean_env):
         """Sentry DSN should default to None."""
-        settings = Settings()
+        settings = Settings(_env_file=None)
         assert settings.sentry_dsn is None
 
 
@@ -87,22 +106,27 @@ class TestSettingsValidation:
 class TestSettingsProperties:
     """Test Settings computed properties."""
 
-    def test_supabase_key_prefers_service_role(self):
+    def test_supabase_key_prefers_service_role(self, clean_env):
         """supabase_key should prefer service role key over anon key."""
         settings = Settings(
+            _env_file=None,
             supabase_service_role_key="service-key",
             supabase_anon_key="anon-key",
         )
         assert settings.supabase_key == "service-key"
 
-    def test_supabase_key_falls_back_to_anon(self):
+    def test_supabase_key_falls_back_to_anon(self, clean_env):
         """supabase_key should fall back to anon key if no service role."""
-        settings = Settings(supabase_anon_key="anon-key")
+        settings = Settings(
+            _env_file=None,
+            supabase_service_role_key=None,
+            supabase_anon_key="anon-key",
+        )
         assert settings.supabase_key == "anon-key"
 
-    def test_supabase_key_returns_none_if_neither(self):
+    def test_supabase_key_returns_none_if_neither(self, clean_env):
         """supabase_key should return None if no keys set."""
-        settings = Settings()
+        settings = Settings(_env_file=None)
         assert settings.supabase_key is None
 
     def test_api_keys_list_parses_comma_separated(self):
