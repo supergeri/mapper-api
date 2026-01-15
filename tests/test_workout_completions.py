@@ -7,13 +7,17 @@ These tests verify:
 3. Auth is required for all completion endpoints
 4. Error handling surfaces specific error messages (AMA-217)
 5. Database errors are properly categorized
+
+Updated in AMA-388 to use dependency overrides instead of patches.
 """
 
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, Mock
 import uuid
 
+from backend.app import app
+from api.deps import get_completion_repo
 from backend.workout_completions import (
     save_workout_completion,
     WorkoutCompletionRequest,
@@ -104,23 +108,26 @@ def test_list_completions_limit_validation(client):
 
 def test_list_completions_response_structure(client):
     """Verify the completions list response structure."""
-    with patch('api.routers.completions.get_user_completions') as mock_get:
-        mock_get.return_value = {
-            "completions": [
-                {
-                    "id": str(uuid.uuid4()),
-                    "workout_name": "Test Workout",
-                    "started_at": "2025-01-15T10:00:00Z",
-                    "duration_seconds": 2700,
-                    "avg_heart_rate": 142,
-                    "max_heart_rate": 175,
-                    "active_calories": 320,
-                    "source": "apple_watch",
-                }
-            ],
-            "total": 1
-        }
+    mock_repo = Mock()
+    mock_repo.get_user_completions.return_value = {
+        "completions": [
+            {
+                "id": str(uuid.uuid4()),
+                "workout_name": "Test Workout",
+                "started_at": "2025-01-15T10:00:00Z",
+                "duration_seconds": 2700,
+                "avg_heart_rate": 142,
+                "max_heart_rate": 175,
+                "active_calories": 320,
+                "source": "apple_watch",
+            }
+        ],
+        "total": 1
+    }
 
+    original = app.dependency_overrides.get(get_completion_repo)
+    app.dependency_overrides[get_completion_repo] = lambda: mock_repo
+    try:
         resp = client.get("/workouts/completions")
 
         assert resp.status_code == 200
@@ -133,6 +140,11 @@ def test_list_completions_response_structure(client):
         assert "workout_name" in completion
         assert "started_at" in completion
         assert "duration_seconds" in completion
+    finally:
+        if original:
+            app.dependency_overrides[get_completion_repo] = original
+        elif get_completion_repo in app.dependency_overrides:
+            del app.dependency_overrides[get_completion_repo]
 
 
 # =============================================================================
@@ -150,9 +162,12 @@ def test_get_completion_by_id_returns_success(client):
 
 def test_get_completion_not_found(client):
     """GET /workouts/completions/{id} returns not found for missing completion."""
-    with patch('api.routers.completions.get_completion_by_id') as mock_get:
-        mock_get.return_value = None
+    mock_repo = Mock()
+    mock_repo.get_by_id.return_value = None
 
+    original = app.dependency_overrides.get(get_completion_repo)
+    app.dependency_overrides[get_completion_repo] = lambda: mock_repo
+    try:
         completion_id = str(uuid.uuid4())
         resp = client.get(f"/workouts/completions/{completion_id}")
 
@@ -160,30 +175,44 @@ def test_get_completion_not_found(client):
         data = resp.json()
         assert data["success"] is False
         assert "not found" in data["message"].lower()
+    finally:
+        if original:
+            app.dependency_overrides[get_completion_repo] = original
+        elif get_completion_repo in app.dependency_overrides:
+            del app.dependency_overrides[get_completion_repo]
 
 
 def test_get_completion_found(client):
     """GET /workouts/completions/{id} returns completion when found."""
-    with patch('api.routers.completions.get_completion_by_id') as mock_get:
-        mock_completion = {
-            "id": str(uuid.uuid4()),
-            "workout_name": "HIIT Cardio",
-            "started_at": "2025-01-15T10:00:00Z",
-            "duration_seconds": 2700,
-            "avg_heart_rate": 142,
-            "max_heart_rate": 175,
-            "active_calories": 320,
-            "source": "apple_watch",
-            "heart_rate_samples": [{"timestamp": "2025-01-15T10:00:00Z", "value": 80}]
-        }
-        mock_get.return_value = mock_completion
+    mock_completion = {
+        "id": str(uuid.uuid4()),
+        "workout_name": "HIIT Cardio",
+        "started_at": "2025-01-15T10:00:00Z",
+        "duration_seconds": 2700,
+        "avg_heart_rate": 142,
+        "max_heart_rate": 175,
+        "active_calories": 320,
+        "source": "apple_watch",
+        "heart_rate_samples": [{"timestamp": "2025-01-15T10:00:00Z", "value": 80}]
+    }
 
+    mock_repo = Mock()
+    mock_repo.get_by_id.return_value = mock_completion
+
+    original = app.dependency_overrides.get(get_completion_repo)
+    app.dependency_overrides[get_completion_repo] = lambda: mock_repo
+    try:
         resp = client.get(f"/workouts/completions/{mock_completion['id']}")
 
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
         assert data["completion"]["workout_name"] == "HIIT Cardio"
+    finally:
+        if original:
+            app.dependency_overrides[get_completion_repo] = original
+        elif get_completion_repo in app.dependency_overrides:
+            del app.dependency_overrides[get_completion_repo]
 
 
 # =============================================================================
@@ -216,13 +245,16 @@ def test_complete_workout_requires_workout_link(client):
 
 def test_complete_workout_with_event_id(client):
     """POST /workouts/complete accepts workout_event_id."""
-    with patch('api.routers.completions.save_workout_completion') as mock_save:
-        mock_save.return_value = {
-            "success": True,
-            "id": str(uuid.uuid4()),
-            "summary": {"duration_formatted": "45:00", "avg_heart_rate": 142, "calories": 320}
-        }
+    mock_repo = Mock()
+    mock_repo.save.return_value = {
+        "success": True,
+        "id": str(uuid.uuid4()),
+        "summary": {"duration_formatted": "45:00", "avg_heart_rate": 142, "calories": 320}
+    }
 
+    original = app.dependency_overrides.get(get_completion_repo)
+    app.dependency_overrides[get_completion_repo] = lambda: mock_repo
+    try:
         resp = client.post("/workouts/complete", json={
             "workout_event_id": str(uuid.uuid4()),
             "started_at": "2025-01-15T10:00:00Z",
@@ -239,17 +271,25 @@ def test_complete_workout_with_event_id(client):
         data = resp.json()
         assert data["success"] is True
         assert "id" in data
+    finally:
+        if original:
+            app.dependency_overrides[get_completion_repo] = original
+        elif get_completion_repo in app.dependency_overrides:
+            del app.dependency_overrides[get_completion_repo]
 
 
 def test_complete_workout_with_follow_along_id(client):
     """POST /workouts/complete accepts follow_along_workout_id."""
-    with patch('api.routers.completions.save_workout_completion') as mock_save:
-        mock_save.return_value = {
-            "success": True,
-            "id": str(uuid.uuid4()),
-            "summary": {"duration_formatted": "1:00:00", "avg_heart_rate": None, "calories": None}
-        }
+    mock_repo = Mock()
+    mock_repo.save.return_value = {
+        "success": True,
+        "id": str(uuid.uuid4()),
+        "summary": {"duration_formatted": "1:00:00", "avg_heart_rate": None, "calories": None}
+    }
 
+    original = app.dependency_overrides.get(get_completion_repo)
+    app.dependency_overrides[get_completion_repo] = lambda: mock_repo
+    try:
         resp = client.post("/workouts/complete", json={
             "follow_along_workout_id": str(uuid.uuid4()),
             "started_at": "2025-01-15T18:00:00Z",
@@ -261,17 +301,25 @@ def test_complete_workout_with_follow_along_id(client):
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
+    finally:
+        if original:
+            app.dependency_overrides[get_completion_repo] = original
+        elif get_completion_repo in app.dependency_overrides:
+            del app.dependency_overrides[get_completion_repo]
 
 
 def test_complete_workout_with_workout_id(client):
     """POST /workouts/complete accepts workout_id (for iOS Companion workouts)."""
-    with patch('api.routers.completions.save_workout_completion') as mock_save:
-        mock_save.return_value = {
-            "success": True,
-            "id": str(uuid.uuid4()),
-            "summary": {"duration_formatted": "30:00", "avg_heart_rate": 135, "calories": 250}
-        }
+    mock_repo = Mock()
+    mock_repo.save.return_value = {
+        "success": True,
+        "id": str(uuid.uuid4()),
+        "summary": {"duration_formatted": "30:00", "avg_heart_rate": 135, "calories": 250}
+    }
 
+    original = app.dependency_overrides.get(get_completion_repo)
+    app.dependency_overrides[get_completion_repo] = lambda: mock_repo
+    try:
         resp = client.post("/workouts/complete", json={
             "workout_id": str(uuid.uuid4()),
             "started_at": "2025-01-15T14:00:00Z",
@@ -287,6 +335,11 @@ def test_complete_workout_with_workout_id(client):
         data = resp.json()
         assert data["success"] is True
         assert "id" in data
+    finally:
+        if original:
+            app.dependency_overrides[get_completion_repo] = original
+        elif get_completion_repo in app.dependency_overrides:
+            del app.dependency_overrides[get_completion_repo]
 
 
 # =============================================================================
@@ -317,18 +370,26 @@ def test_completions_requires_auth(api_client):
 
 def test_completions_empty_list(client):
     """GET /workouts/completions returns empty list when no completions."""
-    with patch('api.routers.completions.get_user_completions') as mock_get:
-        mock_get.return_value = {
-            "completions": [],
-            "total": 0
-        }
+    mock_repo = Mock()
+    mock_repo.get_user_completions.return_value = {
+        "completions": [],
+        "total": 0
+    }
 
+    original = app.dependency_overrides.get(get_completion_repo)
+    app.dependency_overrides[get_completion_repo] = lambda: mock_repo
+    try:
         resp = client.get("/workouts/completions")
 
         assert resp.status_code == 200
         data = resp.json()
         assert data["completions"] == []
         assert data["total"] == 0
+    finally:
+        if original:
+            app.dependency_overrides[get_completion_repo] = original
+        elif get_completion_repo in app.dependency_overrides:
+            del app.dependency_overrides[get_completion_repo]
 
 
 def test_completions_string_literal_not_uuid(client):
@@ -538,13 +599,16 @@ def test_save_completion_unknown_error():
 
 def test_complete_endpoint_returns_error_code(client):
     """POST /workouts/complete returns error_code in response on failure."""
-    with patch('api.routers.completions.save_workout_completion') as mock_save:
-        mock_save.return_value = {
-            "success": False,
-            "error": "User profile not found. Please ensure your account is fully set up.",
-            "error_code": "PROFILE_NOT_FOUND"
-        }
+    mock_repo = Mock()
+    mock_repo.save.return_value = {
+        "success": False,
+        "error": "User profile not found. Please ensure your account is fully set up.",
+        "error_code": "PROFILE_NOT_FOUND"
+    }
 
+    original = app.dependency_overrides.get(get_completion_repo)
+    app.dependency_overrides[get_completion_repo] = lambda: mock_repo
+    try:
         resp = client.post("/workouts/complete", json={
             "follow_along_workout_id": str(uuid.uuid4()),
             "started_at": "2025-01-15T10:00:00Z",
@@ -558,17 +622,25 @@ def test_complete_endpoint_returns_error_code(client):
         assert data["success"] is False
         assert data["error_code"] == "PROFILE_NOT_FOUND"
         assert "profile" in data["message"].lower()
+    finally:
+        if original:
+            app.dependency_overrides[get_completion_repo] = original
+        elif get_completion_repo in app.dependency_overrides:
+            del app.dependency_overrides[get_completion_repo]
 
 
 def test_complete_endpoint_rls_error_code(client):
     """POST /workouts/complete returns RLS_ERROR code on permission issues."""
-    with patch('api.routers.completions.save_workout_completion') as mock_save:
-        mock_save.return_value = {
-            "success": False,
-            "error": "Permission denied. Please contact support.",
-            "error_code": "RLS_ERROR"
-        }
+    mock_repo = Mock()
+    mock_repo.save.return_value = {
+        "success": False,
+        "error": "Permission denied. Please contact support.",
+        "error_code": "RLS_ERROR"
+    }
 
+    original = app.dependency_overrides.get(get_completion_repo)
+    app.dependency_overrides[get_completion_repo] = lambda: mock_repo
+    try:
         resp = client.post("/workouts/complete", json={
             "follow_along_workout_id": str(uuid.uuid4()),
             "started_at": "2025-01-15T10:00:00Z",
@@ -581,6 +653,11 @@ def test_complete_endpoint_rls_error_code(client):
         data = resp.json()
         assert data["success"] is False
         assert data["error_code"] == "RLS_ERROR"
+    finally:
+        if original:
+            app.dependency_overrides[get_completion_repo] = original
+        elif get_completion_repo in app.dependency_overrides:
+            del app.dependency_overrides[get_completion_repo]
 
 
 # =============================================================================
@@ -978,13 +1055,16 @@ def test_get_completion_returns_set_logs():
 
 def test_complete_workout_endpoint_accepts_set_logs(client):
     """POST /workouts/complete accepts set_logs in request body (AMA-281)."""
-    with patch('api.routers.completions.save_workout_completion') as mock_save:
-        mock_save.return_value = {
-            "success": True,
-            "id": str(uuid.uuid4()),
-            "summary": {"duration_formatted": "30:00", "avg_heart_rate": 135, "calories": 250}
-        }
+    mock_repo = Mock()
+    mock_repo.save.return_value = {
+        "success": True,
+        "id": str(uuid.uuid4()),
+        "summary": {"duration_formatted": "30:00", "avg_heart_rate": 135, "calories": 250}
+    }
 
+    original = app.dependency_overrides.get(get_completion_repo)
+    app.dependency_overrides[get_completion_repo] = lambda: mock_repo
+    try:
         resp = client.post("/workouts/complete", json={
             "workout_id": str(uuid.uuid4()),
             "started_at": "2026-01-08T14:00:00Z",
@@ -1010,13 +1090,17 @@ def test_complete_workout_endpoint_accepts_set_logs(client):
         data = resp.json()
         assert data["success"] is True
 
-        # Verify set_logs was passed to save function
-        mock_save.assert_called_once()
-        call_args = mock_save.call_args
-        request_obj = call_args[0][1]  # Second positional arg is the request
-        assert request_obj.set_logs is not None
-        assert len(request_obj.set_logs) == 1
-        assert request_obj.set_logs[0].exercise_name == "Bench Press"
+        # Verify save was called with set_logs
+        mock_repo.save.assert_called_once()
+        call_kwargs = mock_repo.save.call_args[1]
+        assert call_kwargs.get("set_logs") is not None
+        assert len(call_kwargs["set_logs"]) == 1
+        assert call_kwargs["set_logs"][0]["exercise_name"] == "Bench Press"
+    finally:
+        if original:
+            app.dependency_overrides[get_completion_repo] = original
+        elif get_completion_repo in app.dependency_overrides:
+            del app.dependency_overrides[get_completion_repo]
 
 
 # ============================================================================

@@ -5,7 +5,8 @@ from typing import Dict, Any, List
 import pytest
 from fastapi.testclient import TestClient
 from backend.app import app
-from backend.auth import get_current_user
+from backend.auth import get_current_user as backend_get_current_user
+from api.deps import get_current_user as deps_get_current_user
 
 # Ensure mapper-api root is on sys.path so `import backend` and `import shared` work
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,8 +33,9 @@ def api_client() -> TestClient:
     """
     Shared FastAPI TestClient for mapper-api endpoints.
     """
-    # Override auth dependency for all tests
-    app.dependency_overrides[get_current_user] = mock_get_current_user
+    # Override auth dependency for all tests (both old and new import paths)
+    app.dependency_overrides[backend_get_current_user] = mock_get_current_user
+    app.dependency_overrides[deps_get_current_user] = mock_get_current_user
     return TestClient(app)
 
 
@@ -42,8 +44,9 @@ def client() -> TestClient:
     """
     Per-test FastAPI TestClient (for tests needing fresh state).
     """
-    # Override auth dependency for all tests
-    app.dependency_overrides[get_current_user] = mock_get_current_user
+    # Override auth dependency for all tests (both old and new import paths)
+    app.dependency_overrides[backend_get_current_user] = mock_get_current_user
+    app.dependency_overrides[deps_get_current_user] = mock_get_current_user
     return TestClient(app)
 
 

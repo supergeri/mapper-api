@@ -4,6 +4,7 @@ Workouts router for workout CRUD and library management.
 Part of AMA-378: Create api/routers skeleton and wiring
 Updated in AMA-381: Move workout CRUD endpoints from app.py
 Updated in AMA-383: Move completion endpoints to routers/completions.py
+Updated in AMA-388: Refactor to use dependency injection for repositories
 
 This router contains endpoints for:
 - /workouts/save - Save workout to database
@@ -25,19 +26,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Query, Depends
 from pydantic import BaseModel
 
-from backend.auth import get_current_user
-from backend.database import (
-    save_workout,
-    get_workouts,
-    get_workout,
-    update_workout_export_status,
-    delete_workout,
-    toggle_workout_favorite,
-    track_workout_usage,
-    update_workout_tags,
-    get_incoming_workouts,
-    get_workout_sync_status,
-)
+from api.deps import get_current_user, get_workout_repo
+from application.ports import WorkoutRepository
 from backend.adapters.blocks_to_workoutkit import to_workoutkit
 
 logger = logging.getLogger(__name__)
@@ -171,14 +161,15 @@ def convert_exercise_to_interval(exercise: dict) -> dict:
 @router.post("/workouts/save")
 def save_workout_endpoint(
     request: SaveWorkoutRequest,
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user),
+    workout_repo: WorkoutRepository = Depends(get_workout_repo),
 ):
-    """Save a workout to Supabase before syncing to device.
+    """Save a workout to database before syncing to device.
 
     With deduplication: if a workout with the same profile_id, title, and device
     already exists, it will be updated instead of creating a duplicate.
     """
-    result = save_workout(
+    result = workout_repo.save(
         profile_id=user_id,
         workout_data=request.workout_data,
         sources=request.sources,
@@ -187,7 +178,7 @@ def save_workout_endpoint(
         validation=request.validation,
         title=request.title,
         description=request.description,
-        workout_id=request.workout_id
+        workout_id=request.workout_id,
     )
 
     if result:
@@ -206,23 +197,24 @@ def save_workout_endpoint(
 @router.get("/workouts")
 def get_workouts_endpoint(
     user_id: str = Depends(get_current_user),
+    workout_repo: WorkoutRepository = Depends(get_workout_repo),
     device: str = Query(None, description="Filter by device"),
     is_exported: bool = Query(None, description="Filter by export status"),
-    limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts")
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts"),
 ):
     """Get workouts for the authenticated user, optionally filtered by device and export status."""
-    workouts = get_workouts(
+    workouts = workout_repo.get_list(
         profile_id=user_id,
         device=device,
         is_exported=is_exported,
-        limit=limit
+        limit=limit,
     )
 
     # Include sync status for each workout (AMA-307)
     for workout in workouts:
         workout_id = workout.get("id")
         if workout_id:
-            workout["sync_status"] = get_workout_sync_status(workout_id, user_id)
+            workout["sync_status"] = workout_repo.get_sync_status(workout_id, user_id)
 
     return {
         "success": True,
@@ -234,7 +226,8 @@ def get_workouts_endpoint(
 @router.get("/workouts/incoming")
 def get_incoming_workouts_endpoint(
     user_id: str = Depends(get_current_user),
-    limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts")
+    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts"),
 ):
     """
     Get incoming workouts that haven't been completed yet (AMA-236).
@@ -252,7 +245,7 @@ def get_incoming_workouts_endpoint(
     Returns:
         List of pending workouts in iOS Companion format
     """
-    workouts = get_incoming_workouts(user_id, limit=limit)
+    workouts = workout_repo.get_incoming(user_id, limit=limit)
 
     # Transform each workout to iOS companion format (same as /ios-companion/pending)
     transformed = []
@@ -303,14 +296,15 @@ def get_incoming_workouts_endpoint(
 @router.get("/workouts/{workout_id}")
 def get_workout_endpoint(
     workout_id: str,
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user),
+    workout_repo: WorkoutRepository = Depends(get_workout_repo),
 ):
     """Get a single workout by ID."""
-    workout = get_workout(workout_id, user_id)
+    workout = workout_repo.get(workout_id, user_id)
 
     if workout:
         # Include sync status in response (AMA-307)
-        sync_status = get_workout_sync_status(workout_id, user_id)
+        sync_status = workout_repo.get_sync_status(workout_id, user_id)
         workout["sync_status"] = sync_status
         return {
             "success": True,
@@ -327,10 +321,11 @@ def get_workout_endpoint(
 def update_workout_export_endpoint(
     workout_id: str,
     request: UpdateWorkoutExportRequest,
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user),
+    workout_repo: WorkoutRepository = Depends(get_workout_repo),
 ):
     """Update workout export status after syncing to device."""
-    success = update_workout_export_status(
+    success = workout_repo.update_export_status(
         workout_id=workout_id,
         profile_id=user_id,
         is_exported=request.is_exported,
@@ -352,10 +347,11 @@ def update_workout_export_endpoint(
 @router.delete("/workouts/{workout_id}")
 def delete_workout_endpoint(
     workout_id: str,
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user),
+    workout_repo: WorkoutRepository = Depends(get_workout_repo),
 ):
     """Delete a workout."""
-    success = delete_workout(workout_id, user_id)
+    success = workout_repo.delete(workout_id, user_id)
 
     if success:
         return {
@@ -370,11 +366,16 @@ def delete_workout_endpoint(
 
 
 @router.patch("/workouts/{workout_id}/favorite")
-def toggle_workout_favorite_endpoint(workout_id: str, request: ToggleFavoriteRequest):
+def toggle_workout_favorite_endpoint(
+    workout_id: str,
+    request: ToggleFavoriteRequest,
+    user_id: str = Depends(get_current_user),
+    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+):
     """Toggle favorite status for a workout."""
-    result = toggle_workout_favorite(
+    result = workout_repo.toggle_favorite(
         workout_id=workout_id,
-        profile_id=request.profile_id,
+        profile_id=user_id,
         is_favorite=request.is_favorite
     )
 
@@ -392,11 +393,16 @@ def toggle_workout_favorite_endpoint(workout_id: str, request: ToggleFavoriteReq
 
 
 @router.patch("/workouts/{workout_id}/used")
-def track_workout_usage_endpoint(workout_id: str, request: TrackUsageRequest):
+def track_workout_usage_endpoint(
+    workout_id: str,
+    request: TrackUsageRequest,
+    user_id: str = Depends(get_current_user),
+    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+):
     """Track that a workout was used (update last_used_at and increment times_completed)."""
-    result = track_workout_usage(
+    result = workout_repo.track_usage(
         workout_id=workout_id,
-        profile_id=request.profile_id
+        profile_id=user_id
     )
 
     if result:
@@ -413,11 +419,16 @@ def track_workout_usage_endpoint(workout_id: str, request: TrackUsageRequest):
 
 
 @router.patch("/workouts/{workout_id}/tags")
-def update_workout_tags_endpoint(workout_id: str, request: UpdateTagsRequest):
+def update_workout_tags_endpoint(
+    workout_id: str,
+    request: UpdateTagsRequest,
+    user_id: str = Depends(get_current_user),
+    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+):
     """Update tags for a workout."""
-    result = update_workout_tags(
+    result = workout_repo.update_tags(
         workout_id=workout_id,
-        profile_id=request.profile_id,
+        profile_id=user_id,
         tags=request.tags
     )
 

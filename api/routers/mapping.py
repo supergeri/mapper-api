@@ -4,6 +4,7 @@ Mapping router for exercise mapping and transformation endpoints.
 Part of AMA-378: Create api/routers skeleton and wiring
 Updated in AMA-379: Move mapping endpoints from app.py
 Updated in AMA-380: Move export endpoints to exports.py
+Updated in AMA-388: Refactor to use dependency injection for repositories
 
 This router contains endpoints for:
 - /workflow/* - Workout validation and processing
@@ -15,21 +16,17 @@ This router contains endpoints for:
 import logging
 from typing import Optional, Dict, Any, List
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-# Import exercise matching
-from backend.core.exercise_suggestions import (
-    suggest_alternatives,
-    find_similar_exercises,
-    find_exercises_by_type,
-    categorize_exercise,
-)
+from api.deps import get_exercise_match_repo, get_global_mapping_repo
+from application.ports import ExerciseMatchRepository, GlobalMappingRepository
 
-# Import workflow processing
+# Import workflow processing (higher-level orchestration, not pure repository calls)
 from backend.core.workflow import validate_workout_mapping, process_workout_with_validation
 
-# Import user mappings
+# Import user mappings (session-scoped, not per-user authenticated)
+# TODO: Consider adding auth and migrating to UserMappingRepository in future
 from backend.core.user_mappings import (
     add_user_mapping,
     remove_user_mapping,
@@ -37,11 +34,7 @@ from backend.core.user_mappings import (
     get_all_user_mappings,
     clear_all_user_mappings,
 )
-from backend.core.global_mappings import (
-    record_mapping_choice,
-    get_popular_mappings,
-    get_popularity_stats,
-)
+from backend.core.global_mappings import record_mapping_choice
 
 logger = logging.getLogger(__name__)
 
@@ -153,29 +146,53 @@ def process_workout_with_review(p: BlocksPayload):
 
 
 @router.post("/exercise/suggest")
-def suggest_exercise(p: ExerciseSuggestionRequest):
+def suggest_exercise(
+    p: ExerciseSuggestionRequest,
+    exercise_repo: ExerciseMatchRepository = Depends(get_exercise_match_repo),
+):
     """Get exercise suggestions and alternatives from Garmin database."""
-    suggestions = suggest_alternatives(
-        p.exercise_name,
-        include_similar_types=p.include_similar_types
-    )
-    return suggestions
+    # Get best match
+    matched_name, confidence = exercise_repo.find_match(p.exercise_name)
+
+    # Get suggestions
+    suggestions = exercise_repo.get_suggestions(p.exercise_name, limit=5)
+
+    # Get similar by type if requested
+    similar_by_type = []
+    if p.include_similar_types:
+        similar_by_type = exercise_repo.find_by_type(p.exercise_name, limit=10)
+
+    return {
+        "exercise_name": p.exercise_name,
+        "best_match": matched_name,
+        "confidence": confidence,
+        "suggestions": [{"name": name, "confidence": conf} for name, conf in suggestions],
+        "similar_by_type": similar_by_type,
+    }
 
 
 @router.get("/exercise/similar/{exercise_name}")
-def get_similar_exercises_endpoint(exercise_name: str, limit: int = 10):
+def get_similar_exercises_endpoint(
+    exercise_name: str,
+    limit: int = 10,
+    exercise_repo: ExerciseMatchRepository = Depends(get_exercise_match_repo),
+):
     """Get similar exercises to the given name."""
     return {
         "exercise_name": exercise_name,
-        "similar": find_similar_exercises(exercise_name, limit=limit)
+        "similar": exercise_repo.find_similar(exercise_name, limit=limit)
     }
 
 
 @router.get("/exercise/by-type/{exercise_name}")
-def get_exercises_by_type_endpoint(exercise_name: str, limit: int = 20):
+def get_exercises_by_type_endpoint(
+    exercise_name: str,
+    limit: int = 20,
+    exercise_repo: ExerciseMatchRepository = Depends(get_exercise_match_repo),
+):
     """Get all exercises of the same type (e.g., all squats)."""
-    category = categorize_exercise(exercise_name)
-    exercises = find_exercises_by_type(exercise_name, limit=limit)
+    category = exercise_repo.categorize(exercise_name)
+    exercises = exercise_repo.find_by_type(exercise_name, limit=limit)
     return {
         "exercise_name": exercise_name,
         "category": category,
@@ -189,7 +206,10 @@ def get_exercises_by_type_endpoint(exercise_name: str, limit: int = 20):
 
 
 @router.post("/exercises/match", response_model=ExerciseMatchResult)
-async def match_exercise_single(request: ExerciseMatchRequest):
+async def match_exercise_single(
+    request: ExerciseMatchRequest,
+    exercise_repo: ExerciseMatchRepository = Depends(get_exercise_match_repo),
+):
     """Match a single exercise name to Garmin exercise database.
 
     Returns the best match with confidence score and suggestions.
@@ -199,14 +219,12 @@ async def match_exercise_single(request: ExerciseMatchRequest):
     - 50-90% = "needs_review" (medium confidence)
     - <50% = "unmapped" (low confidence)
     """
-    from backend.core.garmin_matcher import find_garmin_exercise, get_garmin_suggestions
-
     name = request.name.strip()
     if not name:
         return ExerciseMatchResult(original_name=name, status="unmapped")
 
-    matched_name, confidence = find_garmin_exercise(name, threshold=30)
-    suggestions_list = get_garmin_suggestions(name, limit=request.limit, score_cutoff=0.3)
+    matched_name, confidence = exercise_repo.find_match(name, threshold=0.3)
+    suggestions_list = exercise_repo.get_suggestions(name, limit=request.limit, score_cutoff=0.3)
     suggestions = [
         {"name": sugg_name, "confidence": round(sugg_conf, 2)}
         for sugg_name, sugg_conf in suggestions_list
@@ -232,19 +250,20 @@ async def match_exercise_single(request: ExerciseMatchRequest):
 
 
 @router.post("/exercises/match/batch", response_model=ExerciseMatchBatchResponse)
-async def match_exercises_batch(request: ExerciseMatchBatchRequest):
+async def match_exercises_batch(
+    request: ExerciseMatchBatchRequest,
+    exercise_repo: ExerciseMatchRepository = Depends(get_exercise_match_repo),
+):
     """Match multiple exercise names to Garmin exercise database.
 
     Deduplicates names for efficiency and returns results for each unique name.
     """
-    from backend.core.garmin_matcher import find_garmin_exercise, get_garmin_suggestions
-
     unique_names = list(set(name.strip() for name in request.names if name.strip()))
 
     results = []
     for name in unique_names:
-        matched_name, confidence = find_garmin_exercise(name, threshold=30)
-        suggestions_list = get_garmin_suggestions(name, limit=request.limit, score_cutoff=0.3)
+        matched_name, confidence = exercise_repo.find_match(name, threshold=0.3)
+        suggestions_list = exercise_repo.get_suggestions(name, limit=request.limit, score_cutoff=0.3)
         suggestions = [
             {"name": sugg_name, "confidence": round(sugg_conf, 2)}
             for sugg_name, sugg_conf in suggestions_list
@@ -343,16 +362,21 @@ def clear_mappings():
 
 
 @router.get("/mappings/popularity/stats")
-def get_popularity_stats_endpoint():
+def get_popularity_stats_endpoint(
+    global_mapping_repo: GlobalMappingRepository = Depends(get_global_mapping_repo),
+):
     """Get statistics about global mapping popularity (crowd-sourced choices)."""
-    stats = get_popularity_stats()
+    stats = global_mapping_repo.get_stats()
     return stats
 
 
 @router.get("/mappings/popularity/{exercise_name}")
-def get_exercise_popularity(exercise_name: str):
+def get_exercise_popularity(
+    exercise_name: str,
+    global_mapping_repo: GlobalMappingRepository = Depends(get_global_mapping_repo),
+):
     """Get popular mappings for a specific exercise."""
-    popular = get_popular_mappings(exercise_name, limit=10)
+    popular = global_mapping_repo.get_popular(exercise_name, limit=10)
     return {
         "exercise_name": exercise_name,
         "popular_mappings": [{"garmin_name": garmin, "count": count} for garmin, count in popular]
@@ -360,9 +384,12 @@ def get_exercise_popularity(exercise_name: str):
 
 
 @router.post("/mappings/popularity/record")
-def record_mapping_choice_endpoint(p: UserMappingRequest):
+def record_mapping_choice_endpoint(
+    p: UserMappingRequest,
+    global_mapping_repo: GlobalMappingRepository = Depends(get_global_mapping_repo),
+):
     """Record a mapping choice for global popularity (without saving as personal mapping)."""
-    record_mapping_choice(p.exercise_name, p.garmin_name)
+    global_mapping_repo.record_choice(p.exercise_name, p.garmin_name)
     return {
         "message": "Mapping choice recorded for global popularity",
         "exercise_name": p.exercise_name,

@@ -3,6 +3,7 @@ Completions router for workout completion tracking.
 
 Part of AMA-378: Create api/routers skeleton and wiring
 Updated in AMA-383: Move completion endpoints from workouts.py
+Updated in AMA-388: Refactor to use dependency injection for repositories
 
 This router contains endpoints for:
 - /workouts/complete - Record workout completion
@@ -18,14 +19,11 @@ import logging
 
 from fastapi import APIRouter, Query, Depends
 
-from backend.auth import get_current_user
+from api.deps import get_current_user, get_completion_repo
+from application.ports import CompletionRepository, HealthMetricsDTO
 from backend.workout_completions import (
     WorkoutCompletionRequest,
-    save_workout_completion,
-    get_user_completions,
-    get_completion_by_id,
     VoiceWorkoutCompletionRequest,
-    save_voice_workout_with_completion,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,7 +43,8 @@ router = APIRouter(
 @router.post("/workouts/complete")
 def record_workout_completion_endpoint(
     request: WorkoutCompletionRequest,
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user),
+    completion_repo: CompletionRepository = Depends(get_completion_repo),
 ):
     """
     Record a workout completion with health metrics from Apple Watch.
@@ -67,16 +66,44 @@ def record_workout_completion_endpoint(
             "message": "One of workout_event_id, follow_along_workout_id, or workout_id is required"
         }
 
-    result = save_workout_completion(user_id, request)
+    # Convert Pydantic model to DTO
+    health_metrics = HealthMetricsDTO(
+        avg_heart_rate=request.health_metrics.avg_heart_rate,
+        max_heart_rate=request.health_metrics.max_heart_rate,
+        min_heart_rate=request.health_metrics.min_heart_rate,
+        active_calories=request.health_metrics.active_calories,
+        total_calories=request.health_metrics.total_calories,
+        distance_meters=request.health_metrics.distance_meters,
+        steps=request.health_metrics.steps,
+    )
+
+    result = completion_repo.save(
+        user_id,
+        started_at=request.started_at,
+        ended_at=request.ended_at,
+        health_metrics=health_metrics,
+        source=request.source,
+        workout_event_id=request.workout_event_id,
+        follow_along_workout_id=request.follow_along_workout_id,
+        workout_id=request.workout_id,
+        source_workout_id=request.source_workout_id,
+        device_info=request.device_info,
+        heart_rate_samples=request.heart_rate_samples,
+        workout_structure=request.workout_structure or request.intervals,
+        set_logs=[s.model_dump() for s in request.set_logs] if request.set_logs else None,
+        execution_log=request.execution_log,
+        is_simulated=request.is_simulated,
+        simulation_config=request.simulation_config.model_dump() if request.simulation_config else None,
+    )
 
     if result.get("success"):
         return {
             "success": True,
-            "id": result["id"],
-            "summary": result["summary"]
+            "id": result.get("completion_id") or result.get("id"),
+            "summary": result.get("summary")
         }
     else:
-        # Return specific error from save_workout_completion
+        # Return specific error from repository
         return {
             "success": False,
             "message": result.get("error", "Failed to save workout completion"),
@@ -89,7 +116,8 @@ def list_workout_completions_endpoint(
     limit: int = Query(default=50, le=100),
     offset: int = Query(default=0),
     include_simulated: bool = Query(default=True),  # AMA-273
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user),
+    completion_repo: CompletionRepository = Depends(get_completion_repo),
 ):
     """
     Get workout completion history for the authenticated user.
@@ -106,7 +134,12 @@ def list_workout_completions_endpoint(
     Returns:
         List of completions and total count
     """
-    result = get_user_completions(user_id, limit, offset, include_simulated)
+    result = completion_repo.get_user_completions(
+        user_id,
+        limit=limit,
+        offset=offset,
+        include_simulated=include_simulated,
+    )
     return {
         "success": True,
         "completions": result["completions"],
@@ -117,7 +150,8 @@ def list_workout_completions_endpoint(
 @router.get("/workouts/completions/{completion_id}")
 def get_workout_completion_endpoint(
     completion_id: str,
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user),
+    completion_repo: CompletionRepository = Depends(get_completion_repo),
 ):
     """
     Get detailed workout completion including heart rate samples.
@@ -132,7 +166,7 @@ def get_workout_completion_endpoint(
     Returns:
         Full completion record or error if not found
     """
-    result = get_completion_by_id(user_id, completion_id)
+    result = completion_repo.get_by_id(user_id, completion_id)
 
     if result:
         return {
@@ -149,7 +183,8 @@ def get_workout_completion_endpoint(
 @router.post("/workouts/completions")
 def save_voice_workout_completion_endpoint(
     request: VoiceWorkoutCompletionRequest,
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user),
+    completion_repo: CompletionRepository = Depends(get_completion_repo),
 ):
     """
     Save a voice-created workout with its completion (AMA-5).
@@ -183,7 +218,11 @@ def save_voice_workout_completion_endpoint(
     Returns:
         Success status, workout_id, completion_id, and summary
     """
-    result = save_voice_workout_with_completion(user_id, request)
+    result = completion_repo.save_voice_workout_with_completion(
+        user_id,
+        workout_data=request.workout.model_dump(),
+        completion_data=request.completion.model_dump(),
+    )
 
     if result.get("success"):
         return {

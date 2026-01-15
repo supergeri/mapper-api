@@ -3,6 +3,7 @@ Pairing router for mobile device pairing and authentication.
 
 Part of AMA-378: Create api/routers skeleton and wiring
 Updated in AMA-382: Move pairing endpoints from app.py
+Updated in AMA-388: Refactor to use dependency injection for repositories
 
 This router contains endpoints for:
 - /mobile/pairing/generate - Generate pairing token for QR code
@@ -19,8 +20,8 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from backend.auth import get_current_user
-from backend.database import get_profile
+from api.deps import get_current_user, get_device_repo, get_user_profile_repo
+from application.ports import DeviceRepository, UserProfileRepository
 from backend.mobile_pairing import (
     GeneratePairingResponse,
     PairDeviceRequest,
@@ -28,13 +29,6 @@ from backend.mobile_pairing import (
     PairingStatusResponse,
     RefreshTokenRequest,
     RefreshTokenResponse,
-    create_pairing_token,
-    validate_and_use_token,
-    get_pairing_status,
-    revoke_user_tokens,
-    get_paired_devices,
-    revoke_device,
-    refresh_jwt_for_device,
     fetch_clerk_profile,
 )
 
@@ -52,7 +46,8 @@ router = APIRouter(
 
 @router.post("/mobile/pairing/generate", response_model=GeneratePairingResponse)
 async def generate_pairing_token_endpoint(
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user),
+    device_repo: DeviceRepository = Depends(get_device_repo),
 ):
     """
     Generate a new pairing token for iOS Companion App authentication.
@@ -63,7 +58,7 @@ async def generate_pairing_token_endpoint(
     Requires valid authentication (Clerk JWT or API key).
     """
     try:
-        result = create_pairing_token(user_id)
+        result = device_repo.create_pairing_token(user_id)
         if result is None:
             raise HTTPException(status_code=500, detail="Failed to create pairing token")
         if "error" in result:
@@ -79,7 +74,10 @@ async def generate_pairing_token_endpoint(
 
 
 @router.post("/mobile/pairing/pair", response_model=PairDeviceResponse)
-async def pair_device_endpoint(request: PairDeviceRequest):
+async def pair_device_endpoint(
+    request: PairDeviceRequest,
+    device_repo: DeviceRepository = Depends(get_device_repo),
+):
     """
     Exchange a pairing token for a JWT (called by iOS app).
 
@@ -89,7 +87,7 @@ async def pair_device_endpoint(request: PairDeviceRequest):
     Returns a JWT that the iOS app stores and uses for authenticated API calls.
     """
     try:
-        result = validate_and_use_token(
+        result = device_repo.validate_and_use_token(
             token=request.token,
             short_code=request.short_code,
             device_info=request.device_info
@@ -116,7 +114,10 @@ async def pair_device_endpoint(request: PairDeviceRequest):
 
 
 @router.post("/mobile/pairing/refresh", response_model=RefreshTokenResponse)
-async def refresh_jwt_endpoint(request: RefreshTokenRequest):
+async def refresh_jwt_endpoint(
+    request: RefreshTokenRequest,
+    device_repo: DeviceRepository = Depends(get_device_repo),
+):
     """
     Refresh JWT for a paired device (AMA-220).
 
@@ -133,7 +134,7 @@ async def refresh_jwt_endpoint(request: RefreshTokenRequest):
     - refreshed_at: When this refresh occurred
     """
     try:
-        result = refresh_jwt_for_device(request.device_id)
+        result = device_repo.refresh_jwt(request.device_id)
 
         if not result.get("success"):
             error_code = result.get("error_code", "UNKNOWN")
@@ -157,7 +158,10 @@ async def refresh_jwt_endpoint(request: RefreshTokenRequest):
 
 
 @router.get("/mobile/pairing/status/{token}", response_model=PairingStatusResponse)
-async def check_pairing_status_endpoint(token: str):
+async def check_pairing_status_endpoint(
+    token: str,
+    device_repo: DeviceRepository = Depends(get_device_repo),
+):
     """
     Check if a pairing token has been used (web app polling endpoint).
 
@@ -170,7 +174,7 @@ async def check_pairing_status_endpoint(token: str):
     - paired_at: timestamp when pairing occurred (if paired)
     """
     try:
-        result = get_pairing_status(token)
+        result = device_repo.get_pairing_status(token)
         return result
     except Exception as e:
         logger.error(f"Failed to check pairing status: {e}")
@@ -179,7 +183,8 @@ async def check_pairing_status_endpoint(token: str):
 
 @router.delete("/mobile/pairing/revoke")
 async def revoke_pairing_tokens_endpoint(
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user),
+    device_repo: DeviceRepository = Depends(get_device_repo),
 ):
     """
     Revoke all active pairing tokens for the authenticated user.
@@ -188,7 +193,7 @@ async def revoke_pairing_tokens_endpoint(
     Also useful as a security measure if tokens may have been compromised.
     """
     try:
-        count = revoke_user_tokens(user_id)
+        count = device_repo.revoke_user_tokens(user_id)
         return {
             "success": True,
             "message": f"Revoked {count} pairing token(s)",
@@ -201,7 +206,8 @@ async def revoke_pairing_tokens_endpoint(
 
 @router.get("/mobile/pairing/devices")
 async def list_paired_devices_endpoint(
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user),
+    device_repo: DeviceRepository = Depends(get_device_repo),
 ):
     """
     List all paired iOS devices for the authenticated user (AMA-184).
@@ -210,7 +216,7 @@ async def list_paired_devices_endpoint(
     including device info (model, OS version) and when they were paired.
     """
     try:
-        devices = get_paired_devices(user_id)
+        devices = device_repo.get_paired_devices(user_id)
         return {
             "success": True,
             "devices": devices,
@@ -224,7 +230,8 @@ async def list_paired_devices_endpoint(
 @router.delete("/mobile/pairing/devices/{device_id}")
 async def revoke_device_endpoint(
     device_id: str,
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user),
+    device_repo: DeviceRepository = Depends(get_device_repo),
 ):
     """
     Revoke a specific paired device (AMA-184).
@@ -233,7 +240,7 @@ async def revoke_device_endpoint(
     if they want to use the iOS app on that device again.
     """
     try:
-        result = revoke_device(user_id, device_id)
+        result = device_repo.revoke_device(user_id, device_id)
         if not result.get("success"):
             raise HTTPException(status_code=404, detail=result.get("message", "Device not found"))
         return result
@@ -251,7 +258,8 @@ async def revoke_device_endpoint(
 
 @router.get("/mobile/profile")
 async def get_mobile_profile_endpoint(
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user),
+    user_profile_repo: UserProfileRepository = Depends(get_user_profile_repo),
 ):
     """
     Get current user's profile for mobile apps (AMA-268, AMA-269).
@@ -282,7 +290,7 @@ async def get_mobile_profile_endpoint(
         }
 
     # Fallback to database profile
-    db_profile = get_profile(user_id)
+    db_profile = user_profile_repo.get_profile(user_id)
     if db_profile:
         return {
             "success": True,
