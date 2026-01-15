@@ -1,0 +1,32 @@
+{
+  "intervals": [
+    {
+      "kind": "time",
+      "seconds": 120,
+      "target": "Jump Rope"
+    },
+    {
+      "intervals": [
+        {
+          "kind": "reps",
+          "name": "Goblet Squat",
+          "reps": 15,
+          "restSec": 60
+        },
+        {
+          "kind": "rest",
+          "seconds": 60
+        }
+      ],
+      "kind": "repeat",
+      "reps": 3
+    },
+    {
+      "kind": "distance",
+      "meters": 500,
+      "target": "Row Machine"
+    }
+  ],
+  "sportType": "strengthTraining",
+  "title": "Mixed Modality"
+}

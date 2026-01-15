@@ -1,0 +1,31 @@
+{
+  "intervals": [
+    {
+      "kind": "time",
+      "seconds": 300,
+      "target": "Light Jog"
+    },
+    {
+      "intervals": [
+        {
+          "kind": "time",
+          "seconds": 30,
+          "target": "Burpees"
+        },
+        {
+          "kind": "rest",
+          "seconds": 30
+        }
+      ],
+      "kind": "repeat",
+      "reps": 6
+    },
+    {
+      "kind": "time",
+      "seconds": 180,
+      "target": "Walking"
+    }
+  ],
+  "sportType": "strengthTraining",
+  "title": "HIIT Intervals"
+}

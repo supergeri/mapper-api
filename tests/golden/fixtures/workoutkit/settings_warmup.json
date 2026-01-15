@@ -1,0 +1,26 @@
+{
+  "intervals": [
+    {
+      "kind": "warmup",
+      "seconds": 600
+    },
+    {
+      "intervals": [
+        {
+          "kind": "reps",
+          "name": "Kettlebell Swing",
+          "reps": 20,
+          "restSec": 45
+        },
+        {
+          "kind": "rest",
+          "seconds": 45
+        }
+      ],
+      "kind": "repeat",
+      "reps": 5
+    }
+  ],
+  "sportType": "strengthTraining",
+  "title": "Workout with Settings Warmup"
+}
