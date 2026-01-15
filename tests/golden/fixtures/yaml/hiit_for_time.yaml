@@ -1,0 +1,14 @@
+settings:
+  deleteSameNameWorkout: true
+workouts:
+  HIIT For Time:
+    sport: hiit
+    steps:
+    - repeatUntilTime(20min):
+      - run: lap | 400m
+      - 'Burpee [category: TOTAL_BODY]': lap | Burpees (10 reps)
+      - 'Wall Ball [category: SQUAT]': lap | Wall Ball (20 reps)
+schedulePlan:
+  start_from: 'NORMALIZED_DATE'
+  workouts:
+  - HIIT For Time

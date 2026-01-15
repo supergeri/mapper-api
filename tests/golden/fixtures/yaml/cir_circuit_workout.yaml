@@ -1,0 +1,23 @@
+workout:
+  name: Circuit Training
+  sport: strength
+  notes: Full body circuit
+  steps:
+  - type: circuit
+    rounds: 3
+    steps:
+    - type: exercise
+      exerciseName: 'Custom: pull_up'
+      sets: 1
+      repetitionValue: 10
+      rest: 30
+    - type: exercise
+      exerciseName: Push-Up
+      sets: 1
+      repetitionValue: 15
+      rest: 30
+    - type: exercise
+      exerciseName: 'Custom: air_squat'
+      sets: 1
+      repetitionValue: 20
+      rest: 60

@@ -1,0 +1,15 @@
+workout:
+  name: Simple Strength Workout
+  sport: strength
+  notes: Basic strength training session
+  steps:
+  - type: exercise
+    exerciseName: 'Custom: squat'
+    sets: 3
+    repetitionValue: 10
+    rest: 90
+  - type: exercise
+    exerciseName: 'Custom: bench_press'
+    sets: 3
+    repetitionValue: 8
+    rest: 120

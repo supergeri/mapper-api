@@ -1,0 +1,16 @@
+settings:
+  deleteSameNameWorkout: true
+workouts:
+  edgecaseworkouttest:
+  - warmup:
+      cardio: lap
+  - repeat(2):
+    - 'Romanian Deadlift [category: DEADLIFT]': KB RDL into Goblet Squat X10 (chosen
+        as exact match) | Keep back straight; don't rush
+    - 'Ski Moguls [category: CARDIO]': 200m Ski (chosen as exact match)
+    - 'Push Up [category: PUSH_UP]': Band-Resisted Push-Ups (Heavy) x15 (chosen as
+        exact match) | Full ROM; chest to floor
+schedulePlan:
+  start_from: 'NORMALIZED_DATE'
+  workouts:
+  - edgecaseworkouttest

@@ -1,0 +1,17 @@
+settings:
+  deleteSameNameWorkout: true
+workouts:
+  fullhyroxweek1:
+  - warmup:
+      cardio: lap
+  - repeat(3):
+    - repeat(3):
+      - 'Goblet Squat [category: SQUAT]': x10
+      - rest: 60s
+    - repeat(3):
+      - 'Push Up [category: PUSH_UP]': x12
+      - rest: lap
+schedulePlan:
+  start_from: 'NORMALIZED_DATE'
+  workouts:
+  - fullhyroxweek1
