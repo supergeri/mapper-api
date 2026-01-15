@@ -5,9 +5,11 @@ Part of AMA-378: Create api/routers skeleton and wiring
 Updated in AMA-379: Move mapping endpoints from app.py
 Updated in AMA-380: Move export endpoints to exports.py
 Updated in AMA-388: Refactor to use dependency injection for repositories
+Updated in AMA-394: Add map-parsed endpoint using MapWorkoutUseCase
 
 This router contains endpoints for:
 - /workflow/* - Workout validation and processing
+- /map-parsed - Map parsed workout using MapWorkoutUseCase
 - /exercise/* - Exercise suggestions and matching
 - /exercises/* - Exercise matching API
 - /mappings/* - User mapping management
@@ -16,11 +18,13 @@ This router contains endpoints for:
 import logging
 from typing import Optional, Dict, Any, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from api.deps import get_exercise_match_repo, get_global_mapping_repo
+from api.deps import get_exercise_match_repo, get_global_mapping_repo, get_map_workout_use_case, get_current_user
 from application.ports import ExerciseMatchRepository, GlobalMappingRepository
+from application.use_cases import MapWorkoutUseCase
+from backend.parsers.models import ParsedWorkout
 
 # Import workflow processing (higher-level orchestration, not pure repository calls)
 from backend.core.workflow import validate_workout_mapping, process_workout_with_validation
@@ -138,6 +142,61 @@ def process_workout_with_review(p: BlocksPayload):
     """Process workout but require review of unmapped exercises (stricter validation)."""
     result = process_workout_with_validation(p.blocks_json, auto_proceed=False)
     return result
+
+
+# =============================================================================
+# Map Parsed Workout Endpoint (via Use Case)
+# =============================================================================
+
+
+@router.post("/map-parsed")
+def map_parsed_workout(
+    parsed_workout: ParsedWorkout,
+    device: str = Query("garmin", description="Target device: garmin, apple, ios_companion"),
+    save: bool = Query(True, description="Whether to save the workout to database"),
+    user_id: str = Depends(get_current_user),
+    map_use_case: MapWorkoutUseCase = Depends(get_map_workout_use_case),
+):
+    """Map a parsed workout to canonical format and optionally save.
+
+    This endpoint takes a ParsedWorkout (output from file parsing) and:
+    1. Converts it to canonical Workout domain model
+    2. Maps exercise names to Garmin canonical names
+    3. Optionally saves to the database
+
+    User mappings take priority over fuzzy matching.
+
+    Args:
+        parsed_workout: Parsed workout from file parsing (Excel, CSV, etc.)
+        device: Target device for workout export
+        save: Whether to save the workout to database
+        user_id: Current authenticated user
+
+    Returns:
+        Mapped workout with exercise mapping statistics
+    """
+    result = map_use_case.execute(
+        parsed_workout=parsed_workout,
+        user_id=user_id,
+        device=device,
+        save=save,
+    )
+
+    if result.success:
+        # Convert workout to dict for JSON response
+        workout_data = result.workout.model_dump() if result.workout else None
+        return {
+            "success": True,
+            "workout": workout_data,
+            "workout_id": result.workout_id,
+            "exercises_mapped": result.exercises_mapped,
+            "exercises_unmapped": result.exercises_unmapped,
+        }
+    else:
+        return {
+            "success": False,
+            "error": result.error,
+        }
 
 
 # =============================================================================

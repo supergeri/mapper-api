@@ -5,6 +5,7 @@ Part of AMA-378: Create api/routers skeleton and wiring
 Updated in AMA-381: Move workout CRUD endpoints from app.py
 Updated in AMA-383: Move completion endpoints to routers/completions.py
 Updated in AMA-388: Refactor to use dependency injection for repositories
+Updated in AMA-394: Refactor to call SaveWorkoutUseCase
 
 This router contains endpoints for:
 - /workouts/save - Save workout to database
@@ -26,9 +27,12 @@ from typing import List, Optional
 from fastapi import APIRouter, Query, Depends
 from pydantic import BaseModel
 
-from api.deps import get_current_user, get_workout_repo
+from api.deps import get_current_user, get_workout_repo, get_save_workout_use_case
 from application.ports import WorkoutRepository
+from application.use_cases import SaveWorkoutUseCase
 from backend.adapters.blocks_to_workoutkit import to_workoutkit
+from domain.converters.blocks_to_workout import blocks_to_workout
+from domain.models import WorkoutMetadata, WorkoutSource
 
 logger = logging.getLogger(__name__)
 
@@ -162,32 +166,75 @@ def convert_exercise_to_interval(exercise: dict) -> dict:
 def save_workout_endpoint(
     request: SaveWorkoutRequest,
     user_id: str = Depends(get_current_user),
-    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+    save_workout_use_case: SaveWorkoutUseCase = Depends(get_save_workout_use_case),
 ):
     """Save a workout to database before syncing to device.
 
     With deduplication: if a workout with the same profile_id, title, and device
     already exists, it will be updated instead of creating a duplicate.
-    """
-    result = workout_repo.save(
-        profile_id=user_id,
-        workout_data=request.workout_data,
-        sources=request.sources,
-        device=request.device,
-        exports=request.exports,
-        validation=request.validation,
-        title=request.title,
-        description=request.description,
-        workout_id=request.workout_id,
-    )
 
-    if result:
+    Delegates business logic to SaveWorkoutUseCase.
+    """
+    try:
+        # Step 1: Convert HTTP request to domain model
+        workout_data = request.workout_data.copy()
+
+        # Apply title/description overrides if provided
+        if request.title:
+            workout_data["title"] = request.title
+        if request.description:
+            workout_data["description"] = request.description
+
+        # Parse sources to WorkoutSource enum
+        sources = []
+        for src in request.sources:
+            try:
+                sources.append(WorkoutSource(src))
+            except ValueError:
+                pass
+
+        # Add metadata to workout_data for converter
+        workout_data["metadata"] = workout_data.get("metadata", {})
+        workout_data["metadata"]["sources"] = [s.value for s in sources]
+
+        # Convert to domain Workout
+        workout = blocks_to_workout(workout_data)
+
+        # Set workout ID if updating existing workout
+        if request.workout_id:
+            workout = workout.model_copy(update={"id": request.workout_id})
+
+        # Step 2: Execute use case
+        result = save_workout_use_case.execute(
+            workout=workout,
+            user_id=user_id,
+            device=request.device,
+        )
+
+        # Step 3: Convert use case result to HTTP response
+        if result.success:
+            return {
+                "success": True,
+                "workout_id": result.workout_id,
+                "message": "Workout saved successfully",
+                "is_update": result.is_update,
+            }
+        else:
+            return {
+                "success": False,
+                "message": result.error or "Failed to save workout",
+                "validation_errors": result.validation_errors,
+            }
+
+    except ValueError as e:
+        # Conversion error (e.g., invalid workout_data)
+        logger.warning(f"Failed to convert workout data: {e}")
         return {
-            "success": True,
-            "workout_id": result.get("id"),
-            "message": "Workout saved successfully"
+            "success": False,
+            "message": f"Invalid workout data: {str(e)}"
         }
-    else:
+    except Exception as e:
+        logger.exception(f"Unexpected error saving workout: {e}")
         return {
             "success": False,
             "message": "Failed to save workout. Check server logs."

@@ -2,6 +2,7 @@
 FastAPI Dependency Providers for AmakaFlow Mapper API.
 
 Part of AMA-386: Create api/deps.py dependency providers
+Updated in AMA-394: Add use case dependency providers
 Phase 2 - Dependency Injection
 
 This module provides FastAPI dependency injection functions that return
@@ -64,6 +65,13 @@ from backend.settings import Settings, get_settings as _get_settings
 from backend.auth import (
     get_current_user as _get_current_user,
     get_optional_user as _get_optional_user,
+)
+
+# Use cases (Phase 3)
+from application.use_cases import (
+    MapWorkoutUseCase,
+    ExportWorkoutUseCase,
+    SaveWorkoutUseCase,
 )
 
 
@@ -264,6 +272,64 @@ def get_exercise_match_repo() -> ExerciseMatchRepository:
 
 
 # =============================================================================
+# Use Case Providers
+# =============================================================================
+
+
+def get_save_workout_use_case(
+    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+) -> SaveWorkoutUseCase:
+    """
+    Get SaveWorkoutUseCase with injected dependencies.
+
+    Args:
+        workout_repo: Workout repository (injected)
+
+    Returns:
+        SaveWorkoutUseCase: Use case for saving workouts
+    """
+    return SaveWorkoutUseCase(workout_repo=workout_repo)
+
+
+def get_export_workout_use_case(
+    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+) -> ExportWorkoutUseCase:
+    """
+    Get ExportWorkoutUseCase with injected dependencies.
+
+    Args:
+        workout_repo: Workout repository (injected)
+
+    Returns:
+        ExportWorkoutUseCase: Use case for exporting workouts
+    """
+    return ExportWorkoutUseCase(workout_repo=workout_repo)
+
+
+def get_map_workout_use_case(
+    exercise_match_repo: ExerciseMatchRepository = Depends(get_exercise_match_repo),
+    user_mapping_repo: UserMappingRepository = Depends(get_user_mapping_repo),
+    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+) -> MapWorkoutUseCase:
+    """
+    Get MapWorkoutUseCase with injected dependencies.
+
+    Args:
+        exercise_match_repo: Exercise matching repository (injected)
+        user_mapping_repo: User mapping repository (injected)
+        workout_repo: Workout repository (injected)
+
+    Returns:
+        MapWorkoutUseCase: Use case for mapping workouts
+    """
+    return MapWorkoutUseCase(
+        exercise_match_repo=exercise_match_repo,
+        user_mapping_repo=user_mapping_repo,
+        workout_repo=workout_repo,
+    )
+
+
+# =============================================================================
 # Authentication Providers
 # =============================================================================
 
@@ -351,6 +417,10 @@ __all__ = [
     "get_user_mapping_repo",
     "get_global_mapping_repo",
     "get_exercise_match_repo",
+    # Use Cases
+    "get_save_workout_use_case",
+    "get_export_workout_use_case",
+    "get_map_workout_use_case",
     # Authentication
     "get_current_user",
     "get_optional_user",
