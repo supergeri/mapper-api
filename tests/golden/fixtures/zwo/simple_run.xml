@@ -1,0 +1,10 @@
+<workout_file>
+  <name>Easy 5K Run</name>
+  <sportType>run</sportType>
+  <description>Auto-generated from canonical JSON → ZWO</description>
+  <workout>
+    <SteadyState Duration="300" Pace="0.70"/>
+    <SteadyState Duration="900" Pace="0.70"/>
+    <SteadyState Duration="300" Pace="0.70"/>
+  </workout>
+</workout_file>

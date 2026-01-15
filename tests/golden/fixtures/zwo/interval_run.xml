@@ -1,0 +1,21 @@
+<workout_file>
+  <name>Track Intervals</name>
+  <sportType>run</sportType>
+  <description>Auto-generated from canonical JSON → ZWO</description>
+  <workout>
+    <SteadyState Duration="600" Pace="0.70"/>
+    <SteadyState Duration="120" Pace="0.60"/>
+    <SteadyState Duration="90" OffPace="0.40"/>
+    <SteadyState Duration="120" Pace="0.60"/>
+    <SteadyState Duration="90" OffPace="0.40"/>
+    <SteadyState Duration="120" Pace="0.60"/>
+    <SteadyState Duration="90" OffPace="0.40"/>
+    <SteadyState Duration="120" Pace="0.60"/>
+    <SteadyState Duration="90" OffPace="0.40"/>
+    <SteadyState Duration="120" Pace="0.60"/>
+    <SteadyState Duration="90" OffPace="0.40"/>
+    <SteadyState Duration="120" Pace="0.60"/>
+    <SteadyState Duration="90" OffPace="0.40"/>
+    <SteadyState Duration="300" Pace="0.70"/>
+  </workout>
+</workout_file>

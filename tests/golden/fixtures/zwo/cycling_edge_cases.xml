@@ -1,0 +1,11 @@
+<workout_file>
+  <name>Mixed Power Workout</name>
+  <sportType>bike</sportType>
+  <description>Auto-generated from canonical JSON → ZWO</description>
+  <workout>
+    <SteadyState Duration="300" Power="60"/>
+    <SteadyState Duration="120" Power="105"/>
+    <SteadyState Duration="120" Power="85"/>
+    <SteadyState Duration="300" Power="70"/>
+  </workout>
+</workout_file>

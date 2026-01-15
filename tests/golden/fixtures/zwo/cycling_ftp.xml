@@ -1,0 +1,10 @@
+<workout_file>
+  <name>FTP Intervals</name>
+  <sportType>bike</sportType>
+  <description>Auto-generated from canonical JSON → ZWO</description>
+  <workout>
+    <SteadyState Duration="600" Power="50"/>
+    <IntervalsT OffDuration="180" OffPower="40" OnDuration="300" OnPower="100" Repeat="4"/>
+    <SteadyState Duration="300" Power="50"/>
+  </workout>
+</workout_file>
