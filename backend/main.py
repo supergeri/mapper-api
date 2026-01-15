@@ -2,6 +2,7 @@
 Application factory for FastAPI.
 
 Part of AMA-377: Introduce main.py with create_app() factory
+Updated in AMA-378: Add router wiring
 
 This module provides a factory function for creating FastAPI application instances.
 The factory pattern allows for:
@@ -60,6 +61,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     # Configure CORS middleware
     _configure_cors(app)
 
+    # Include API routers (AMA-378)
+    _include_routers(app)
+
     # Log feature flags status
     _log_feature_flags(settings)
 
@@ -88,6 +92,31 @@ def _configure_cors(app: FastAPI) -> None:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+
+def _include_routers(app: FastAPI) -> None:
+    """Include all API routers in the application.
+
+    Part of AMA-378: Router wiring for modular API structure.
+    """
+    from api.routers import (
+        health_router,
+        mapping_router,
+        exports_router,
+        workouts_router,
+        pairing_router,
+        completions_router,
+    )
+
+    # Health router (no prefix - /health at root)
+    app.include_router(health_router)
+
+    # Domain routers (with prefixes defined in each router)
+    app.include_router(mapping_router)
+    app.include_router(exports_router)
+    app.include_router(workouts_router)
+    app.include_router(pairing_router)
+    app.include_router(completions_router)
 
 
 def _log_feature_flags(settings: Settings) -> None:

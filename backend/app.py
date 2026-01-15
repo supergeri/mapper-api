@@ -2623,12 +2623,7 @@ def get_workout_sync_status_endpoint(
     }
 
 
-@app.get("/health")
-def health():
-    """
-    Simple liveness endpoint for mapper-api.
-    """
-    return {"status": "ok"}
+# Health endpoint moved to api/routers/health.py (AMA-378)
 
 
 # ============================================================================
