@@ -12,6 +12,9 @@ These tests verify that:
 import pytest
 from typing import runtime_checkable, Protocol, get_type_hints
 
+# All tests in this module are pure logic tests (no TestClient) - mark as unit
+pytestmark = pytest.mark.unit
+
 
 class TestProtocolImports:
     """Test that all protocols can be imported."""

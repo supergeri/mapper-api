@@ -24,6 +24,11 @@ from backend.workout_completions import (
     HealthMetrics,
 )
 
+# Most tests in this module use client (TestClient) - mark as integration
+# Some internal function tests are unit tests but we mark them integration
+# for simplicity since they test database interaction patterns
+pytestmark = pytest.mark.integration
+
 
 # =============================================================================
 # Route Ordering Tests (Critical - prevents route collision bug)

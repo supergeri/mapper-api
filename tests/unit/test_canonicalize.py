@@ -3,6 +3,7 @@ from shared.schemas.cir import CIR, Workout, Block, Exercise
 from backend.core.canonicalize import canonicalize
 
 
+@pytest.mark.unit
 class TestCanonicalize:
     """Tests for the canonicalize function."""
 

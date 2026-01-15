@@ -14,6 +14,9 @@ from datetime import datetime, timezone
 
 from application.ports import HealthMetricsDTO
 
+# All tests in this module are pure logic tests (no TestClient) - mark as unit
+pytestmark = pytest.mark.unit
+
 
 # =============================================================================
 # Import Tests

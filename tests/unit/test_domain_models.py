@@ -15,6 +15,7 @@ import pytest
 from datetime import datetime
 
 
+@pytest.mark.unit
 class TestLoadModel:
     """Tests for the Load value object."""
 
@@ -104,6 +105,7 @@ class TestLoadModel:
             load.value = 225
 
 
+@pytest.mark.unit
 class TestExerciseModel:
     """Tests for the Exercise value object."""
 
@@ -219,6 +221,7 @@ class TestExerciseModel:
         assert exercise.reps == 5
 
 
+@pytest.mark.unit
 class TestBlockModel:
     """Tests for the Block value object."""
 
@@ -337,6 +340,7 @@ class TestBlockModel:
         assert data["rounds"] == 3
 
 
+@pytest.mark.unit
 class TestWorkoutMetadataModel:
     """Tests for the WorkoutMetadata value object."""
 
@@ -391,6 +395,7 @@ class TestWorkoutMetadataModel:
         assert data["platform"] == "garmin"
 
 
+@pytest.mark.unit
 class TestWorkoutModel:
     """Tests for the Workout aggregate root."""
 
@@ -687,6 +692,7 @@ class TestWorkoutModel:
         assert restored.times_completed == original.times_completed
 
 
+@pytest.mark.unit
 class TestNoInfrastructureImports:
     """Tests to verify domain models have no infrastructure dependencies."""
 

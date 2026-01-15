@@ -14,6 +14,7 @@ from backend.main import create_app
 from backend.settings import Settings
 
 
+@pytest.mark.integration
 class TestRouterInclusion:
     """Test that all routers are correctly included in the app."""
 
@@ -54,6 +55,7 @@ class TestRouterInclusion:
         assert "/health" in openapi["paths"]
 
 
+@pytest.mark.integration
 class TestHealthRouter:
     """Test health router endpoints."""
 
@@ -82,6 +84,7 @@ class TestHealthRouter:
         assert response.status_code == 405
 
 
+@pytest.mark.integration
 class TestEmptyRouters:
     """Test that empty routers are correctly configured."""
 

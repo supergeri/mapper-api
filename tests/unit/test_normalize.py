@@ -2,6 +2,7 @@ import pytest
 from backend.core.normalize import normalize
 
 
+@pytest.mark.unit
 class TestNormalize:
     """Tests for the normalize function."""
 

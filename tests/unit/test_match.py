@@ -2,6 +2,7 @@ import pytest
 from backend.core.match import suggest, classify
 
 
+@pytest.mark.unit
 class TestMatch:
     """Tests for the match functions."""
 

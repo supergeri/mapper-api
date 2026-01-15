@@ -11,6 +11,9 @@ return the correct types. Uses mocks for external dependencies.
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
+# All tests in this module are pure logic tests with mocks - mark as unit
+pytestmark = pytest.mark.unit
+
 
 # =============================================================================
 # Import Tests

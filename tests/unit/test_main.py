@@ -13,6 +13,7 @@ from backend.main import create_app, _init_sentry, _configure_cors, _log_feature
 from backend.settings import Settings
 
 
+@pytest.mark.unit
 class TestCreateApp:
     """Test the create_app() factory function."""
 
@@ -52,6 +53,7 @@ class TestCreateApp:
         assert isinstance(app, FastAPI)
 
 
+@pytest.mark.unit
 class TestInitSentry:
     """Test Sentry initialization."""
 
@@ -82,6 +84,7 @@ class TestInitSentry:
             )
 
 
+@pytest.mark.unit
 class TestConfigureCors:
     """Test CORS configuration."""
 
@@ -98,6 +101,7 @@ class TestConfigureCors:
         assert len(app.user_middleware) == initial_middleware_count + 1
 
 
+@pytest.mark.unit
 class TestLogFeatureFlags:
     """Test feature flag logging."""
 
@@ -120,6 +124,7 @@ class TestLogFeatureFlags:
         assert "GARMIN_EXPORT_DEBUG is disabled" in caplog.text
 
 
+@pytest.mark.integration
 class TestAppIntegration:
     """Integration tests for the created app."""
 
@@ -159,6 +164,7 @@ class TestAppIntegration:
         assert "access-control-allow-origin" in response.headers
 
 
+@pytest.mark.unit
 class TestMultipleAppInstances:
     """Test that multiple app instances can be created."""
 

@@ -3,6 +3,7 @@ from shared.schemas.cir import CIR
 from backend.adapters.ingest_to_cir import to_cir
 
 
+@pytest.mark.unit
 class TestIngestToCIR:
     """Tests for the to_cir function."""
 
