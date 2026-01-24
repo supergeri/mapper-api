@@ -49,6 +49,16 @@ from application.ports.mapping_repository import (
 # Canonical exercises (AMA-299)
 from application.ports.exercises_repository import ExercisesRepository
 
+# Progression tracking (AMA-299 Phase 3)
+from application.ports.progression_repository import (
+    ProgressionRepository,
+    SetPerformance,
+    ExerciseSession,
+    PersonalRecord,
+    LastWeightResult,
+    VolumeDataPoint,
+)
+
 __all__ = [
     # Workout
     "WorkoutRepository",
@@ -65,4 +75,11 @@ __all__ = [
     "ExerciseMatchRepository",
     # Canonical exercises (AMA-299)
     "ExercisesRepository",
+    # Progression tracking (AMA-299 Phase 3)
+    "ProgressionRepository",
+    "SetPerformance",
+    "ExerciseSession",
+    "PersonalRecord",
+    "LastWeightResult",
+    "VolumeDataPoint",
 ]

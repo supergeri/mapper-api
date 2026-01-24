@@ -37,6 +37,10 @@ from tests.fakes.mapping_repository import (
     FakeExerciseMatchRepository,
 )
 from tests.fakes.exercises_repository import FakeExercisesRepository
+from tests.fakes.progression_repository import (
+    FakeProgressionRepository,
+    create_test_sessions,
+)
 
 
 # =============================================================================
@@ -283,6 +287,47 @@ def create_exercises_repo(
     return FakeExercisesRepository(exercises=exercises)
 
 
+def create_progression_repo(
+    *,
+    user_id: str = "test_user",
+    num_sessions: int = 0,
+    exercise_id: str = "barbell-bench-press",
+) -> FakeProgressionRepository:
+    """
+    Create a FakeProgressionRepository with optional pre-populated sessions.
+
+    Part of AMA-299 Phase 3: Progression Features
+
+    Args:
+        user_id: User ID for generated sessions
+        num_sessions: Number of sample sessions to create
+        exercise_id: Exercise ID to create sessions for
+
+    Returns:
+        Pre-populated FakeProgressionRepository
+    """
+    repo = FakeProgressionRepository()
+
+    if num_sessions > 0:
+        sessions = create_test_sessions(
+            user_id=user_id,
+            exercise_id=exercise_id,
+            num_sessions=num_sessions,
+        )
+        repo.seed_sessions(user_id, sessions)
+
+        # Seed exercise metadata
+        repo.seed_exercise_metadata(exercise_id, {
+            "id": exercise_id,
+            "name": "Barbell Bench Press",
+            "primary_muscles": ["chest"],
+            "supports_1rm": True,
+            "one_rm_formula": "brzycki",
+        })
+
+    return repo
+
+
 # =============================================================================
 # Exports
 # =============================================================================
@@ -297,6 +342,7 @@ __all__ = [
     "FakeGlobalMappingRepository",
     "FakeExerciseMatchRepository",
     "FakeExercisesRepository",
+    "FakeProgressionRepository",
     # Factory functions
     "create_workout_repo",
     "create_completion_repo",
@@ -306,4 +352,6 @@ __all__ = [
     "create_global_mapping_repo",
     "create_exercise_match_repo",
     "create_exercises_repo",
+    "create_progression_repo",
+    "create_test_sessions",
 ]

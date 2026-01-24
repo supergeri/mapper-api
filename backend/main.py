@@ -107,6 +107,7 @@ def _include_routers(app: FastAPI) -> None:
         pairing_router,
         completions_router,
         exercises_router,
+        progression_router,
     )
 
     # Health router (no prefix - /health at root)
@@ -122,6 +123,8 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(pairing_router)
     # Canonical exercises (AMA-299)
     app.include_router(exercises_router)
+    # Progression tracking (AMA-299 Phase 3)
+    app.include_router(progression_router)
 
 
 def _log_feature_flags(settings: Settings) -> None:

@@ -46,6 +46,7 @@ from application.ports import (
     GlobalMappingRepository,
     ExerciseMatchRepository,
     ExercisesRepository,
+    ProgressionRepository,
 )
 
 # Concrete implementations
@@ -58,10 +59,14 @@ from infrastructure import (
     SupabaseGlobalMappingRepository,
     InMemoryExerciseMatchRepository,
     SupabaseExercisesRepository,
+    SupabaseProgressionRepository,
 )
 
 # Exercise matching service (AMA-299)
 from backend.core.exercise_matcher import ExerciseMatchingService
+
+# Progression service (AMA-299 Phase 3)
+from backend.core.progression_service import ProgressionService
 
 # Settings from Phase 0
 from backend.settings import Settings, get_settings as _get_settings
@@ -323,6 +328,54 @@ def get_exercise_matcher(
     )
 
 
+def get_progression_repo(
+    client: Client = Depends(get_supabase_client_required),
+) -> ProgressionRepository:
+    """
+    Get ProgressionRepository implementation.
+
+    Returns a SupabaseProgressionRepository instance with injected client.
+    Used for querying exercise progression data.
+
+    Part of AMA-299 Phase 3: Progression Features
+
+    Args:
+        client: Supabase client (injected)
+
+    Returns:
+        ProgressionRepository: Repository for progression data access
+    """
+    return SupabaseProgressionRepository(client)
+
+
+def get_progression_service(
+    progression_repo: ProgressionRepository = Depends(get_progression_repo),
+    exercises_repo: ExercisesRepository = Depends(get_exercises_repo),
+) -> ProgressionService:
+    """
+    Get ProgressionService with injected dependencies.
+
+    Provides business logic for exercise progression tracking:
+    - 1RM calculations
+    - Exercise history enrichment
+    - Personal record detection
+    - Volume analytics
+
+    Part of AMA-299 Phase 3: Progression Features
+
+    Args:
+        progression_repo: Progression repository (injected)
+        exercises_repo: Exercises repository (injected)
+
+    Returns:
+        ProgressionService: Service for progression tracking
+    """
+    return ProgressionService(
+        progression_repo=progression_repo,
+        exercises_repo=exercises_repo,
+    )
+
+
 # =============================================================================
 # Use Case Providers
 # =============================================================================
@@ -470,8 +523,10 @@ __all__ = [
     "get_global_mapping_repo",
     "get_exercise_match_repo",
     "get_exercises_repo",
+    "get_progression_repo",
     # Services (AMA-299)
     "get_exercise_matcher",
+    "get_progression_service",
     # Use Cases
     "get_save_workout_use_case",
     "get_export_workout_use_case",
