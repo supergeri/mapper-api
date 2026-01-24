@@ -28,6 +28,7 @@ from tests.fakes import FakeProgressionRepository, FakeExercisesRepository
 # =============================================================================
 
 
+@pytest.mark.unit
 class TestBrzyckiFormula:
     """Tests for the Brzycki 1RM formula."""
 
@@ -64,6 +65,7 @@ class TestBrzyckiFormula:
         assert result > 0  # Should return a reasonable value
 
 
+@pytest.mark.unit
 class TestEpleyFormula:
     """Tests for the Epley 1RM formula."""
 
@@ -94,6 +96,7 @@ class TestEpleyFormula:
         assert 82 < result < 84
 
 
+@pytest.mark.unit
 class TestCalculate1RM:
     """Tests for the unified calculate_1rm function."""
 
@@ -236,6 +239,7 @@ def progression_service(progression_repo, exercises_repo):
     )
 
 
+@pytest.mark.unit
 class TestProgressionServiceHistory:
     """Tests for get_exercise_history."""
 
@@ -291,6 +295,7 @@ class TestProgressionServiceHistory:
         assert result.total_sessions == 2  # Total is still 2
 
 
+@pytest.mark.unit
 class TestProgressionServiceLastWeight:
     """Tests for get_last_weight."""
 
@@ -316,6 +321,7 @@ class TestProgressionServiceLastWeight:
         assert result is None
 
 
+@pytest.mark.unit
 class TestProgressionServiceRecords:
     """Tests for get_personal_records."""
 
@@ -356,6 +362,7 @@ class TestProgressionServiceRecords:
                 assert "reps" in record["details"]
 
 
+@pytest.mark.unit
 class TestProgressionServiceVolume:
     """Tests for get_volume_analytics."""
 
@@ -390,6 +397,7 @@ class TestProgressionServiceVolume:
         assert result.granularity == "weekly"
 
 
+@pytest.mark.unit
 class TestExerciseNooneRM:
     """Tests for exercises that don't support 1RM."""
 

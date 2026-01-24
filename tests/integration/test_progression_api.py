@@ -137,7 +137,10 @@ def client(progression_repo, exercises_repo):
     app.dependency_overrides[get_exercises_repo] = mock_exercises_repo
     app.dependency_overrides[get_progression_repo] = mock_progression_repo
 
-    return TestClient(app)
+    yield TestClient(app)
+
+    # Cleanup: clear dependency overrides
+    app.dependency_overrides.clear()
 
 
 # =============================================================================
@@ -145,6 +148,7 @@ def client(progression_repo, exercises_repo):
 # =============================================================================
 
 
+@pytest.mark.integration
 class TestExerciseHistoryEndpoint:
     """Tests for GET /progression/exercises/{exercise_id}/history."""
 
@@ -225,6 +229,7 @@ class TestExerciseHistoryEndpoint:
 # =============================================================================
 
 
+@pytest.mark.integration
 class TestLastWeightEndpoint:
     """Tests for GET /progression/exercises/{exercise_id}/last-weight."""
 
@@ -260,6 +265,7 @@ class TestLastWeightEndpoint:
 # =============================================================================
 
 
+@pytest.mark.integration
 class TestPersonalRecordsEndpoint:
     """Tests for GET /progression/records."""
 
@@ -311,6 +317,7 @@ class TestPersonalRecordsEndpoint:
 # =============================================================================
 
 
+@pytest.mark.integration
 class TestVolumeAnalyticsEndpoint:
     """Tests for GET /progression/volume."""
 
@@ -352,6 +359,7 @@ class TestVolumeAnalyticsEndpoint:
 # =============================================================================
 
 
+@pytest.mark.integration
 class TestExercisesWithHistoryEndpoint:
     """Tests for GET /progression/exercises."""
 
@@ -389,6 +397,7 @@ class TestExercisesWithHistoryEndpoint:
 # =============================================================================
 
 
+@pytest.mark.integration
 class TestProgressionAuthentication:
     """Tests for authentication on progression endpoints."""
 
