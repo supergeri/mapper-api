@@ -36,6 +36,7 @@ from tests.fakes.mapping_repository import (
     FakeGlobalMappingRepository,
     FakeExerciseMatchRepository,
 )
+from tests.fakes.exercises_repository import FakeExercisesRepository
 
 
 # =============================================================================
@@ -264,6 +265,24 @@ def create_exercise_match_repo(
     return repo
 
 
+def create_exercises_repo(
+    *,
+    exercises: Optional[List[Dict[str, Any]]] = None,
+) -> FakeExercisesRepository:
+    """
+    Create a FakeExercisesRepository with optional custom exercises.
+
+    Part of AMA-299: Exercise Database for Progression Tracking
+
+    Args:
+        exercises: Optional list of exercises, or None for default test data
+
+    Returns:
+        Pre-populated FakeExercisesRepository
+    """
+    return FakeExercisesRepository(exercises=exercises)
+
+
 # =============================================================================
 # Exports
 # =============================================================================
@@ -277,6 +296,7 @@ __all__ = [
     "FakeUserMappingRepository",
     "FakeGlobalMappingRepository",
     "FakeExerciseMatchRepository",
+    "FakeExercisesRepository",
     # Factory functions
     "create_workout_repo",
     "create_completion_repo",
@@ -285,4 +305,5 @@ __all__ = [
     "create_user_mapping_repo",
     "create_global_mapping_repo",
     "create_exercise_match_repo",
+    "create_exercises_repo",
 ]

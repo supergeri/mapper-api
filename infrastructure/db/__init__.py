@@ -44,6 +44,7 @@ from infrastructure.db.mapping_repository import (
     SupabaseGlobalMappingRepository,
     InMemoryExerciseMatchRepository,
 )
+from infrastructure.db.exercises_repository import SupabaseExercisesRepository
 
 __all__ = [
     # Workout persistence
@@ -60,4 +61,7 @@ __all__ = [
     "SupabaseUserMappingRepository",
     "SupabaseGlobalMappingRepository",
     "InMemoryExerciseMatchRepository",
+
+    # Canonical exercises (AMA-299)
+    "SupabaseExercisesRepository",
 ]

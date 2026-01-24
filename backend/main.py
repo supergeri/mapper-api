@@ -106,6 +106,7 @@ def _include_routers(app: FastAPI) -> None:
         workouts_router,
         pairing_router,
         completions_router,
+        exercises_router,
     )
 
     # Health router (no prefix - /health at root)
@@ -119,6 +120,8 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(completions_router)
     app.include_router(workouts_router)
     app.include_router(pairing_router)
+    # Canonical exercises (AMA-299)
+    app.include_router(exercises_router)
 
 
 def _log_feature_flags(settings: Settings) -> None:

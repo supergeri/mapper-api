@@ -19,6 +19,7 @@ from infrastructure.db import (
     SupabaseUserMappingRepository,
     SupabaseGlobalMappingRepository,
     InMemoryExerciseMatchRepository,
+    SupabaseExercisesRepository,
 )
 
 __all__ = [
@@ -29,4 +30,6 @@ __all__ = [
     "SupabaseUserMappingRepository",
     "SupabaseGlobalMappingRepository",
     "InMemoryExerciseMatchRepository",
+    # Canonical exercises (AMA-299)
+    "SupabaseExercisesRepository",
 ]
