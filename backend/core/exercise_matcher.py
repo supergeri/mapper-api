@@ -10,14 +10,18 @@ This service provides a multi-stage matching approach:
 3. Fuzzy match using rapidfuzz
 4. LLM fallback for semantic matching (optional)
 """
+import json
 import logging
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
 from enum import Enum
 
 from rapidfuzz import fuzz, process
 
 from backend.core.normalize import normalize
+
+if TYPE_CHECKING:
+    from application.ports import ExercisesRepository
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +64,7 @@ class ExerciseMatchingService:
 
     def __init__(
         self,
-        exercises_repository,
+        exercises_repository: "ExercisesRepository",
         llm_client: Optional[Any] = None,
         enable_llm_fallback: bool = True
     ):
@@ -320,7 +324,6 @@ If the input doesn't clearly match any candidate, return null for exercise_id wi
                 response_format={"type": "json_object"}
             )
 
-            import json
             result = json.loads(response.choices[0].message.content)
 
             if result.get("exercise_id"):
@@ -330,13 +333,16 @@ If the input doesn't clearly match any candidate, return null for exercise_id wi
                     None
                 )
                 if matched_ex:
+                    # Clamp confidence to valid range [0.0, 1.0]
+                    raw_confidence = result.get("confidence", 0.7)
+                    confidence = max(0.0, min(1.0, raw_confidence))
                     return ExerciseMatch(
                         exercise_id=result["exercise_id"],
                         exercise_name=matched_ex["name"],
-                        confidence=result.get("confidence", 0.7),
+                        confidence=confidence,
                         method=MatchMethod.LLM,
                         reasoning=result.get("reasoning", "LLM semantic match"),
-                        suggested_alias=planned_name if result.get("confidence", 0) >= 0.85 else None
+                        suggested_alias=planned_name if confidence >= 0.85 else None
                     )
 
         except Exception as e:

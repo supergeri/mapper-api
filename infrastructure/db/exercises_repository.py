@@ -49,7 +49,7 @@ class SupabaseExercisesRepository:
             result = self._client.table("exercises").select("*").limit(limit).execute()
             return result.data or []
         except Exception as e:
-            logger.error(f"Error fetching all exercises: {e}")
+            logger.exception("Error fetching all exercises")
             return []
 
     def get_by_id(self, exercise_id: str) -> Optional[Dict[str, Any]]:
@@ -68,7 +68,7 @@ class SupabaseExercisesRepository:
                 return result.data[0]
             return None
         except Exception as e:
-            logger.error(f"Error fetching exercise by id {exercise_id}: {e}")
+            logger.exception(f"Error fetching exercise by id {exercise_id}")
             return None
 
     def find_by_exact_name(self, name: str) -> Optional[Dict[str, Any]]:
@@ -87,7 +87,7 @@ class SupabaseExercisesRepository:
                 return result.data[0]
             return None
         except Exception as e:
-            logger.error(f"Error finding exercise by name {name}: {e}")
+            logger.exception(f"Error finding exercise by name {name}")
             return None
 
     def find_by_alias(self, alias: str) -> Optional[Dict[str, Any]]:
@@ -108,7 +108,7 @@ class SupabaseExercisesRepository:
                 return result.data[0]
             return None
         except Exception as e:
-            logger.error(f"Error finding exercise by alias {alias}: {e}")
+            logger.exception(f"Error finding exercise by alias {alias}")
             return None
 
     def search_by_name_pattern(self, pattern: str, limit: int = 10) -> List[Dict[str, Any]]:
@@ -126,7 +126,7 @@ class SupabaseExercisesRepository:
             result = self._client.table("exercises").select("*").ilike("name", pattern).limit(limit).execute()
             return result.data or []
         except Exception as e:
-            logger.error(f"Error searching exercises by pattern {pattern}: {e}")
+            logger.exception(f"Error searching exercises by pattern {pattern}")
             return []
 
     def find_by_muscle_group(self, muscle: str, limit: int = 50) -> List[Dict[str, Any]]:
@@ -144,7 +144,7 @@ class SupabaseExercisesRepository:
             result = self._client.table("exercises").select("*").contains("primary_muscles", [muscle]).limit(limit).execute()
             return result.data or []
         except Exception as e:
-            logger.error(f"Error finding exercises by muscle {muscle}: {e}")
+            logger.exception(f"Error finding exercises by muscle {muscle}")
             return []
 
     def find_by_equipment(self, equipment: str, limit: int = 50) -> List[Dict[str, Any]]:
@@ -162,7 +162,7 @@ class SupabaseExercisesRepository:
             result = self._client.table("exercises").select("*").contains("equipment", [equipment]).limit(limit).execute()
             return result.data or []
         except Exception as e:
-            logger.error(f"Error finding exercises by equipment {equipment}: {e}")
+            logger.exception(f"Error finding exercises by equipment {equipment}")
             return []
 
     def find_compound_exercises(self, limit: int = 50) -> List[Dict[str, Any]]:
@@ -179,7 +179,7 @@ class SupabaseExercisesRepository:
             result = self._client.table("exercises").select("*").eq("category", "compound").limit(limit).execute()
             return result.data or []
         except Exception as e:
-            logger.error(f"Error finding compound exercises: {e}")
+            logger.exception("Error finding compound exercises")
             return []
 
     def find_exercises_supporting_1rm(self, limit: int = 50) -> List[Dict[str, Any]]:
@@ -196,5 +196,5 @@ class SupabaseExercisesRepository:
             result = self._client.table("exercises").select("*").eq("supports_1rm", True).limit(limit).execute()
             return result.data or []
         except Exception as e:
-            logger.error(f"Error finding 1RM exercises: {e}")
+            logger.exception("Error finding 1RM exercises")
             return []

@@ -275,6 +275,18 @@ class TestExercisesLookupEndpoint:
         data = response.json()
         assert "not found" in data["detail"].lower()
 
+    def test_get_by_id_invalid_format(self, client_with_fake_repo):
+        """Invalid exercise_id format should return 400."""
+        # Test with uppercase (invalid)
+        response = client_with_fake_repo.get("/exercises/Barbell-Bench-Press")
+        assert response.status_code == 400
+        data = response.json()
+        assert "invalid" in data["detail"].lower()
+
+        # Test with special characters (invalid)
+        response = client_with_fake_repo.get("/exercises/bench@press")
+        assert response.status_code == 400
+
     def test_get_by_id_response_has_all_fields(self, client_with_fake_repo):
         """Response should have all expected fields."""
         response = client_with_fake_repo.get("/exercises/conventional-deadlift")

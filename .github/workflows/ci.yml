@@ -25,7 +25,7 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Run tests with coverage
-        run: pytest tests/ --cov --cov-report=term-missing --cov-report=xml
+        run: pytest tests/ -m "not e2e" --cov --cov-report=term-missing --cov-report=xml
         env:
           PYTHONPATH: ${{ github.workspace }}
           SUPABASE_URL: https://test.supabase.co

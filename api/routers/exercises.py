@@ -9,9 +9,10 @@ This router provides endpoints for:
 - Looking up exercises by ID, muscle group, or equipment
 - Batch matching for multiple exercises
 """
+import re
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from pydantic import BaseModel, Field
 
 from api.deps import get_exercises_repo, get_exercise_matcher
@@ -159,9 +160,18 @@ def suggest_canonical_matches(
 # =============================================================================
 
 
+# Valid exercise ID pattern: lowercase letters, numbers, and hyphens
+EXERCISE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$")
+
+
 @router.get("/{exercise_id}", response_model=ExerciseResponse)
 def get_exercise(
-    exercise_id: str,
+    exercise_id: str = Path(
+        ...,
+        description="Exercise slug (e.g., 'barbell-bench-press')",
+        min_length=1,
+        max_length=100,
+    ),
     repo: ExercisesRepository = Depends(get_exercises_repo),
 ) -> ExerciseResponse:
     """
@@ -170,6 +180,13 @@ def get_exercise(
     Args:
         exercise_id: The exercise slug (e.g., "barbell-bench-press")
     """
+    # Validate exercise_id format
+    if not EXERCISE_ID_PATTERN.match(exercise_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid exercise_id format. Use lowercase letters, numbers, and hyphens only."
+        )
+
     exercise = repo.get_by_id(exercise_id)
     if not exercise:
         raise HTTPException(status_code=404, detail=f"Exercise '{exercise_id}' not found")
@@ -193,31 +210,42 @@ def list_exercises(
     """
     List canonical exercises with optional filters.
 
-    Filters can be combined. If no filters are provided, returns all exercises.
+    Filters can be combined. All specified filters are applied together (AND logic).
     """
-    # Apply filters
+    # Start with base query based on primary filter
     if search:
-        # Search by name pattern
-        exercises = repo.search_by_name_pattern(f"%{search}%", limit=limit)
+        # Search by name pattern first
+        exercises = repo.search_by_name_pattern(f"%{search}%", limit=500)
     elif muscle:
-        exercises = repo.find_by_muscle_group(muscle, limit=limit)
+        exercises = repo.find_by_muscle_group(muscle, limit=500)
     elif equipment:
-        exercises = repo.find_by_equipment(equipment, limit=limit)
-    elif supports_1rm is True:
-        exercises = repo.find_exercises_supporting_1rm(limit=limit)
-    elif category == "compound":
-        exercises = repo.find_compound_exercises(limit=limit)
+        exercises = repo.find_by_equipment(equipment, limit=500)
+    elif supports_1rm is True and category is None:
+        exercises = repo.find_exercises_supporting_1rm(limit=500)
+    elif category == "compound" and supports_1rm is None:
+        exercises = repo.find_compound_exercises(limit=500)
     else:
-        # Get all exercises
-        exercises = repo.get_all(limit=limit)
+        # Get all exercises for combined filtering
+        exercises = repo.get_all(limit=500)
 
-    # Filter by category if specified (and not already filtered)
-    if category and not (category == "compound" and not muscle and not equipment):
+    # Apply additional filters (combined AND logic)
+    if muscle and not search:
+        # Already filtered by muscle in primary query
+        pass
+    elif muscle:
+        exercises = [e for e in exercises if muscle in e.get("primary_muscles", [])]
+
+    if equipment and not (not search and not muscle):
+        exercises = [e for e in exercises if equipment in e.get("equipment", [])]
+
+    if category:
         exercises = [e for e in exercises if e.get("category") == category]
 
-    # Filter by supports_1rm if specified (and not already filtered)
-    if supports_1rm is not None and search:
+    if supports_1rm is not None:
         exercises = [e for e in exercises if e.get("supports_1rm") == supports_1rm]
+
+    # Apply limit after all filters
+    exercises = exercises[:limit]
 
     return ExerciseListResponse(
         exercises=[ExerciseResponse(**e) for e in exercises],
