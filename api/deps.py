@@ -45,6 +45,7 @@ from application.ports import (
     UserMappingRepository,
     GlobalMappingRepository,
     ExerciseMatchRepository,
+    ExercisesRepository,
 )
 
 # Concrete implementations
@@ -56,7 +57,11 @@ from infrastructure import (
     SupabaseUserMappingRepository,
     SupabaseGlobalMappingRepository,
     InMemoryExerciseMatchRepository,
+    SupabaseExercisesRepository,
 )
+
+# Exercise matching service (AMA-299)
+from backend.core.exercise_matcher import ExerciseMatchingService
 
 # Settings from Phase 0
 from backend.settings import Settings, get_settings as _get_settings
@@ -271,6 +276,53 @@ def get_exercise_match_repo() -> ExerciseMatchRepository:
     return InMemoryExerciseMatchRepository()
 
 
+def get_exercises_repo(
+    client: Client = Depends(get_supabase_client_required),
+) -> ExercisesRepository:
+    """
+    Get ExercisesRepository implementation.
+
+    Returns a SupabaseExercisesRepository instance with injected client.
+    Used for querying the canonical exercises table.
+
+    Part of AMA-299: Exercise Database for Progression Tracking
+
+    Args:
+        client: Supabase client (injected)
+
+    Returns:
+        ExercisesRepository: Repository for canonical exercises
+    """
+    return SupabaseExercisesRepository(client)
+
+
+def get_exercise_matcher(
+    exercises_repo: ExercisesRepository = Depends(get_exercises_repo),
+) -> ExerciseMatchingService:
+    """
+    Get ExerciseMatchingService with injected dependencies.
+
+    The matching service uses a multi-stage approach:
+    1. Exact name match (case-insensitive)
+    2. Alias match (check aliases array)
+    3. Fuzzy match using rapidfuzz
+    4. LLM fallback (optional, disabled by default)
+
+    Part of AMA-299: Exercise Database for Progression Tracking
+
+    Args:
+        exercises_repo: Exercises repository (injected)
+
+    Returns:
+        ExerciseMatchingService: Service for matching planned names to canonical exercises
+    """
+    return ExerciseMatchingService(
+        exercises_repository=exercises_repo,
+        llm_client=None,  # LLM fallback disabled by default
+        enable_llm_fallback=False,
+    )
+
+
 # =============================================================================
 # Use Case Providers
 # =============================================================================
@@ -417,6 +469,9 @@ __all__ = [
     "get_user_mapping_repo",
     "get_global_mapping_repo",
     "get_exercise_match_repo",
+    "get_exercises_repo",
+    # Services (AMA-299)
+    "get_exercise_matcher",
     # Use Cases
     "get_save_workout_use_case",
     "get_export_workout_use_case",

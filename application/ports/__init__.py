@@ -46,6 +46,9 @@ from application.ports.mapping_repository import (
     ExerciseMatchRepository,
 )
 
+# Canonical exercises (AMA-299)
+from application.ports.exercises_repository import ExercisesRepository
+
 __all__ = [
     # Workout
     "WorkoutRepository",
@@ -60,4 +63,6 @@ __all__ = [
     "UserMappingRepository",
     "GlobalMappingRepository",
     "ExerciseMatchRepository",
+    # Canonical exercises (AMA-299)
+    "ExercisesRepository",
 ]
