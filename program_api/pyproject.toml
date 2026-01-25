@@ -1,0 +1,21 @@
+[project]
+name = "program-api"
+version = "0.1.0"
+description = "AmakaFlow Training Program Generation API"
+readme = "README.md"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]
