@@ -96,8 +96,8 @@ class TrainingProgram(BaseModel):
 class TrainingProgramCreate(BaseModel):
     """Request model for creating a training program."""
 
-    name: str
-    description: Optional[str] = None
+    name: str = Field(min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
     goal: ProgramGoal
     experience_level: ExperienceLevel
     duration_weeks: int = Field(ge=1, le=52)
@@ -108,8 +108,8 @@ class TrainingProgramCreate(BaseModel):
 class TrainingProgramUpdate(BaseModel):
     """Request model for updating a training program."""
 
-    name: Optional[str] = None
-    description: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=2000)
     goal: Optional[ProgramGoal] = None
     experience_level: Optional[ExperienceLevel] = None
     duration_weeks: Optional[int] = Field(None, ge=1, le=52)
@@ -127,7 +127,7 @@ class ProgramUpdateRequest(BaseModel):
     """
 
     status: Optional[ProgramStatus] = None
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
     current_week: Optional[int] = Field(None, ge=1)
 
 

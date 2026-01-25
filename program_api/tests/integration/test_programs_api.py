@@ -204,7 +204,7 @@ class TestGetProgram:
         assert data["user_id"] == TEST_USER_ID
 
     def test_get_program_access_denied(self, app, fake_program_repo):
-        """Returns 403 when accessing another user's program."""
+        """Returns 404 when accessing another user's program (prevents enumeration)."""
         from fastapi.testclient import TestClient
         from api.deps import get_current_user, get_program_repo
         from tests.conftest import mock_get_current_user
@@ -227,8 +227,9 @@ class TestGetProgram:
 
         response = client.get("/programs/550e8400-e29b-41d4-a716-446655440000")
 
-        assert response.status_code == 403
-        assert "denied" in response.json()["detail"].lower()
+        # Returns 404 (not 403) to prevent resource enumeration attacks
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
 
         app.dependency_overrides.clear()
 
@@ -549,7 +550,7 @@ class TestDeleteProgram:
         app.dependency_overrides.clear()
 
     def test_delete_program_access_denied(self, app, fake_program_repo):
-        """Returns 403 when trying to delete another user's program."""
+        """Returns 404 when trying to delete another user's program (prevents enumeration)."""
         from fastapi.testclient import TestClient
         from api.deps import get_current_user, get_program_repo
         from tests.conftest import mock_get_current_user
@@ -572,6 +573,7 @@ class TestDeleteProgram:
 
         response = client.delete("/programs/550e8400-e29b-41d4-a716-446655440000")
 
-        assert response.status_code == 403
+        # Returns 404 (not 403) to prevent resource enumeration attacks
+        assert response.status_code == 404
 
         app.dependency_overrides.clear()

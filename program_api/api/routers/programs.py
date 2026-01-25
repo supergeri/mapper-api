@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from api.deps import get_current_user, get_program_repo
 from application.ports import ProgramRepository
@@ -58,12 +58,17 @@ class ProgramNotFoundError(HTTPException):
 
 
 class ProgramAccessDeniedError(HTTPException):
-    """Raised when user doesn't have access to a program."""
+    """
+    Raised when user doesn't have access to a program.
+
+    Returns 404 instead of 403 to prevent resource enumeration attacks.
+    An attacker cannot distinguish between "not found" and "not authorized".
+    """
 
     def __init__(self, program_id: UUID):
         super().__init__(
-            status_code=403,
-            detail=f"Access denied to program {program_id}",
+            status_code=404,
+            detail=f"Program {program_id} not found",
         )
 
 
@@ -102,7 +107,7 @@ def _get_program_or_404(
 
 def _build_training_program(
     program_data: dict,
-    weeks_data: List[dict] = None,
+    weeks_data: Optional[List[dict]] = None,
 ) -> TrainingProgram:
     """
     Build a TrainingProgram model from database dictionaries.
@@ -397,7 +402,7 @@ async def replace_program(
 @router.post("/{program_id}/activate", response_model=ActivationResponse)
 async def activate_program(
     program_id: UUID,
-    request: ActivationRequest = None,
+    request: Optional[ActivationRequest] = Body(default=None),
     user_id: str = Depends(get_current_user),
     program_repo: ProgramRepository = Depends(get_program_repo),
 ) -> ActivationResponse:
