@@ -116,3 +116,46 @@ class TrainingProgramUpdate(BaseModel):
     sessions_per_week: Optional[int] = Field(None, ge=1, le=7)
     status: Optional[ProgramStatus] = None
     equipment_available: Optional[List[str]] = None
+
+
+class ProgramUpdateRequest(BaseModel):
+    """
+    Request model for PATCH updates to a program.
+
+    Part of AMA-464: Program API endpoints.
+    Supports partial updates to status, name, and current week tracking.
+    """
+
+    status: Optional[ProgramStatus] = None
+    name: Optional[str] = None
+    current_week: Optional[int] = Field(None, ge=1)
+
+
+class ActivationRequest(BaseModel):
+    """Request model for activating a program."""
+
+    start_date: Optional[datetime] = Field(
+        None, description="When to start the program. Defaults to today."
+    )
+
+
+class ActivationResponse(BaseModel):
+    """Response model for program activation."""
+
+    program_id: UUID
+    status: ProgramStatus
+    start_date: datetime
+    scheduled_workouts: int = Field(
+        description="Number of workouts scheduled on calendar"
+    )
+    message: str
+
+
+class ProgramListResponse(BaseModel):
+    """Response model for paginated program listing."""
+
+    programs: List[TrainingProgram]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool

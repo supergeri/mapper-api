@@ -13,8 +13,7 @@ Run with:
     pytest -m e2e tests/e2e/test_program_lifecycle.py -v
     pytest tests/e2e/test_program_lifecycle.py --live -v  # With live API
 
-Note: CRUD endpoints are currently stubs (return 501). Tests are structured with
-appropriate skip/xfail markers that will pass once implementation is complete.
+Note: CRUD endpoints implemented in AMA-464. DELETE performs soft delete (archive).
 """
 
 import uuid
@@ -599,8 +598,7 @@ class TestProgramAPIEndpoints:
     API endpoint tests requiring live program-api service.
     Skip if --live flag not provided or API is unavailable.
 
-    Note: Most CRUD endpoints return 501 (Not Implemented) until AMA-462.
-    Tests are marked with xfail to pass once implementation is complete.
+    CRUD endpoints implemented in AMA-464.
     """
 
     @pytest.fixture(autouse=True)
@@ -631,7 +629,9 @@ class TestProgramAPIEndpoints:
         """GET /programs returns empty list for new user."""
         response = http_client.get("/programs", headers=auth_headers)
         assert response.status_code == 200
-        assert response.json() == []
+        data = response.json()
+        assert data["programs"] == []
+        assert data["total"] == 0
 
     def test_list_programs_requires_auth(self, http_client: httpx.Client):
         """GET /programs without auth returns 401."""
@@ -648,7 +648,6 @@ class TestProgramAPIEndpoints:
         response = http_client.get(f"/programs/{fake_id}", headers=auth_headers)
         assert response.status_code == 404
 
-    @pytest.mark.xfail(reason="POST /programs returns 501 until AMA-462 implementation")
     def test_create_program(
         self,
         http_client: httpx.Client,
@@ -667,7 +666,7 @@ class TestProgramAPIEndpoints:
         }
 
         response = http_client.post("/programs", json=program_data, headers=auth_headers)
-        assert response.status_code == 201
+        assert response.status_code == 201, f"Expected 201, got {response.status_code}: {response.text}"
 
         program = response.json()
         cleanup_program(program["id"])
@@ -676,7 +675,6 @@ class TestProgramAPIEndpoints:
         assert program["goal"] == "strength"
         assert program["status"] == "draft"
 
-    @pytest.mark.xfail(reason="PUT /programs/{id} returns 501 until AMA-462 implementation")
     def test_update_program(
         self,
         http_client: httpx.Client,
@@ -696,13 +694,12 @@ class TestProgramAPIEndpoints:
             json=update_data,
             headers=auth_headers,
         )
-        assert response.status_code == 200
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
 
         updated = response.json()
         assert updated["name"] == "Updated Name"
         assert updated["status"] == "active"
 
-    @pytest.mark.xfail(reason="DELETE /programs/{id} returns 501 until AMA-462 implementation")
     def test_delete_program(
         self,
         http_client: httpx.Client,
@@ -710,8 +707,8 @@ class TestProgramAPIEndpoints:
         supabase_client: Client,
         test_user_id: str,
     ):
-        """DELETE /programs/{id} removes the program."""
-        # Create program directly (don't use cleanup since we're testing delete)
+        """DELETE /programs/{id} archives the program (soft delete)."""
+        # Create program directly
         program_data = {
             "user_id": test_user_id,
             "name": "Program to Delete via API",
@@ -719,21 +716,26 @@ class TestProgramAPIEndpoints:
             "experience_level": "intermediate",
             "duration_weeks": 4,
             "sessions_per_week": 3,
+            "status": "draft",
         }
         result = supabase_client.table("training_programs").insert(program_data).execute()
         program_id = result.data[0]["id"]
 
         response = http_client.delete(f"/programs/{program_id}", headers=auth_headers)
-        assert response.status_code == 204
+        assert response.status_code == 204, f"Expected 204, got {response.status_code}: {response.text}"
 
-        # Verify deletion
+        # Verify soft delete - program should still exist but with status='archived'
         check = (
             supabase_client.table("training_programs")
-            .select("id")
+            .select("id, status")
             .eq("id", program_id)
             .execute()
         )
-        assert len(check.data) == 0
+        assert len(check.data) == 1, "Program should still exist (soft delete)"
+        assert check.data[0]["status"] == "archived", "Program should be archived"
+
+        # Clean up - hard delete for test isolation
+        supabase_client.table("training_programs").delete().eq("id", program_id).execute()
 
 
 # =============================================================================
@@ -1211,12 +1213,12 @@ class TestConcurrentUserIsolation:
         # User 1 lists programs - should only see their program
         list_response1 = http_client.get("/programs", headers=auth_headers)
         assert list_response1.status_code == 200
-        user1_programs = list_response1.json()
+        user1_programs = list_response1.json()["programs"]
 
         # User 2 lists programs - should only see their program
         list_response2 = http_client.get("/programs", headers=other_user_auth_headers)
         assert list_response2.status_code == 200
-        user2_programs = list_response2.json()
+        user2_programs = list_response2.json()["programs"]
 
         # Verify isolation - programs should not overlap
         user1_ids = {p["id"] for p in user1_programs}
