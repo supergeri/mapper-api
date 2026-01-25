@@ -942,6 +942,36 @@ class TestDeloadEdgeCases:
 
 
 @pytest.mark.unit
+class TestBlockDeloadBehavior:
+    """Tests for Block periodization deload behavior."""
+
+    def test_block_no_final_week_deload(self, service):
+        """Block periodization should not add final week as deload."""
+        deloads = service.calculate_deload_weeks(
+            duration_weeks=10,
+            experience_level=ExperienceLevel.BEGINNER,
+            model=PeriodizationModel.BLOCK,
+        )
+        # Only phase transitions at 4 and 8, NOT week 10
+        assert 10 not in deloads
+        assert 4 in deloads
+        assert 8 in deloads
+
+    def test_block_final_week_is_realization_not_deload(self, service):
+        """Block periodization final week should be Realization phase, not deload."""
+        params = service.get_week_parameters(
+            week=10,
+            total_weeks=10,
+            model=PeriodizationModel.BLOCK,
+            goal=ProgramGoal.STRENGTH,
+            experience_level=ExperienceLevel.BEGINNER,
+        )
+        assert params.phase == BlockPhase.REALIZATION
+        assert params.is_deload is False
+        assert "peak" in params.notes.lower()
+
+
+@pytest.mark.unit
 class TestGetVolumeLimits:
     """Tests for get_volume_limits method."""
 
@@ -995,6 +1025,16 @@ class TestTotalWeeksValidation:
         """Linear progression should reject negative total_weeks."""
         with pytest.raises(ValueError, match="Total weeks must be at least 1"):
             service.calculate_linear_progression(week=1, total_weeks=-5)
+
+    def test_get_intensity_target_rejects_zero_total_weeks(self, service):
+        """get_intensity_target should reject total_weeks < 1."""
+        with pytest.raises(ValueError, match="Total weeks must be at least 1"):
+            service.get_intensity_target(week_number=1, total_weeks=0, goal=ProgramGoal.STRENGTH)
+
+    def test_get_intensity_target_rejects_invalid_week(self, service):
+        """get_intensity_target should reject week out of range."""
+        with pytest.raises(ValueError, match="Week 10 out of range"):
+            service.get_intensity_target(week_number=10, total_weeks=8, goal=ProgramGoal.STRENGTH)
 
 
 @pytest.mark.unit

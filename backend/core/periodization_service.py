@@ -692,11 +692,19 @@ class PeriodizationService:
 
         Returns:
             Target intensity as percentage (0.0-1.0)
+
+        Raises:
+            ValueError: If total_weeks < 1 or week_number out of range
         """
+        if total_weeks < 1:
+            raise ValueError(f"Total weeks must be at least 1, got {total_weeks}")
+        if week_number < 1 or week_number > total_weeks:
+            raise ValueError(f"Week {week_number} out of range [1, {total_weeks}]")
+
         intensity, _ = self.calculate_linear_progression(week_number, total_weeks)
 
         # Scale to goal range using same formula as get_week_parameters
-        # Linear returns 0.65-0.95, normalize to 0.0-1.0 then scale to goal bounds
+        # Normalize from assumed 0.50-1.0 range to 0.0-1.0, then scale to goal bounds
         min_int, max_int = self.INTENSITY_RANGES[goal]
         normalized = (intensity - 0.50) / 0.50  # Maps 0.50->0.0, 1.0->1.0
         normalized = min(max(normalized, 0.0), 1.0)  # Clamp to [0, 1]
