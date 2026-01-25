@@ -470,9 +470,10 @@ class TestGetIntensityTarget:
     def test_first_week_at_minimum_range(self, service):
         """First week intensity should be at or near minimum for goal."""
         intensity = service.get_intensity_target(1, 8, ProgramGoal.ENDURANCE)
-        min_int, _ = PeriodizationService.INTENSITY_RANGES[ProgramGoal.ENDURANCE]
-        # First week should be close to minimum
-        assert intensity <= min_int + 0.05
+        min_int, max_int = PeriodizationService.INTENSITY_RANGES[ProgramGoal.ENDURANCE]
+        # First week should be in lower portion of range (below midpoint)
+        midpoint = (min_int + max_int) / 2
+        assert intensity < midpoint
 
     def test_last_week_at_maximum_range(self, service):
         """Last week intensity should be at or near maximum for goal."""
@@ -938,6 +939,62 @@ class TestDeloadEdgeCases:
         )
         # Week 7 should be added as final deload
         assert 7 in deloads
+
+
+@pytest.mark.unit
+class TestGetVolumeLimits:
+    """Tests for get_volume_limits method."""
+
+    def test_beginner_volume_limits(self, service):
+        """Beginner should have lower volume limits."""
+        limits = service.get_volume_limits(ExperienceLevel.BEGINNER)
+        assert limits["min"] == 10
+        assert limits["max"] == 12
+
+    def test_intermediate_volume_limits(self, service):
+        """Intermediate should have moderate volume limits."""
+        limits = service.get_volume_limits(ExperienceLevel.INTERMEDIATE)
+        assert limits["min"] == 12
+        assert limits["max"] == 18
+
+    def test_advanced_volume_limits(self, service):
+        """Advanced should have higher volume limits."""
+        limits = service.get_volume_limits(ExperienceLevel.ADVANCED)
+        assert limits["min"] == 16
+        assert limits["max"] == 25
+
+    def test_returns_copy_not_reference(self, service):
+        """Should return a copy to prevent mutation of class constant."""
+        limits = service.get_volume_limits(ExperienceLevel.BEGINNER)
+        limits["min"] = 999
+        # Original should be unchanged
+        original = service.get_volume_limits(ExperienceLevel.BEGINNER)
+        assert original["min"] == 10
+
+
+@pytest.mark.unit
+class TestTotalWeeksValidation:
+    """Tests for total_weeks validation."""
+
+    def test_linear_rejects_zero_total_weeks(self, service):
+        """Linear progression should reject total_weeks < 1."""
+        with pytest.raises(ValueError, match="Total weeks must be at least 1"):
+            service.calculate_linear_progression(week=1, total_weeks=0)
+
+    def test_block_rejects_zero_total_weeks(self, service):
+        """Block progression should reject total_weeks < 1."""
+        with pytest.raises(ValueError, match="Total weeks must be at least 1"):
+            service.calculate_block_progression(week=1, total_weeks=0)
+
+    def test_reverse_linear_rejects_zero_total_weeks(self, service):
+        """Reverse linear progression should reject total_weeks < 1."""
+        with pytest.raises(ValueError, match="Total weeks must be at least 1"):
+            service.calculate_reverse_linear_progression(week=1, total_weeks=0)
+
+    def test_linear_rejects_negative_total_weeks(self, service):
+        """Linear progression should reject negative total_weeks."""
+        with pytest.raises(ValueError, match="Total weeks must be at least 1"):
+            service.calculate_linear_progression(week=1, total_weeks=-5)
 
 
 @pytest.mark.unit

@@ -214,6 +214,8 @@ class PeriodizationService:
         Returns:
             Tuple of (intensity_percent, volume_modifier)
         """
+        if total_weeks < 1:
+            raise ValueError(f"Total weeks must be at least 1, got {total_weeks}")
         if week < 1 or week > total_weeks:
             raise ValueError(f"Week {week} out of range [1, {total_weeks}]")
 
@@ -281,6 +283,8 @@ class PeriodizationService:
         Returns:
             Tuple of (intensity_percent, volume_modifier, phase)
         """
+        if total_weeks < 1:
+            raise ValueError(f"Total weeks must be at least 1, got {total_weeks}")
         if week < 1 or week > total_weeks:
             raise ValueError(f"Week {week} out of range [1, {total_weeks}]")
 
@@ -377,6 +381,8 @@ class PeriodizationService:
         Returns:
             Tuple of (intensity_percent, volume_modifier)
         """
+        if total_weeks < 1:
+            raise ValueError(f"Total weeks must be at least 1, got {total_weeks}")
         if week < 1 or week > total_weeks:
             raise ValueError(f"Week {week} out of range [1, {total_weeks}]")
 
@@ -417,6 +423,7 @@ class PeriodizationService:
                 deload_weeks.append(accum_end)
             if trans_end > 0 and trans_end <= duration_weeks and trans_end != accum_end:
                 deload_weeks.append(trans_end)
+            # Note: Block doesn't add final week deload - Realization phase is for peaking
         else:
             # Standard deload pattern
             week = frequency
@@ -424,9 +431,9 @@ class PeriodizationService:
                 deload_weeks.append(week)
                 week += frequency
 
-        # Always deload last week if program is 6+ weeks and last week isn't already deload
-        if duration_weeks >= 6 and duration_weeks not in deload_weeks:
-            deload_weeks.append(duration_weeks)
+            # Add last week deload for 6+ week programs (except Block model)
+            if duration_weeks >= 6 and duration_weeks not in deload_weeks:
+                deload_weeks.append(duration_weeks)
 
         return sorted(deload_weeks)
 
@@ -532,9 +539,12 @@ class PeriodizationService:
             raise ValueError(f"Unknown periodization model: {model}")
 
         # Scale intensity to goal-specific range
+        # All models output intensity in roughly 0.50-1.0 range
+        # Normalize to 0.0-1.0 then scale to goal-specific bounds
         min_int, max_int = self.INTENSITY_RANGES[goal]
-        scaled_intensity = min_int + (intensity - 0.50) * (max_int - min_int) / 0.50
-        scaled_intensity = min(max(scaled_intensity, min_int), max_int)
+        normalized = (intensity - 0.50) / 0.50  # Maps 0.50->0.0, 1.0->1.0
+        normalized = min(max(normalized, 0.0), 1.0)  # Clamp to [0, 1]
+        scaled_intensity = min_int + normalized * (max_int - min_int)
 
         # Apply deload reduction if applicable
         if is_deload:
@@ -651,6 +661,21 @@ class PeriodizationService:
 
         return weeks
 
+    def get_volume_limits(
+        self,
+        experience_level: ExperienceLevel,
+    ) -> dict:
+        """
+        Get volume limits (weekly sets per muscle group) for an experience level.
+
+        Args:
+            experience_level: User's experience level
+
+        Returns:
+            Dict with 'min' and 'max' weekly set recommendations
+        """
+        return self.VOLUME_LIMITS[experience_level].copy()
+
     def get_intensity_target(
         self,
         week_number: int,
@@ -670,8 +695,11 @@ class PeriodizationService:
         """
         intensity, _ = self.calculate_linear_progression(week_number, total_weeks)
 
-        # Scale to goal range
+        # Scale to goal range using same formula as get_week_parameters
+        # Linear returns 0.65-0.95, normalize to 0.0-1.0 then scale to goal bounds
         min_int, max_int = self.INTENSITY_RANGES[goal]
-        scaled = min_int + (intensity - 0.65) * (max_int - min_int) / 0.30
+        normalized = (intensity - 0.50) / 0.50  # Maps 0.50->0.0, 1.0->1.0
+        normalized = min(max(normalized, 0.0), 1.0)  # Clamp to [0, 1]
+        scaled = min_int + normalized * (max_int - min_int)
 
-        return round(min(max(scaled, min_int), max_int), 3)
+        return round(scaled, 3)
