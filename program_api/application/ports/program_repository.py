@@ -116,3 +116,33 @@ class ProgramRepository(Protocol):
             Created workout dictionary
         """
         ...
+
+    def create_program_atomic(
+        self,
+        program_data: Dict,
+        weeks_data: List[Dict],
+    ) -> Dict:
+        """
+        Create a program with all weeks and workouts atomically.
+
+        This method creates the program, weeks, and workouts in a single
+        database transaction. If any insert fails, the entire operation
+        is rolled back, preventing orphaned records.
+
+        Args:
+            program_data: Program data dictionary
+            weeks_data: List of week dictionaries, each containing a "workouts" key
+                        with a list of workout dictionaries
+
+        Returns:
+            Dictionary with created IDs:
+            {
+                "program": {"id": <program_uuid>},
+                "weeks": [<week_uuid>, ...],
+                "workouts": [<workout_uuid>, ...]
+            }
+
+        Raises:
+            ProgramCreationError: If the atomic creation fails
+        """
+        ...

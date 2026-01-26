@@ -11,6 +11,8 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from uuid import uuid4
 
+from application.exceptions import ProgramCreationError
+
 
 class FakeProgramRepository:
     """
@@ -25,6 +27,7 @@ class FakeProgramRepository:
         self._programs: Dict[str, Dict] = {}
         self._weeks: Dict[str, Dict] = {}
         self._workouts: Dict[str, Dict] = {}
+        self._fail_on_next_atomic: bool = False
 
     # -------------------------------------------------------------------------
     # Test Helpers
@@ -244,3 +247,81 @@ class FakeProgramRepository:
         }
         self._workouts[workout_id] = workout
         return workout
+
+    # -------------------------------------------------------------------------
+    # Atomic Creation (with failure simulation for testing)
+    # -------------------------------------------------------------------------
+
+    def simulate_atomic_failure(self) -> None:
+        """
+        Configure the fake to fail on the next atomic creation call.
+
+        This is used to test rollback behavior - when atomic creation
+        fails, no records should be created.
+        """
+        self._fail_on_next_atomic = True
+
+    def create_program_atomic(
+        self,
+        program_data: Dict,
+        weeks_data: List[Dict],
+    ) -> Dict:
+        """
+        Create a program with all weeks and workouts atomically.
+
+        In the fake implementation, this simulates atomic behavior by
+        collecting all data first, then inserting only if no failure
+        is simulated.
+
+        Args:
+            program_data: Program data dictionary
+            weeks_data: List of week dictionaries with nested workouts
+
+        Returns:
+            Dictionary with created IDs
+
+        Raises:
+            ProgramCreationError: If simulated failure is triggered
+        """
+        # Check if failure simulation is enabled
+        if self._fail_on_next_atomic:
+            self._fail_on_next_atomic = False
+            raise ProgramCreationError("Simulated atomic creation failure")
+
+        # Collect all data to insert (simulating transaction preparation)
+        program_id = program_data.get("id", str(uuid4()))
+        week_ids: List[str] = []
+        workout_ids: List[str] = []
+        weeks_to_create: List[tuple] = []  # (week_data, workouts)
+
+        for week_data in weeks_data:
+            week_id = str(uuid4())
+            week_ids.append(week_id)
+            workouts = week_data.get("workouts", [])
+            weeks_to_create.append((week_id, week_data, workouts))
+
+            for _ in workouts:
+                workout_ids.append(str(uuid4()))
+
+        # All data collected successfully, now insert (simulating commit)
+        # Create program
+        created_program = self.create({**program_data, "id": program_id})
+
+        # Create weeks and workouts
+        workout_idx = 0
+        for week_id, week_data, workouts in weeks_to_create:
+            # Remove workouts from week_data before creating week
+            week_create_data = {k: v for k, v in week_data.items() if k != "workouts"}
+            week_create_data["id"] = week_id
+            self.create_week(program_id, week_create_data)
+
+            for workout_data in workouts:
+                workout_create_data = {**workout_data, "id": workout_ids[workout_idx]}
+                self.create_workout(week_id, workout_create_data)
+                workout_idx += 1
+
+        return {
+            "program": {"id": program_id},
+            "weeks": week_ids,
+            "workouts": workout_ids,
+        }
