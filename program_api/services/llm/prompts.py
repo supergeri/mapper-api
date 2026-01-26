@@ -7,32 +7,10 @@ Updated in AMA-491: Added input sanitization for prompt injection prevention
 System and user prompts for structured exercise selection.
 """
 
-import re
+from core.sanitization import sanitize_user_input
 
-from core.constants import MAX_LIMITATION_LENGTH
-
-
-def sanitize_limitation(limitation: str) -> str:
-    """
-    Sanitize a user limitation string to prevent prompt injection.
-
-    Removes newlines, carriage returns, tabs, and other control characters,
-    then truncates to MAX_LIMITATION_LENGTH characters.
-
-    Args:
-        limitation: Raw user-provided limitation string
-
-    Returns:
-        Sanitized limitation string safe for prompt inclusion
-    """
-    # Remove newlines, carriage returns, tabs, and other control characters
-    sanitized = re.sub(r"[\n\r\t\x00-\x1f\x7f-\x9f]", " ", limitation)
-    # Collapse multiple spaces into one
-    sanitized = re.sub(r" +", " ", sanitized)
-    # Strip leading/trailing whitespace
-    sanitized = sanitized.strip()
-    # Limit length
-    return sanitized[:MAX_LIMITATION_LENGTH]
+# Re-export for backwards compatibility and clearer domain naming
+sanitize_limitation = sanitize_user_input
 
 EXERCISE_SELECTION_SYSTEM_PROMPT = """You are an expert strength and conditioning coach designing workout programs.
 

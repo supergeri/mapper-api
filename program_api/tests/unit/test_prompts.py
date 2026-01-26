@@ -9,10 +9,14 @@ Tests for prompt sanitization and generation functions.
 import pytest
 
 from core.constants import MAX_LIMITATION_LENGTH
+from core.sanitization import sanitize_user_input
 from services.llm.prompts import (
     sanitize_limitation,
     build_exercise_selection_prompt,
 )
+
+# Verify the re-export works correctly
+assert sanitize_limitation is sanitize_user_input
 
 
 # ---------------------------------------------------------------------------

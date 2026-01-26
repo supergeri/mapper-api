@@ -7,14 +7,13 @@ Updated in AMA-491: Added input validation for limitations
 These models define the API contract for AI-powered program generation.
 """
 
-import re
-from typing import List, Optional
-from uuid import UUID
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from core.constants import MAX_LIMITATIONS_COUNT
+from core.sanitization import sanitize_user_input
 from models.program import ProgramGoal, ExperienceLevel, TrainingProgram
-from core.constants import MAX_LIMITATION_LENGTH, MAX_LIMITATIONS_COUNT
 
 
 class GenerateProgramRequest(BaseModel):
@@ -49,7 +48,7 @@ class GenerateProgramRequest(BaseModel):
 
     @field_validator("limitations", mode="before")
     @classmethod
-    def validate_limitations(cls, v: List[str]) -> List[str]:
+    def validate_limitations(cls, v: Any) -> List[str]:
         """
         Validate and sanitize limitations to prevent prompt injection.
 
@@ -61,6 +60,9 @@ class GenerateProgramRequest(BaseModel):
         if not v:
             return []
 
+        if not isinstance(v, list):
+            return []
+
         if len(v) > MAX_LIMITATIONS_COUNT:
             raise ValueError(
                 f"Too many limitations. Maximum allowed: {MAX_LIMITATIONS_COUNT}"
@@ -70,12 +72,7 @@ class GenerateProgramRequest(BaseModel):
         for limitation in v:
             if not isinstance(limitation, str):
                 continue
-            # Remove control characters (newlines, tabs, etc.)
-            clean = re.sub(r"[\n\r\t\x00-\x1f\x7f-\x9f]", " ", limitation)
-            # Collapse multiple spaces
-            clean = re.sub(r" +", " ", clean).strip()
-            # Truncate to max length
-            clean = clean[:MAX_LIMITATION_LENGTH]
+            clean = sanitize_user_input(limitation)
             if clean:
                 sanitized.append(clean)
 
