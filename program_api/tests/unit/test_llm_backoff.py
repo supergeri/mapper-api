@@ -45,6 +45,12 @@ def create_api_status_error(status_code: int = 500):
     )
 
 
+def create_api_connection_error():
+    """Create a mock APIConnectionError for testing connection failures."""
+    mock_request = MagicMock()
+    return APIConnectionError(message="Connection failed", request=mock_request)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -160,13 +166,13 @@ class TestBackoffCalculation:
     def test_jitter_varies_between_calls(self, selector):
         """Jitter should vary between calls (not deterministic)."""
         delays = set()
-        for _ in range(10):
+        for _ in range(50):  # Increased iterations to reduce flaky risk
             delay = selector._calculate_backoff(attempt=0, base_delay=1.0)
             delays.add(delay)
 
-        # With 10 calls, we should have multiple unique values due to jitter
-        # (probability of all 10 being identical is essentially 0)
-        assert len(delays) > 1
+        # With 50 calls, we should have multiple unique values due to jitter
+        # Requiring at least 2 unique values is very conservative
+        assert len(delays) >= 2, f"Expected varied delays, got {len(delays)} unique values"
 
 
 # ---------------------------------------------------------------------------
@@ -439,7 +445,7 @@ class TestJsonParseErrorBackoff:
 
 @pytest.mark.unit
 class TestServerErrorHandling:
-    """Tests for server error (500, 503) handling."""
+    """Tests for server error (500, 503) and connection error handling."""
 
     @pytest.mark.asyncio
     async def test_server_500_error_triggers_standard_backoff(
@@ -466,9 +472,9 @@ class TestServerErrorHandling:
                     await selector.select_exercises(base_request, use_cache=False)
 
             # Should use standard backoff, not rate limit backoff
-            assert len(sleep_calls) == 1
+            assert len(sleep_calls) == 1, "Expected exactly 1 sleep call"
             # Standard backoff: 2^0 * 1.0 + 0.5 = 1.5
-            assert sleep_calls[0] == 1.5
+            assert sleep_calls[0] == 1.5, "Expected standard backoff delay"
 
     @pytest.mark.asyncio
     async def test_server_503_error_triggers_standard_backoff(
@@ -494,8 +500,35 @@ class TestServerErrorHandling:
                 with patch("services.llm.client.random.uniform", return_value=0.5):
                     await selector.select_exercises(base_request, use_cache=False)
 
-            assert len(sleep_calls) == 1
-            assert sleep_calls[0] == 1.5
+            assert len(sleep_calls) == 1, "Expected exactly 1 sleep call"
+            assert sleep_calls[0] == 1.5, "Expected standard backoff delay"
+
+    @pytest.mark.asyncio
+    async def test_connection_error_triggers_standard_backoff(
+        self, selector, base_request
+    ):
+        """APIConnectionError should trigger standard backoff."""
+        sleep_calls = []
+
+        async def mock_sleep(delay):
+            sleep_calls.append(delay)
+
+        connection_error = create_api_connection_error()
+
+        with patch.object(
+            selector, "_call_llm", new_callable=AsyncMock
+        ) as mock_call_llm:
+            mock_call_llm.side_effect = [
+                connection_error,
+                '{"exercises": [], "workout_notes": "Test", "estimated_duration_minutes": 45}',
+            ]
+
+            with patch("services.llm.client.asyncio.sleep", side_effect=mock_sleep):
+                with patch("services.llm.client.random.uniform", return_value=0.5):
+                    await selector.select_exercises(base_request, use_cache=False)
+
+            assert len(sleep_calls) == 1, "Expected exactly 1 sleep call for connection error"
+            assert sleep_calls[0] == 1.5, "Connection errors should use standard backoff"
 
 
 # ---------------------------------------------------------------------------
@@ -512,14 +545,22 @@ class TestBackoffEdgeCases:
         with patch("services.llm.client.random.uniform", return_value=0.75):
             delay = selector._calculate_backoff(attempt=0, base_delay=0.0)
             # 2^0 * 0.0 + 0.75 = 0.75
-            assert delay == 0.75
+            assert delay == 0.75, "Zero base delay should only return jitter"
 
     def test_high_attempt_number_exponential_growth(self, selector):
         """High attempt numbers should still calculate correctly."""
         with patch("services.llm.client.random.uniform", return_value=0.0):
             delay = selector._calculate_backoff(attempt=5, base_delay=1.0)
             # 2^5 * 1.0 + 0.0 = 32.0
-            assert delay == 32.0
+            assert delay == 32.0, "Expected 2^5 = 32 second delay"
+
+    def test_negative_attempt_handled_gracefully(self, selector):
+        """Negative attempt numbers should still produce valid delays."""
+        with patch("services.llm.client.random.uniform", return_value=0.0):
+            delay = selector._calculate_backoff(attempt=-1, base_delay=1.0)
+            # 2^-1 * 1.0 + 0.0 = 0.5
+            assert delay == 0.5, "Negative attempt should produce fractional delay"
+            assert delay > 0, "Delay must always be positive"
 
     @pytest.mark.asyncio
     async def test_all_retries_exhausted_returns_fallback(
@@ -537,7 +578,119 @@ class TestBackoffEdgeCases:
                 )
 
             # Should return fallback response, not raise
-            assert response is not None
-            assert "Fallback" in response.workout_notes
+            assert response is not None, "Should return response, not None"
+            assert "Fallback" in response.workout_notes, "Should indicate fallback"
             # Should have tried MAX_RETRIES + 1 times
-            assert mock_call_llm.call_count == 3
+            assert mock_call_llm.call_count == 3, "Should attempt exactly MAX_RETRIES + 1 times"
+
+    @pytest.mark.asyncio
+    async def test_retry_counter_resets_between_calls(
+        self, selector, base_request
+    ):
+        """Each select_exercises call should start with fresh retry counter."""
+        with patch.object(
+            selector, "_call_llm", new_callable=AsyncMock
+        ) as mock_call_llm:
+            # First call: fail all retries
+            mock_call_llm.side_effect = [
+                Exception("Fail 1"),
+                Exception("Fail 2"),
+                Exception("Fail 3"),
+            ]
+
+            with patch("services.llm.client.asyncio.sleep", new_callable=AsyncMock):
+                await selector.select_exercises(base_request, use_cache=False)
+
+            assert mock_call_llm.call_count == 3, "First call should try 3 times"
+
+            # Reset mock for second call
+            mock_call_llm.reset_mock()
+            mock_call_llm.side_effect = [
+                Exception("Fail A"),
+                '{"exercises": [], "workout_notes": "Success", "estimated_duration_minutes": 45}',
+            ]
+
+            with patch("services.llm.client.asyncio.sleep", new_callable=AsyncMock):
+                response = await selector.select_exercises(base_request, use_cache=False)
+
+            # Second call should start fresh, not continue from first call's counter
+            assert mock_call_llm.call_count == 2, "Second call should try independently"
+            assert "Success" in response.workout_notes, "Should succeed on second attempt"
+
+
+# ---------------------------------------------------------------------------
+# Logging and Observability Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestBackoffLogging:
+    """Tests for logging during backoff operations."""
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_error_logs_warning(
+        self, selector, base_request, caplog
+    ):
+        """Rate limit errors should log a warning."""
+        import logging
+
+        rate_limit_error = create_rate_limit_error()
+
+        with patch.object(
+            selector, "_call_llm", new_callable=AsyncMock
+        ) as mock_call_llm:
+            mock_call_llm.side_effect = [
+                rate_limit_error,
+                '{"exercises": [], "workout_notes": "Test", "estimated_duration_minutes": 45}',
+            ]
+
+            with patch("services.llm.client.asyncio.sleep", new_callable=AsyncMock):
+                with caplog.at_level(logging.WARNING):
+                    await selector.select_exercises(base_request, use_cache=False)
+
+        assert any(
+            "Rate limit error" in record.message for record in caplog.records
+        ), "Should log rate limit warning"
+
+    @pytest.mark.asyncio
+    async def test_general_error_logs_warning(
+        self, selector, base_request, caplog
+    ):
+        """General LLM errors should log a warning."""
+        import logging
+
+        with patch.object(
+            selector, "_call_llm", new_callable=AsyncMock
+        ) as mock_call_llm:
+            mock_call_llm.side_effect = [
+                Exception("Network failure"),
+                '{"exercises": [], "workout_notes": "Test", "estimated_duration_minutes": 45}',
+            ]
+
+            with patch("services.llm.client.asyncio.sleep", new_callable=AsyncMock):
+                with caplog.at_level(logging.WARNING):
+                    await selector.select_exercises(base_request, use_cache=False)
+
+        assert any(
+            "LLM call error" in record.message for record in caplog.records
+        ), "Should log LLM error warning"
+
+    @pytest.mark.asyncio
+    async def test_all_retries_failed_logs_error(
+        self, selector, base_request, caplog
+    ):
+        """Exhausting all retries should log an error."""
+        import logging
+
+        with patch.object(
+            selector, "_call_llm", new_callable=AsyncMock
+        ) as mock_call_llm:
+            mock_call_llm.side_effect = Exception("Persistent failure")
+
+            with patch("services.llm.client.asyncio.sleep", new_callable=AsyncMock):
+                with caplog.at_level(logging.ERROR):
+                    await selector.select_exercises(base_request, use_cache=False)
+
+        assert any(
+            "All LLM attempts failed" in record.message for record in caplog.records
+        ), "Should log error when all retries exhausted"
