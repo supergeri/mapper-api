@@ -12,9 +12,10 @@ Tests verify that:
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from openai import RateLimitError
+from openai import RateLimitError, APIConnectionError, APIStatusError
 
 from services.llm.client import OpenAIExerciseSelector
+from services.llm.schemas import ExerciseSelectionRequest
 
 
 def create_rate_limit_error():
@@ -29,7 +30,19 @@ def create_rate_limit_error():
         response=mock_response,
         body={"error": {"message": "Rate limit exceeded"}},
     )
-from services.llm.schemas import ExerciseSelectionRequest
+
+
+def create_api_status_error(status_code: int = 500):
+    """Create a mock APIStatusError for testing server errors."""
+    mock_response = MagicMock()
+    mock_response.status_code = status_code
+    mock_request = MagicMock()
+    mock_response.request = mock_request
+    return APIStatusError(
+        message=f"Server error {status_code}",
+        response=mock_response,
+        body={"error": {"message": f"Server error {status_code}"}},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -102,28 +115,28 @@ class TestBackoffCalculation:
 
     def test_first_attempt_base_delay(self, selector):
         """First attempt (0) should have base delay + jitter."""
-        with patch("random.uniform", return_value=0.5):
+        with patch("services.llm.client.random.uniform", return_value=0.5):
             delay = selector._calculate_backoff(attempt=0, base_delay=1.0)
             # 2^0 * 1.0 + 0.5 = 1.5
             assert delay == 1.5
 
     def test_second_attempt_doubles_delay(self, selector):
         """Second attempt (1) should double the delay."""
-        with patch("random.uniform", return_value=0.5):
+        with patch("services.llm.client.random.uniform", return_value=0.5):
             delay = selector._calculate_backoff(attempt=1, base_delay=1.0)
             # 2^1 * 1.0 + 0.5 = 2.5
             assert delay == 2.5
 
     def test_third_attempt_quadruples_delay(self, selector):
         """Third attempt (2) should quadruple the delay."""
-        with patch("random.uniform", return_value=0.5):
+        with patch("services.llm.client.random.uniform", return_value=0.5):
             delay = selector._calculate_backoff(attempt=2, base_delay=1.0)
             # 2^2 * 1.0 + 0.5 = 4.5
             assert delay == 4.5
 
     def test_rate_limit_backoff_uses_higher_base(self, selector):
         """Rate limit backoff should use higher base delay."""
-        with patch("random.uniform", return_value=0.0):
+        with patch("services.llm.client.random.uniform", return_value=0.0):
             normal_delay = selector._calculate_backoff(
                 attempt=0, base_delay=selector.BASE_BACKOFF_SECONDS
             )
@@ -185,8 +198,8 @@ class TestRetryBackoff:
                 '{"exercises": [], "workout_notes": "Test", "estimated_duration_minutes": 45}',
             ]
 
-            with patch("asyncio.sleep", side_effect=mock_sleep):
-                with patch("random.uniform", return_value=0.5):
+            with patch("services.llm.client.asyncio.sleep", side_effect=mock_sleep):
+                with patch("services.llm.client.random.uniform", return_value=0.5):
                     await selector.select_exercises(base_request, use_cache=False)
 
             # Should have slept twice (after first and second failures)
@@ -216,7 +229,7 @@ class TestRetryBackoff:
                 Exception("Error 3"),
             ]
 
-            with patch("asyncio.sleep", side_effect=mock_sleep):
+            with patch("services.llm.client.asyncio.sleep", side_effect=mock_sleep):
                 # Should use fallback after all retries fail
                 response = await selector.select_exercises(
                     base_request, use_cache=False
@@ -243,7 +256,7 @@ class TestRetryBackoff:
                 '"estimated_duration_minutes": 45}'
             )
 
-            with patch("asyncio.sleep", side_effect=mock_sleep):
+            with patch("services.llm.client.asyncio.sleep", side_effect=mock_sleep):
                 await selector.select_exercises(base_request, use_cache=False)
 
             # Should not have slept at all
@@ -280,8 +293,8 @@ class TestRateLimitHandling:
                 '{"exercises": [], "workout_notes": "Test", "estimated_duration_minutes": 45}',
             ]
 
-            with patch("asyncio.sleep", side_effect=mock_sleep):
-                with patch("random.uniform", return_value=0.5):
+            with patch("services.llm.client.asyncio.sleep", side_effect=mock_sleep):
+                with patch("services.llm.client.random.uniform", return_value=0.5):
                     await selector.select_exercises(base_request, use_cache=False)
 
             # Should have slept once with rate limit backoff
@@ -311,8 +324,8 @@ class TestRateLimitHandling:
                 '{"exercises": [], "workout_notes": "Test", "estimated_duration_minutes": 45}',
             ]
 
-            with patch("asyncio.sleep", side_effect=mock_sleep):
-                with patch("random.uniform", return_value=0.5):
+            with patch("services.llm.client.asyncio.sleep", side_effect=mock_sleep):
+                with patch("services.llm.client.random.uniform", return_value=0.5):
                     await selector.select_exercises(base_request, use_cache=False)
 
             # Should have slept twice
@@ -339,7 +352,7 @@ class TestRateLimitHandling:
                 rate_limit_error,
             ]
 
-            with patch("asyncio.sleep", new_callable=AsyncMock):
+            with patch("services.llm.client.asyncio.sleep", new_callable=AsyncMock):
                 response = await selector.select_exercises(
                     base_request, use_cache=False
                 )
@@ -369,8 +382,8 @@ class TestRateLimitHandling:
                 '{"exercises": [], "workout_notes": "Test", "estimated_duration_minutes": 45}',
             ]
 
-            with patch("asyncio.sleep", side_effect=mock_sleep):
-                with patch("random.uniform", return_value=0.5):
+            with patch("services.llm.client.asyncio.sleep", side_effect=mock_sleep):
+                with patch("services.llm.client.random.uniform", return_value=0.5):
                     await selector.select_exercises(base_request, use_cache=False)
 
             # Should have slept twice with different backoff types
@@ -409,11 +422,122 @@ class TestJsonParseErrorBackoff:
                 '{"exercises": [], "workout_notes": "Test", "estimated_duration_minutes": 45}',
             ]
 
-            with patch("asyncio.sleep", side_effect=mock_sleep):
-                with patch("random.uniform", return_value=0.5):
+            with patch("services.llm.client.asyncio.sleep", side_effect=mock_sleep):
+                with patch("services.llm.client.random.uniform", return_value=0.5):
                     await selector.select_exercises(base_request, use_cache=False)
 
             # Should have slept once with standard backoff
             assert len(sleep_calls) == 1
             # Standard backoff: 2^0 * 1.0 + 0.5 = 1.5
             assert sleep_calls[0] == 1.5
+
+
+# ---------------------------------------------------------------------------
+# Server Error Handling Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestServerErrorHandling:
+    """Tests for server error (500, 503) handling."""
+
+    @pytest.mark.asyncio
+    async def test_server_500_error_triggers_standard_backoff(
+        self, selector, base_request
+    ):
+        """Server 500 errors should trigger standard backoff (not rate limit)."""
+        sleep_calls = []
+
+        async def mock_sleep(delay):
+            sleep_calls.append(delay)
+
+        server_error = create_api_status_error(500)
+
+        with patch.object(
+            selector, "_call_llm", new_callable=AsyncMock
+        ) as mock_call_llm:
+            mock_call_llm.side_effect = [
+                server_error,
+                '{"exercises": [], "workout_notes": "Test", "estimated_duration_minutes": 45}',
+            ]
+
+            with patch("services.llm.client.asyncio.sleep", side_effect=mock_sleep):
+                with patch("services.llm.client.random.uniform", return_value=0.5):
+                    await selector.select_exercises(base_request, use_cache=False)
+
+            # Should use standard backoff, not rate limit backoff
+            assert len(sleep_calls) == 1
+            # Standard backoff: 2^0 * 1.0 + 0.5 = 1.5
+            assert sleep_calls[0] == 1.5
+
+    @pytest.mark.asyncio
+    async def test_server_503_error_triggers_standard_backoff(
+        self, selector, base_request
+    ):
+        """Server 503 errors should trigger standard backoff."""
+        sleep_calls = []
+
+        async def mock_sleep(delay):
+            sleep_calls.append(delay)
+
+        server_error = create_api_status_error(503)
+
+        with patch.object(
+            selector, "_call_llm", new_callable=AsyncMock
+        ) as mock_call_llm:
+            mock_call_llm.side_effect = [
+                server_error,
+                '{"exercises": [], "workout_notes": "Test", "estimated_duration_minutes": 45}',
+            ]
+
+            with patch("services.llm.client.asyncio.sleep", side_effect=mock_sleep):
+                with patch("services.llm.client.random.uniform", return_value=0.5):
+                    await selector.select_exercises(base_request, use_cache=False)
+
+            assert len(sleep_calls) == 1
+            assert sleep_calls[0] == 1.5
+
+
+# ---------------------------------------------------------------------------
+# Edge Cases and Boundary Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestBackoffEdgeCases:
+    """Edge case tests for backoff behavior."""
+
+    def test_zero_base_delay_only_returns_jitter(self, selector):
+        """Zero base delay should only return jitter component."""
+        with patch("services.llm.client.random.uniform", return_value=0.75):
+            delay = selector._calculate_backoff(attempt=0, base_delay=0.0)
+            # 2^0 * 0.0 + 0.75 = 0.75
+            assert delay == 0.75
+
+    def test_high_attempt_number_exponential_growth(self, selector):
+        """High attempt numbers should still calculate correctly."""
+        with patch("services.llm.client.random.uniform", return_value=0.0):
+            delay = selector._calculate_backoff(attempt=5, base_delay=1.0)
+            # 2^5 * 1.0 + 0.0 = 32.0
+            assert delay == 32.0
+
+    @pytest.mark.asyncio
+    async def test_all_retries_exhausted_returns_fallback(
+        self, selector, base_request
+    ):
+        """Exhausting all retries should return fallback, not raise."""
+        with patch.object(
+            selector, "_call_llm", new_callable=AsyncMock
+        ) as mock_call_llm:
+            mock_call_llm.side_effect = Exception("Persistent failure")
+
+            with patch("services.llm.client.asyncio.sleep", new_callable=AsyncMock):
+                response = await selector.select_exercises(
+                    base_request, use_cache=False
+                )
+
+            # Should return fallback response, not raise
+            assert response is not None
+            assert "Fallback" in response.workout_notes
+            # Should have tried MAX_RETRIES + 1 times
+            assert mock_call_llm.call_count == 3
