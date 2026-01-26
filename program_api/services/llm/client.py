@@ -58,6 +58,7 @@ class OpenAIExerciseSelector:
     # Backoff configuration
     BASE_BACKOFF_SECONDS = 1.0  # Base delay for exponential backoff
     RATE_LIMIT_BACKOFF_SECONDS = 5.0  # Base delay for rate limit errors
+    MAX_BACKOFF_SECONDS = 30.0  # Maximum delay cap regardless of attempt
 
     # Cache configuration
     CACHE_MAX_SIZE = 500  # Maximum cache entries
@@ -212,9 +213,9 @@ class OpenAIExerciseSelector:
 
     def _calculate_backoff(self, attempt: int, base_delay: float) -> float:
         """
-        Calculate exponential backoff delay with jitter.
+        Calculate exponential backoff delay with jitter, capped at MAX_BACKOFF_SECONDS.
 
-        Uses the formula: (2^attempt * base_delay) + random_jitter
+        Uses the formula: min((2^attempt * base_delay) + random_jitter, MAX_BACKOFF_SECONDS)
         Jitter is added to prevent thundering herd problem.
 
         Args:
@@ -222,13 +223,14 @@ class OpenAIExerciseSelector:
             base_delay: Base delay in seconds
 
         Returns:
-            Delay in seconds with jitter
+            Delay in seconds with jitter, capped at MAX_BACKOFF_SECONDS
         """
         # Exponential backoff: 2^attempt * base_delay
         exponential_delay = (2**attempt) * base_delay
         # Add random jitter between 0 and 1 second
         jitter = random.uniform(0, 1)
-        return exponential_delay + jitter
+        # Cap at maximum to prevent excessive delays
+        return min(exponential_delay + jitter, self.MAX_BACKOFF_SECONDS)
 
     def _parse_response(
         self,

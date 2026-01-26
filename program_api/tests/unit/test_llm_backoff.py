@@ -109,6 +109,10 @@ class TestBackoffConfiguration:
         """MAX_RETRIES should be 2."""
         assert OpenAIExerciseSelector.MAX_RETRIES == 2
 
+    def test_max_backoff_is_30_seconds(self):
+        """MAX_BACKOFF_SECONDS should be 30.0 to prevent excessive delays."""
+        assert OpenAIExerciseSelector.MAX_BACKOFF_SECONDS == 30.0
+
 
 # ---------------------------------------------------------------------------
 # Backoff Calculation Tests
@@ -547,12 +551,19 @@ class TestBackoffEdgeCases:
             # 2^0 * 0.0 + 0.75 = 0.75
             assert delay == 0.75, "Zero base delay should only return jitter"
 
-    def test_high_attempt_number_exponential_growth(self, selector):
-        """High attempt numbers should still calculate correctly."""
+    def test_high_attempt_number_capped_at_max(self, selector):
+        """High attempt numbers should be capped at MAX_BACKOFF_SECONDS."""
         with patch("services.llm.client.random.uniform", return_value=0.0):
             delay = selector._calculate_backoff(attempt=5, base_delay=1.0)
-            # 2^5 * 1.0 + 0.0 = 32.0
-            assert delay == 32.0, "Expected 2^5 = 32 second delay"
+            # 2^5 * 1.0 = 32.0, but capped at 30.0
+            assert delay == 30.0, "Expected delay to be capped at MAX_BACKOFF_SECONDS"
+
+    def test_very_high_attempt_still_capped(self, selector):
+        """Even very high attempt numbers stay capped."""
+        with patch("services.llm.client.random.uniform", return_value=0.5):
+            delay = selector._calculate_backoff(attempt=10, base_delay=5.0)
+            # 2^10 * 5.0 + 0.5 = 5120.5, but capped at 30.0
+            assert delay == 30.0, "Expected delay to be capped at MAX_BACKOFF_SECONDS"
 
     def test_negative_attempt_handled_gracefully(self, selector):
         """Negative attempt numbers should still produce valid delays."""
