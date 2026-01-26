@@ -54,7 +54,7 @@ class OpenAIExerciseSelector:
     MAX_RETRIES = 2
 
     # Cache configuration
-    CACHE_MAX_SIZE = 100  # Maximum cache entries
+    CACHE_MAX_SIZE = 500  # Maximum cache entries
     CACHE_TTL_SECONDS = 3600  # 1 hour TTL
 
     def __init__(
@@ -70,7 +70,7 @@ class OpenAIExerciseSelector:
         Args:
             api_key: OpenAI API key
             model: Model to use (default: gpt-4o-mini)
-            cache_max_size: Maximum number of cached responses (default: 100)
+            cache_max_size: Maximum number of cached responses (default: 500)
             cache_ttl_seconds: Cache TTL in seconds (default: 3600)
         """
         self._client = AsyncOpenAI(api_key=api_key)
@@ -81,7 +81,16 @@ class OpenAIExerciseSelector:
 
     def _cache_key(self, request: ExerciseSelectionRequest) -> str:
         """Generate cache key for a request."""
-        return f"{request.workout_type}:{','.join(sorted(request.muscle_groups))}:{request.exercise_count}"
+        return ":".join([
+            request.workout_type,
+            ",".join(sorted(request.muscle_groups)),
+            str(request.exercise_count),
+            request.goal or "",
+            request.experience_level or "",
+            str(request.is_deload),
+            ",".join(sorted(request.equipment or [])),
+            ",".join(sorted(request.user_limitations or [])),
+        ])
 
     async def select_exercises(
         self,
