@@ -8,9 +8,12 @@ the training_programs, program_weeks, and program_workouts tables
 defined in AMA-460.
 """
 
+import json
 from typing import Dict, List, Optional
 
 from supabase import Client
+
+from application.exceptions import ProgramCreationError
 
 
 class SupabaseProgramRepository:
@@ -196,3 +199,43 @@ class SupabaseProgramRepository:
             .execute()
         )
         return response.data[0]
+
+    def create_program_atomic(
+        self,
+        program_data: Dict,
+        weeks_data: List[Dict],
+    ) -> Dict:
+        """
+        Create a program with all weeks and workouts atomically.
+
+        Uses a PostgreSQL stored procedure to ensure all inserts happen
+        in a single transaction. If any insert fails, the entire operation
+        is rolled back.
+
+        Args:
+            program_data: Program data dictionary
+            weeks_data: List of week dictionaries, each containing a "workouts" key
+
+        Returns:
+            Dictionary with created IDs
+
+        Raises:
+            ProgramCreationError: If the RPC call fails
+        """
+        try:
+            response = self._client.rpc(
+                "create_program_with_weeks_workouts",
+                {
+                    "p_program": json.dumps(program_data),
+                    "p_weeks": json.dumps(weeks_data),
+                }
+            ).execute()
+
+            if response.data is None:
+                raise ProgramCreationError("RPC returned no data")
+
+            return response.data
+        except Exception as e:
+            if isinstance(e, ProgramCreationError):
+                raise
+            raise ProgramCreationError(f"Atomic program creation failed: {e}") from e

@@ -19,6 +19,7 @@ from functools import partial
 from typing import Dict, List, Optional
 from uuid import uuid4
 
+from application.exceptions import ProgramCreationError
 from application.ports import ExerciseRepository, ProgramRepository, TemplateRepository
 from models.generation import GenerateProgramRequest, GenerateProgramResponse
 from models.program import (
@@ -204,7 +205,7 @@ class ProgramGenerator:
             for issue in validation.warnings:
                 suggestions.append(f"Note: {issue.message}")
 
-            # Step 5: Create and persist program
+            # Step 5: Create and persist program atomically
             program_id = str(uuid4())
             now = datetime.utcnow()
 
@@ -228,36 +229,20 @@ class ProgramGenerator:
                 },
             }
 
-            # Persist program (run in thread pool to avoid blocking)
-            created_program = await asyncio.get_running_loop().run_in_executor(
-                self._executor,
-                self._program_repo.create,
-                program_create_data
-            )
-            logger.info(f"Created program {program_id}")
-
-            # Persist weeks and workouts
-            program_weeks = []
+            # Prepare weeks data with nested workouts for atomic creation
+            weeks_create_data = []
             for week_data in weeks_data:
-                week_create_data = {
+                week_create = {
                     "week_number": week_data["week_number"],
                     "focus": week_data.get("focus"),
                     "intensity_percentage": int(week_data.get("intensity_percent", 0.7) * 100),
                     "volume_modifier": week_data.get("volume_modifier", 1.0),
                     "is_deload": week_data.get("is_deload", False),
                     "notes": week_data.get("notes"),
+                    "workouts": [],
                 }
-
-                created_week = await asyncio.get_running_loop().run_in_executor(
-                    self._executor,
-                    partial(self._program_repo.create_week, program_id, week_create_data)
-                )
-                week_id = created_week["id"]
-
-                # Persist workouts
-                workouts = []
                 for idx, workout_data in enumerate(week_data.get("workouts", [])):
-                    workout_create_data = {
+                    week_create["workouts"].append({
                         "day_of_week": workout_data.get("day_of_week", idx + 1),
                         "name": workout_data.get("name", f"Workout {idx + 1}"),
                         "workout_type": workout_data.get("workout_type", "full_body"),
@@ -265,34 +250,62 @@ class ProgramGenerator:
                         "exercises": workout_data.get("exercises", []),
                         "notes": workout_data.get("notes"),
                         "sort_order": idx,
-                    }
+                    })
+                weeks_create_data.append(week_create)
 
-                    created_workout = await asyncio.get_running_loop().run_in_executor(
-                        self._executor,
-                        partial(self._program_repo.create_workout, week_id, workout_create_data)
+            # Persist atomically (run in thread pool to avoid blocking)
+            try:
+                atomic_result = await asyncio.get_running_loop().run_in_executor(
+                    self._executor,
+                    partial(
+                        self._program_repo.create_program_atomic,
+                        program_create_data,
+                        weeks_create_data,
                     )
+                )
+            except ProgramCreationError as e:
+                raise ProgramGenerationError(f"Failed to persist program: {e}") from e
+
+            # Extract IDs from atomic result with defensive checks
+            try:
+                program_id = atomic_result["program"]["id"]
+                week_ids = atomic_result.get("weeks", [])
+                workout_ids = atomic_result.get("workouts", [])
+            except (KeyError, TypeError) as e:
+                raise ProgramGenerationError(f"Invalid response from atomic creation: {e}") from e
+
+            logger.info(f"Created program {program_id} atomically with {len(week_ids)} weeks and {len(workout_ids)} workouts")
+
+            # Build response objects from the returned IDs
+            program_weeks = []
+            workout_idx = 0
+            for week_idx, week_create in enumerate(weeks_create_data):
+                week_id = week_ids[week_idx]
+                workouts = []
+                for idx, workout_create in enumerate(week_create.get("workouts", [])):
                     workouts.append(
                         ProgramWorkout(
-                            id=created_workout["id"],
+                            id=workout_ids[workout_idx],
                             program_week_id=week_id,
-                            day_of_week=workout_create_data["day_of_week"],
-                            name=workout_create_data["name"],
-                            description=workout_create_data.get("notes"),
+                            day_of_week=workout_create["day_of_week"],
+                            name=workout_create["name"],
+                            description=workout_create.get("notes"),
                             workout_id=None,
                             order_index=idx,
                             created_at=now,
                             updated_at=now,
                         )
                     )
+                    workout_idx += 1
 
                 program_weeks.append(
                     ProgramWeek(
                         id=week_id,
                         program_id=program_id,
-                        week_number=week_create_data["week_number"],
-                        name=f"Week {week_create_data['week_number']}",
-                        description=week_create_data.get("notes"),
-                        deload=week_create_data["is_deload"],
+                        week_number=week_create["week_number"],
+                        name=f"Week {week_create['week_number']}",
+                        description=week_create.get("notes"),
+                        deload=week_create["is_deload"],
                         workouts=workouts,
                         created_at=now,
                         updated_at=now,
