@@ -2,9 +2,38 @@
 LLM prompt templates for exercise selection.
 
 Part of AMA-462: Implement ProgramGenerator Service
+Updated in AMA-491: Added input sanitization for prompt injection prevention
 
 System and user prompts for structured exercise selection.
 """
+
+import re
+
+# Constants for limitation sanitization
+MAX_LIMITATION_LENGTH = 100
+
+
+def sanitize_limitation(limitation: str) -> str:
+    """
+    Sanitize a user limitation string to prevent prompt injection.
+
+    Removes newlines, carriage returns, tabs, and other control characters,
+    then truncates to MAX_LIMITATION_LENGTH characters.
+
+    Args:
+        limitation: Raw user-provided limitation string
+
+    Returns:
+        Sanitized limitation string safe for prompt inclusion
+    """
+    # Remove newlines, carriage returns, tabs, and other control characters
+    sanitized = re.sub(r"[\n\r\t\x00-\x1f\x7f-\x9f]", " ", limitation)
+    # Collapse multiple spaces into one
+    sanitized = re.sub(r" +", " ", sanitized)
+    # Strip leading/trailing whitespace
+    sanitized = sanitized.strip()
+    # Limit length
+    return sanitized[:MAX_LIMITATION_LENGTH]
 
 EXERCISE_SELECTION_SYSTEM_PROMPT = """You are an expert strength and conditioning coach designing workout programs.
 
@@ -129,12 +158,17 @@ def build_exercise_selection_prompt(
         for ex in available_exercises
     )
 
-    # Format limitations section
+    # Format limitations section with sanitization to prevent prompt injection
     limitations_section = ""
     if limitations:
-        limitations_section = f"**User Limitations (AVOID exercises that stress these areas):**\n- " + "\n- ".join(
-            limitations
-        )
+        sanitized_limitations = [sanitize_limitation(l) for l in limitations if l]
+        # Filter out empty strings after sanitization
+        sanitized_limitations = [l for l in sanitized_limitations if l]
+        if sanitized_limitations:
+            limitations_section = (
+                f"**User Limitations (AVOID exercises that stress these areas):**\n- "
+                + "\n- ".join(sanitized_limitations)
+            )
 
     return EXERCISE_SELECTION_USER_PROMPT.format(
         workout_type=workout_type,
