@@ -157,6 +157,7 @@ class PeriodizationService:
         ExperienceLevel.BEGINNER: 6,  # Every 6 weeks
         ExperienceLevel.INTERMEDIATE: 4,  # Every 4 weeks
         ExperienceLevel.ADVANCED: 3,  # Every 3 weeks
+        ExperienceLevel.ELITE: 2,  # Every 2 weeks
     }
 
     # Volume limits by experience (weekly sets per muscle group)
@@ -164,6 +165,7 @@ class PeriodizationService:
         ExperienceLevel.BEGINNER: {"min": 10, "max": 12},
         ExperienceLevel.INTERMEDIATE: {"min": 12, "max": 18},
         ExperienceLevel.ADVANCED: {"min": 16, "max": 25},
+        ExperienceLevel.ELITE: {"min": 20, "max": 30},
     }
 
     def calculate_linear_progression(
@@ -558,7 +560,7 @@ class PeriodizationService:
         """
         # Strength goals benefit from block or conjugate
         if goal == ProgramGoal.STRENGTH:
-            if experience_level == ExperienceLevel.ADVANCED:
+            if experience_level in [ExperienceLevel.ADVANCED, ExperienceLevel.ELITE]:
                 return PeriodizationModel.CONJUGATE
             elif duration_weeks >= 8:
                 return PeriodizationModel.BLOCK
@@ -569,6 +571,7 @@ class PeriodizationService:
             if experience_level in [
                 ExperienceLevel.INTERMEDIATE,
                 ExperienceLevel.ADVANCED,
+                ExperienceLevel.ELITE,
             ]:
                 return PeriodizationModel.UNDULATING
             return PeriodizationModel.LINEAR

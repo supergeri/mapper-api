@@ -31,6 +31,7 @@ class ExperienceLevel(str, Enum):
     BEGINNER = "beginner"
     INTERMEDIATE = "intermediate"
     ADVANCED = "advanced"
+    ELITE = "elite"
 
 
 class ProgramStatus(str, Enum):

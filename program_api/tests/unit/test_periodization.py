@@ -898,3 +898,335 @@ class TestWeekParametersFocus:
         )
         assert params.is_deload is True
         assert params.focus == TrainingFocus.DELOAD
+
+
+class TestEliteExperienceLevel:
+    """Tests for elite experience level support (AMA-485)."""
+
+    def test_elite_deload_every_2_weeks(self, service):
+        """Elite athletes should deload every 2 weeks."""
+        deloads = service.calculate_deload_weeks(
+            duration_weeks=12,
+            experience_level=ExperienceLevel.ELITE,
+        )
+        assert 2 in deloads
+        assert 4 in deloads
+        assert 6 in deloads
+        assert 8 in deloads
+        assert 10 in deloads
+        assert 12 in deloads
+
+    def test_elite_volume_limits_accessible(self, service):
+        """Elite volume limits should be accessible without KeyError."""
+        limits = service.VOLUME_LIMITS[ExperienceLevel.ELITE]
+        assert limits["min"] == 20
+        assert limits["max"] == 30
+
+    def test_elite_deload_frequency_accessible(self, service):
+        """Elite deload frequency should be accessible without KeyError."""
+        frequency = service.DELOAD_FREQUENCY[ExperienceLevel.ELITE]
+        assert frequency == 2
+
+    def test_elite_strength_uses_conjugate(self, service):
+        """Elite strength training should use conjugate model."""
+        model = service.select_periodization_model(
+            goal=ProgramGoal.STRENGTH,
+            experience_level=ExperienceLevel.ELITE,
+            duration_weeks=8,
+        )
+        assert model == PeriodizationModel.CONJUGATE
+
+    def test_elite_hypertrophy_uses_undulating(self, service):
+        """Elite hypertrophy training should use undulating model."""
+        model = service.select_periodization_model(
+            goal=ProgramGoal.HYPERTROPHY,
+            experience_level=ExperienceLevel.ELITE,
+            duration_weeks=8,
+        )
+        assert model == PeriodizationModel.UNDULATING
+
+    def test_elite_get_week_parameters_no_key_error(self, service):
+        """Getting week parameters for elite should not raise KeyError."""
+        params = service.get_week_parameters(
+            week=1,
+            total_weeks=8,
+            model=PeriodizationModel.LINEAR,
+            goal=ProgramGoal.STRENGTH,
+            experience_level=ExperienceLevel.ELITE,
+        )
+        assert isinstance(params, WeekParameters)
+        assert params.week_number == 1
+
+    def test_elite_plan_progression_no_key_error(self, service):
+        """Planning progression for elite should not raise KeyError."""
+        weeks = service.plan_progression(
+            duration_weeks=8,
+            goal=ProgramGoal.STRENGTH,
+            experience_level=ExperienceLevel.ELITE,
+        )
+        assert len(weeks) == 8
+        assert all(isinstance(w, WeekParameters) for w in weeks)
+
+    def test_elite_has_more_deloads_than_advanced(self, service):
+        """Elite should have more deload weeks than advanced."""
+        elite_deloads = service.calculate_deload_weeks(
+            duration_weeks=12,
+            experience_level=ExperienceLevel.ELITE,
+        )
+        advanced_deloads = service.calculate_deload_weeks(
+            duration_weeks=12,
+            experience_level=ExperienceLevel.ADVANCED,
+        )
+        assert len(elite_deloads) > len(advanced_deloads)
+
+    def test_elite_short_program_deloads(self, service):
+        """4-week elite program should have 2 deload weeks."""
+        deloads = service.calculate_deload_weeks(
+            duration_weeks=4,
+            experience_level=ExperienceLevel.ELITE,
+        )
+        assert 2 in deloads
+        assert 4 in deloads
+
+    def test_elite_endurance_uses_reverse_linear(self, service):
+        """Elite endurance should use reverse linear model."""
+        model = service.select_periodization_model(
+            goal=ProgramGoal.ENDURANCE,
+            experience_level=ExperienceLevel.ELITE,
+            duration_weeks=8,
+        )
+        assert model == PeriodizationModel.REVERSE_LINEAR
+
+    def test_elite_general_fitness_uses_linear(self, service):
+        """Elite general fitness should use linear model."""
+        model = service.select_periodization_model(
+            goal=ProgramGoal.GENERAL_FITNESS,
+            experience_level=ExperienceLevel.ELITE,
+            duration_weeks=8,
+        )
+        assert model == PeriodizationModel.LINEAR
+
+    def test_elite_weight_loss_uses_linear(self, service):
+        """Elite weight loss should use linear model."""
+        model = service.select_periodization_model(
+            goal=ProgramGoal.WEIGHT_LOSS,
+            experience_level=ExperienceLevel.ELITE,
+            duration_weeks=8,
+        )
+        assert model == PeriodizationModel.LINEAR
+
+    def test_elite_sport_specific_long_uses_block(self, service):
+        """Elite sport-specific long program should use block model."""
+        model = service.select_periodization_model(
+            goal=ProgramGoal.SPORT_SPECIFIC,
+            experience_level=ExperienceLevel.ELITE,
+            duration_weeks=12,
+        )
+        assert model == PeriodizationModel.BLOCK
+
+    def test_elite_sport_specific_short_uses_undulating(self, service):
+        """Elite sport-specific short program should use undulating model."""
+        model = service.select_periodization_model(
+            goal=ProgramGoal.SPORT_SPECIFIC,
+            experience_level=ExperienceLevel.ELITE,
+            duration_weeks=8,
+        )
+        assert model == PeriodizationModel.UNDULATING
+
+
+class TestGetIntensityTarget:
+    """Tests for get_intensity_target method."""
+
+    def test_scales_to_strength_goal_range(self, service):
+        """Intensity target should be within strength goal range."""
+        target = service.get_intensity_target(
+            week_number=1,
+            total_weeks=8,
+            goal=ProgramGoal.STRENGTH,
+        )
+        min_int, max_int = service.INTENSITY_RANGES[ProgramGoal.STRENGTH]
+        assert min_int <= target <= max_int
+
+    def test_scales_to_endurance_goal_range(self, service):
+        """Intensity target should be within endurance goal range."""
+        target = service.get_intensity_target(
+            week_number=1,
+            total_weeks=8,
+            goal=ProgramGoal.ENDURANCE,
+        )
+        min_int, max_int = service.INTENSITY_RANGES[ProgramGoal.ENDURANCE]
+        assert min_int <= target <= max_int
+
+    def test_intensity_increases_over_weeks(self, service):
+        """Intensity target should increase over the program."""
+        early_target = service.get_intensity_target(
+            week_number=1,
+            total_weeks=8,
+            goal=ProgramGoal.STRENGTH,
+        )
+        late_target = service.get_intensity_target(
+            week_number=8,
+            total_weeks=8,
+            goal=ProgramGoal.STRENGTH,
+        )
+        assert late_target > early_target
+
+    def test_invalid_week_zero_raises_error(self, service):
+        """Week 0 should raise ValueError."""
+        with pytest.raises(ValueError):
+            service.get_intensity_target(
+                week_number=0,
+                total_weeks=8,
+                goal=ProgramGoal.STRENGTH,
+            )
+
+    def test_invalid_week_exceeds_total_raises_error(self, service):
+        """Week exceeding total should raise ValueError."""
+        with pytest.raises(ValueError):
+            service.get_intensity_target(
+                week_number=10,
+                total_weeks=8,
+                goal=ProgramGoal.STRENGTH,
+            )
+
+    def test_strength_higher_than_endurance(self, service):
+        """Strength goal should have higher intensity than endurance."""
+        strength_target = service.get_intensity_target(
+            week_number=4,
+            total_weeks=8,
+            goal=ProgramGoal.STRENGTH,
+        )
+        endurance_target = service.get_intensity_target(
+            week_number=4,
+            total_weeks=8,
+            goal=ProgramGoal.ENDURANCE,
+        )
+        assert strength_target > endurance_target
+
+
+class TestErrorCases:
+    """Tests for error handling in periodization methods."""
+
+    def test_reverse_linear_invalid_week_zero(self, service):
+        """Reverse linear with week 0 should raise ValueError."""
+        with pytest.raises(ValueError):
+            service.calculate_reverse_linear_progression(week=0, total_weeks=8)
+
+    def test_reverse_linear_invalid_negative_week(self, service):
+        """Reverse linear with negative week should raise ValueError."""
+        with pytest.raises(ValueError):
+            service.calculate_reverse_linear_progression(week=-1, total_weeks=8)
+
+    def test_block_invalid_week_zero(self, service):
+        """Block with week 0 should raise ValueError."""
+        with pytest.raises(ValueError):
+            service.calculate_block_progression(week=0, total_weeks=10)
+
+    def test_block_invalid_negative_week(self, service):
+        """Block with negative week should raise ValueError."""
+        with pytest.raises(ValueError):
+            service.calculate_block_progression(week=-1, total_weeks=10)
+
+    def test_block_week_exceeds_total(self, service):
+        """Block with week exceeding total should raise ValueError."""
+        with pytest.raises(ValueError):
+            service.calculate_block_progression(week=15, total_weeks=10)
+
+    def test_undulating_invalid_session_zero(self, service):
+        """Undulating with session 0 should raise ValueError."""
+        with pytest.raises(ValueError):
+            service.calculate_undulating_progression(week=1, session=0)
+
+    def test_undulating_session_exceeds_total(self, service):
+        """Undulating with session exceeding total should raise ValueError."""
+        with pytest.raises(ValueError):
+            service.calculate_undulating_progression(week=1, session=5, total_sessions=3)
+
+
+class TestBoundaryConditions:
+    """Tests for boundary conditions in training focus determination."""
+
+    def test_boundary_85_percent_is_strength(self):
+        """Exactly 85% should be strength focus."""
+        focus = WeekParameters.determine_focus(
+            intensity_percent=0.85, is_deload=False
+        )
+        assert focus == TrainingFocus.STRENGTH
+
+    def test_boundary_84_percent_is_power(self):
+        """Just below 85% should be power focus."""
+        focus = WeekParameters.determine_focus(
+            intensity_percent=0.84, is_deload=False
+        )
+        assert focus == TrainingFocus.POWER
+
+    def test_boundary_75_percent_is_power(self):
+        """Exactly 75% should be power focus."""
+        focus = WeekParameters.determine_focus(
+            intensity_percent=0.75, is_deload=False
+        )
+        assert focus == TrainingFocus.POWER
+
+    def test_boundary_74_percent_is_hypertrophy(self):
+        """Just below 75% should be hypertrophy focus."""
+        focus = WeekParameters.determine_focus(
+            intensity_percent=0.74, is_deload=False
+        )
+        assert focus == TrainingFocus.HYPERTROPHY
+
+    def test_boundary_65_percent_is_hypertrophy(self):
+        """Exactly 65% should be hypertrophy focus."""
+        focus = WeekParameters.determine_focus(
+            intensity_percent=0.65, is_deload=False
+        )
+        assert focus == TrainingFocus.HYPERTROPHY
+
+    def test_boundary_64_percent_is_endurance(self):
+        """Just below 65% should be endurance focus."""
+        focus = WeekParameters.determine_focus(
+            intensity_percent=0.64, is_deload=False
+        )
+        assert focus == TrainingFocus.ENDURANCE
+
+    def test_deload_overrides_high_intensity(self):
+        """Deload should override even high intensity to deload focus."""
+        focus = WeekParameters.determine_focus(
+            intensity_percent=0.95, is_deload=True
+        )
+        assert focus == TrainingFocus.DELOAD
+
+    def test_rep_range_boundary_90_percent(self):
+        """90% intensity should give 1-3 reps."""
+        params = WeekParameters(
+            week_number=1,
+            intensity_percent=0.90,
+            volume_modifier=0.7,
+        )
+        assert params.get_rep_range() == "1-3"
+
+    def test_rep_range_boundary_89_percent(self):
+        """89% intensity should give 4-6 reps."""
+        params = WeekParameters(
+            week_number=1,
+            intensity_percent=0.89,
+            volume_modifier=0.8,
+        )
+        assert params.get_rep_range() == "4-6"
+
+    def test_rep_range_boundary_80_percent(self):
+        """80% intensity should give 4-6 reps."""
+        params = WeekParameters(
+            week_number=1,
+            intensity_percent=0.80,
+            volume_modifier=0.9,
+        )
+        assert params.get_rep_range() == "4-6"
+
+    def test_rep_range_boundary_79_percent(self):
+        """79% intensity should give 6-8 reps."""
+        params = WeekParameters(
+            week_number=1,
+            intensity_percent=0.79,
+            volume_modifier=1.0,
+        )
+        assert params.get_rep_range() == "6-8"

@@ -59,7 +59,7 @@ class TestGenerateProgram:
 
     def test_generate_program_all_experience_levels(self, client_with_all_fakes):
         """All experience levels are accepted by validation."""
-        levels = ["beginner", "intermediate", "advanced"]
+        levels = ["beginner", "intermediate", "advanced", "elite"]
 
         for level in levels:
             response = client_with_all_fakes.post(

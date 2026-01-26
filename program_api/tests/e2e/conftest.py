@@ -493,7 +493,7 @@ def valid_program_goals() -> List[str]:
 @pytest.fixture
 def valid_experience_levels() -> List[str]:
     """Valid experience level values."""
-    return ["beginner", "intermediate", "advanced"]
+    return ["beginner", "intermediate", "advanced", "elite"]
 
 
 @pytest.fixture

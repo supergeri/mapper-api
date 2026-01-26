@@ -322,6 +322,61 @@ class TestPeriodizationIntegration:
 
         assert response.generation_metadata["periodization_model"] == "block"
 
+    @pytest.mark.asyncio
+    async def test_elite_uses_conjugate_for_strength(self, generator):
+        """Elite + strength should use conjugate periodization (AMA-485)."""
+        from models.generation import GenerateProgramRequest
+
+        request = GenerateProgramRequest(
+            goal=ProgramGoal.STRENGTH,
+            duration_weeks=8,
+            sessions_per_week=4,
+            experience_level=ExperienceLevel.ELITE,
+            equipment_available=["barbell", "dumbbells", "bench", "squat_rack"],
+        )
+
+        response = await generator.generate(request, user_id="test-user")
+
+        assert response.generation_metadata["periodization_model"] == "conjugate"
+
+    @pytest.mark.asyncio
+    async def test_elite_has_frequent_deloads(self, generator):
+        """Elite should deload every 2 weeks (AMA-485)."""
+        from models.generation import GenerateProgramRequest
+
+        request = GenerateProgramRequest(
+            goal=ProgramGoal.HYPERTROPHY,
+            duration_weeks=8,
+            sessions_per_week=4,
+            experience_level=ExperienceLevel.ELITE,
+            equipment_available=["barbell", "dumbbells", "bench", "squat_rack"],
+        )
+
+        response = await generator.generate(request, user_id="test-user")
+
+        # Elite deloads every 2 weeks: weeks 2, 4, 6, 8 = 4 deloads in 8-week program
+        deload_weeks = [w for w in response.program.weeks if w.deload]
+        assert len(deload_weeks) >= 3, f"Elite should have at least 3 deloads in 8 weeks, got {len(deload_weeks)}"
+
+    @pytest.mark.asyncio
+    async def test_elite_generation_no_key_error(self, generator):
+        """Elite experience level should not cause KeyError (AMA-485)."""
+        from models.generation import GenerateProgramRequest
+
+        request = GenerateProgramRequest(
+            goal=ProgramGoal.ENDURANCE,
+            duration_weeks=6,
+            sessions_per_week=3,
+            experience_level=ExperienceLevel.ELITE,
+            equipment_available=["barbell", "dumbbells"],
+        )
+
+        # This should not raise KeyError
+        response = await generator.generate(request, user_id="test-user")
+
+        assert response.program is not None
+        assert len(response.program.weeks) == 6
+
 
 class TestValidation:
     """Tests for program validation during generation."""
