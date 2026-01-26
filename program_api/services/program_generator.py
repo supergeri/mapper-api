@@ -147,7 +147,7 @@ class ProgramGenerator:
                     f"Using template: {template_match.template.get('name')}"
                 )
                 # Increment usage count (run in thread pool to avoid blocking)
-                await asyncio.get_event_loop().run_in_executor(
+                await asyncio.get_running_loop().run_in_executor(
                     self._executor,
                     self._template_repo.increment_usage_count,
                     template_id
@@ -229,7 +229,7 @@ class ProgramGenerator:
             }
 
             # Persist program (run in thread pool to avoid blocking)
-            created_program = await asyncio.get_event_loop().run_in_executor(
+            created_program = await asyncio.get_running_loop().run_in_executor(
                 self._executor,
                 self._program_repo.create,
                 program_create_data
@@ -248,7 +248,7 @@ class ProgramGenerator:
                     "notes": week_data.get("notes"),
                 }
 
-                created_week = await asyncio.get_event_loop().run_in_executor(
+                created_week = await asyncio.get_running_loop().run_in_executor(
                     self._executor,
                     partial(self._program_repo.create_week, program_id, week_create_data)
                 )
@@ -267,7 +267,7 @@ class ProgramGenerator:
                         "sort_order": idx,
                     }
 
-                    created_workout = await asyncio.get_event_loop().run_in_executor(
+                    created_workout = await asyncio.get_running_loop().run_in_executor(
                         self._executor,
                         partial(self._program_repo.create_workout, week_id, workout_create_data)
                     )
@@ -406,7 +406,7 @@ class ProgramGenerator:
             exercise_slots = max(3, exercise_slots - 2)
 
         # Get available exercises from database (run in thread pool)
-        available_exercises = await asyncio.get_event_loop().run_in_executor(
+        available_exercises = await asyncio.get_running_loop().run_in_executor(
             self._executor,
             partial(
                 self._exercise_repo.get_for_workout_type,
