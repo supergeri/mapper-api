@@ -781,3 +781,511 @@ class TestCacheHitMissBehavior:
             assert response1.workout_notes == response2.workout_notes
             assert len(response1.exercises) == len(response2.exercises)
             assert response1.exercises[0].exercise_id == response2.exercises[0].exercise_id
+
+
+# ---------------------------------------------------------------------------
+# Exercise Variety Tests (AMA-487)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def extended_exercises():
+    """Extended set of exercises for variety testing."""
+    return [
+        {"id": "bench-press", "name": "Bench Press", "category": "compound"},
+        {"id": "squat", "name": "Squat", "category": "compound"},
+        {"id": "deadlift", "name": "Deadlift", "category": "compound"},
+        {"id": "overhead-press", "name": "Overhead Press", "category": "compound"},
+        {"id": "barbell-row", "name": "Barbell Row", "category": "compound"},
+        {"id": "pull-up", "name": "Pull Up", "category": "compound"},
+        {"id": "dumbbell-curl", "name": "Dumbbell Curl", "category": "isolation"},
+        {"id": "tricep-pushdown", "name": "Tricep Pushdown", "category": "isolation"},
+        {"id": "leg-curl", "name": "Leg Curl", "category": "isolation"},
+        {"id": "leg-extension", "name": "Leg Extension", "category": "isolation"},
+    ]
+
+
+@pytest.mark.unit
+class TestExerciseVarietyWithLowTemperature:
+    """
+    Tests to verify exercise selection variety with lower temperature (0.3).
+
+    Part of AMA-487: Lower LLM temperature for structured exercise selection.
+    """
+
+    @pytest.mark.asyncio
+    async def test_different_muscle_groups_produce_different_selections(
+        self, selector, extended_exercises
+    ):
+        """Different muscle groups should produce different exercise selections."""
+        push_request = ExerciseSelectionRequest(
+            workout_type="push",
+            muscle_groups=["chest", "triceps"],
+            equipment=["barbell", "dumbbells"],
+            exercise_count=4,
+            intensity_percent=0.8,
+            volume_modifier=1.0,
+            available_exercises=extended_exercises,
+            experience_level="intermediate",
+            goal="hypertrophy",
+            is_deload=False,
+        )
+
+        pull_request = ExerciseSelectionRequest(
+            workout_type="pull",
+            muscle_groups=["back", "biceps"],
+            equipment=["barbell", "dumbbells"],
+            exercise_count=4,
+            intensity_percent=0.8,
+            volume_modifier=1.0,
+            available_exercises=extended_exercises,
+            experience_level="intermediate",
+            goal="hypertrophy",
+            is_deload=False,
+        )
+
+        # Cache keys should be different
+        push_key = selector._cache_key(push_request)
+        pull_key = selector._cache_key(pull_request)
+
+        assert push_key != pull_key
+        assert "chest" in push_key
+        assert "back" in pull_key
+
+    @pytest.mark.asyncio
+    async def test_different_goals_produce_different_cache_keys(
+        self, selector, extended_exercises
+    ):
+        """Different goals should produce different cache keys for variety."""
+        base_params = {
+            "workout_type": "push",
+            "muscle_groups": ["chest"],
+            "equipment": ["barbell"],
+            "exercise_count": 4,
+            "intensity_percent": 0.8,
+            "volume_modifier": 1.0,
+            "available_exercises": extended_exercises,
+            "experience_level": "intermediate",
+            "is_deload": False,
+        }
+
+        goals = ["strength", "hypertrophy", "endurance", "weight_loss"]
+        cache_keys = set()
+
+        for goal in goals:
+            request = ExerciseSelectionRequest(**base_params, goal=goal)
+            key = selector._cache_key(request)
+            cache_keys.add(key)
+
+        # All goals should produce unique cache keys
+        assert len(cache_keys) == len(goals)
+
+    @pytest.mark.asyncio
+    async def test_deload_vs_normal_week_differentiated(
+        self, selector, extended_exercises
+    ):
+        """Deload weeks should have different cache keys from normal weeks."""
+        base_params = {
+            "workout_type": "push",
+            "muscle_groups": ["chest", "shoulders"],
+            "equipment": ["barbell", "dumbbells"],
+            "exercise_count": 4,
+            "intensity_percent": 0.8,
+            "volume_modifier": 1.0,
+            "available_exercises": extended_exercises,
+            "experience_level": "intermediate",
+            "goal": "hypertrophy",
+        }
+
+        normal_request = ExerciseSelectionRequest(**base_params, is_deload=False)
+        deload_request = ExerciseSelectionRequest(**base_params, is_deload=True)
+
+        normal_key = selector._cache_key(normal_request)
+        deload_key = selector._cache_key(deload_request)
+
+        assert normal_key != deload_key
+        assert "False" in normal_key
+        assert "True" in deload_key
+
+    @pytest.mark.asyncio
+    async def test_experience_levels_produce_different_keys(
+        self, selector, extended_exercises
+    ):
+        """Different experience levels should produce unique cache keys."""
+        base_params = {
+            "workout_type": "push",
+            "muscle_groups": ["chest"],
+            "equipment": ["barbell"],
+            "exercise_count": 4,
+            "intensity_percent": 0.8,
+            "volume_modifier": 1.0,
+            "available_exercises": extended_exercises,
+            "goal": "hypertrophy",
+            "is_deload": False,
+        }
+
+        levels = ["beginner", "intermediate", "advanced"]
+        cache_keys = set()
+
+        for level in levels:
+            request = ExerciseSelectionRequest(**base_params, experience_level=level)
+            key = selector._cache_key(request)
+            cache_keys.add(key)
+
+        assert len(cache_keys) == len(levels)
+
+
+# ---------------------------------------------------------------------------
+# Cache Stats and Hit Rate Tests (AMA-487)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCacheStatsTracking:
+    """Tests to verify cache statistics tracking for hit rate monitoring."""
+
+    def test_get_cache_stats_returns_expected_fields(self, selector):
+        """Cache stats should include all required fields."""
+        stats = selector.get_cache_stats()
+
+        assert "total_entries" in stats
+        assert "valid_entries" in stats
+        assert "max_size" in stats
+        assert "ttl_seconds" in stats
+
+    def test_cache_stats_empty_initially(self, selector):
+        """Fresh selector should have empty cache."""
+        stats = selector.get_cache_stats()
+
+        assert stats["total_entries"] == 0
+        assert stats["valid_entries"] == 0
+
+    @pytest.mark.asyncio
+    async def test_cache_stats_increment_after_caching(
+        self, selector, sample_exercises
+    ):
+        """Cache stats should reflect cached entries."""
+        request = ExerciseSelectionRequest(
+            workout_type="push",
+            muscle_groups=["chest"],
+            equipment=["barbell"],
+            exercise_count=3,
+            intensity_percent=0.8,
+            volume_modifier=1.0,
+            available_exercises=sample_exercises,
+            experience_level="intermediate",
+            goal="hypertrophy",
+            is_deload=False,
+        )
+
+        with patch.object(
+            selector, "_call_llm", new_callable=AsyncMock
+        ) as mock_call_llm:
+            mock_call_llm.return_value = '{"exercises": [{"exercise_id": "bench-press", "exercise_name": "Bench Press", "sets": 4, "reps": "8-12", "rest_seconds": 90, "order": 1}], "workout_notes": "Test", "estimated_duration_minutes": 45}'
+
+            await selector.select_exercises(request, use_cache=True)
+
+            stats = selector.get_cache_stats()
+            assert stats["total_entries"] == 1
+            assert stats["valid_entries"] == 1
+
+    def test_clear_cache_resets_stats(self, selector):
+        """Clearing cache should reset entry counts."""
+        # Manually add a cache entry
+        from services.llm.client import CacheEntry
+        import time
+
+        selector._cache["test-key"] = CacheEntry(
+            response=ExerciseSelectionResponse(
+                exercises=[],
+                workout_notes="Test",
+                estimated_duration_minutes=30,
+            ),
+            created_at=time.time(),
+        )
+
+        assert selector.get_cache_stats()["total_entries"] == 1
+
+        selector.clear_cache()
+
+        assert selector.get_cache_stats()["total_entries"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Temperature Edge Cases (AMA-487)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestTemperatureEdgeCases:
+    """Edge cases that may behave differently with lower temperature (0.3)."""
+
+    @pytest.mark.asyncio
+    async def test_limited_exercise_pool_uses_fallback(self, selector):
+        """When LLM fails with limited pool, fallback should work."""
+        limited_exercises = [
+            {"id": "bench-press", "name": "Bench Press", "category": "compound"},
+            {"id": "incline-press", "name": "Incline Press", "category": "compound"},
+            {"id": "dumbbell-fly", "name": "Dumbbell Fly", "category": "isolation"},
+        ]
+
+        request = ExerciseSelectionRequest(
+            workout_type="push",
+            muscle_groups=["chest"],
+            equipment=["barbell"],
+            exercise_count=5,  # More than available
+            intensity_percent=0.8,
+            volume_modifier=1.0,
+            available_exercises=limited_exercises,
+            experience_level="intermediate",
+            goal="hypertrophy",
+            is_deload=False,
+        )
+
+        # Test fallback directly
+        fallback = selector._fallback_selection(request)
+
+        assert len(fallback.exercises) == 3  # Only 3 available
+        assert fallback.exercises[0].exercise_id == "bench-press"
+        assert "Fallback" in fallback.workout_notes
+
+    @pytest.mark.asyncio
+    async def test_fallback_applies_deload_modifier(self, selector, sample_exercises):
+        """Fallback selection should reduce sets for deload weeks."""
+        normal_request = ExerciseSelectionRequest(
+            workout_type="push",
+            muscle_groups=["chest"],
+            equipment=["barbell"],
+            exercise_count=3,
+            intensity_percent=0.8,
+            volume_modifier=1.0,
+            available_exercises=sample_exercises,
+            experience_level="intermediate",
+            goal="hypertrophy",
+            is_deload=False,
+        )
+
+        deload_request = ExerciseSelectionRequest(
+            workout_type="push",
+            muscle_groups=["chest"],
+            equipment=["barbell"],
+            exercise_count=3,
+            intensity_percent=0.8,
+            volume_modifier=1.0,
+            available_exercises=sample_exercises,
+            experience_level="intermediate",
+            goal="hypertrophy",
+            is_deload=True,
+        )
+
+        normal_fallback = selector._fallback_selection(normal_request)
+        deload_fallback = selector._fallback_selection(deload_request)
+
+        # Deload should have fewer sets
+        assert deload_fallback.exercises[0].sets < normal_fallback.exercises[0].sets
+
+    @pytest.mark.asyncio
+    async def test_fallback_uses_goal_appropriate_rep_scheme(
+        self, selector, sample_exercises
+    ):
+        """Fallback should select rep ranges based on goal."""
+        strength_request = ExerciseSelectionRequest(
+            workout_type="push",
+            muscle_groups=["chest"],
+            equipment=["barbell"],
+            exercise_count=3,
+            intensity_percent=0.8,
+            volume_modifier=1.0,
+            available_exercises=sample_exercises,
+            experience_level="intermediate",
+            goal="strength",
+            is_deload=False,
+        )
+
+        endurance_request = ExerciseSelectionRequest(
+            workout_type="push",
+            muscle_groups=["chest"],
+            equipment=["barbell"],
+            exercise_count=3,
+            intensity_percent=0.8,
+            volume_modifier=1.0,
+            available_exercises=sample_exercises,
+            experience_level="intermediate",
+            goal="endurance",
+            is_deload=False,
+        )
+
+        strength_fallback = selector._fallback_selection(strength_request)
+        endurance_fallback = selector._fallback_selection(endurance_request)
+
+        # Strength: 3-5 reps, Endurance: 15-20 reps
+        assert strength_fallback.exercises[0].reps == "3-5"
+        assert endurance_fallback.exercises[0].reps == "15-20"
+
+    @pytest.mark.asyncio
+    async def test_minimal_exercise_pool_fallback_succeeds(self, selector):
+        """Minimal exercise pool should produce valid fallback selection."""
+        minimal_exercises = [
+            {"id": "bench-press", "name": "Bench Press", "category": "compound"},
+            {"id": "incline-press", "name": "Incline Press", "category": "compound"},
+            {"id": "dumbbell-fly", "name": "Dumbbell Fly", "category": "isolation"},
+        ]
+
+        request = ExerciseSelectionRequest(
+            workout_type="push",
+            muscle_groups=["chest"],
+            equipment=["barbell"],
+            exercise_count=3,
+            intensity_percent=0.8,
+            volume_modifier=1.0,
+            available_exercises=minimal_exercises,
+            experience_level="intermediate",
+            goal="hypertrophy",
+            is_deload=False,
+        )
+
+        fallback = selector._fallback_selection(request)
+
+        assert len(fallback.exercises) == 3
+        assert "Fallback" in fallback.workout_notes
+        assert fallback.estimated_duration_minutes >= 20
+
+    @pytest.mark.asyncio
+    async def test_fallback_prioritizes_compound_exercises(self, selector):
+        """Fallback should select compound exercises first."""
+        mixed_exercises = [
+            {"id": "curl", "name": "Bicep Curl", "category": "isolation"},
+            {"id": "squat", "name": "Squat", "category": "compound"},
+            {"id": "extension", "name": "Leg Extension", "category": "isolation"},
+            {"id": "deadlift", "name": "Deadlift", "category": "compound"},
+            {"id": "lunge", "name": "Lunge", "category": "compound"},
+        ]
+
+        request = ExerciseSelectionRequest(
+            workout_type="legs",
+            muscle_groups=["quads", "hamstrings"],
+            equipment=["barbell"],
+            exercise_count=3,
+            intensity_percent=0.8,
+            volume_modifier=1.0,
+            available_exercises=mixed_exercises,
+            experience_level="intermediate",
+            goal="hypertrophy",
+            is_deload=False,
+        )
+
+        fallback = selector._fallback_selection(request)
+
+        # Should select the 3 compound exercises first (sorted alphabetically: deadlift, lunge, squat)
+        exercise_ids = [ex.exercise_id for ex in fallback.exercises]
+        # First 3 should be compounds (deadlift, lunge, squat - alphabetical after category sort)
+        assert "deadlift" in exercise_ids
+        assert "lunge" in exercise_ids
+        assert "squat" in exercise_ids
+        # Isolation exercises should not be selected when we only need 3 and have 3 compounds
+        assert "curl" not in exercise_ids
+        assert "extension" not in exercise_ids
+
+
+# ---------------------------------------------------------------------------
+# Output Determinism Tests (AMA-487)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestOutputDeterminism:
+    """Tests to verify output consistency with lower temperature."""
+
+    @pytest.mark.asyncio
+    async def test_same_input_same_cache_key(self, selector, sample_exercises):
+        """Identical inputs should always produce the same cache key."""
+        request1 = ExerciseSelectionRequest(
+            workout_type="push",
+            muscle_groups=["chest", "triceps"],
+            equipment=["barbell", "bench"],
+            exercise_count=5,
+            intensity_percent=0.8,
+            volume_modifier=1.0,
+            available_exercises=sample_exercises,
+            experience_level="intermediate",
+            goal="hypertrophy",
+            is_deload=False,
+        )
+
+        request2 = ExerciseSelectionRequest(
+            workout_type="push",
+            muscle_groups=["chest", "triceps"],
+            equipment=["barbell", "bench"],
+            exercise_count=5,
+            intensity_percent=0.8,
+            volume_modifier=1.0,
+            available_exercises=sample_exercises,
+            experience_level="intermediate",
+            goal="hypertrophy",
+            is_deload=False,
+        )
+
+        # Generate keys multiple times
+        keys = [selector._cache_key(request1) for _ in range(10)]
+        keys.extend([selector._cache_key(request2) for _ in range(10)])
+
+        # All keys should be identical
+        assert len(set(keys)) == 1
+
+    @pytest.mark.asyncio
+    async def test_cached_response_is_identical_object(
+        self, selector, sample_exercises
+    ):
+        """Cached response should be the exact same object (not a copy)."""
+        request = ExerciseSelectionRequest(
+            workout_type="push",
+            muscle_groups=["chest"],
+            equipment=["barbell"],
+            exercise_count=3,
+            intensity_percent=0.8,
+            volume_modifier=1.0,
+            available_exercises=sample_exercises,
+            experience_level="intermediate",
+            goal="hypertrophy",
+            is_deload=False,
+        )
+
+        with patch.object(
+            selector, "_call_llm", new_callable=AsyncMock
+        ) as mock_call_llm:
+            mock_call_llm.return_value = '{"exercises": [{"exercise_id": "bench-press", "exercise_name": "Bench Press", "sets": 4, "reps": "8-12", "rest_seconds": 90, "order": 1}], "workout_notes": "Test", "estimated_duration_minutes": 45}'
+
+            response1 = await selector.select_exercises(request, use_cache=True)
+            response2 = await selector.select_exercises(request, use_cache=True)
+
+            # Should be the same object from cache
+            assert response1 is response2
+
+    @pytest.mark.asyncio
+    async def test_parse_response_produces_consistent_structure(
+        self, selector, sample_exercises
+    ):
+        """Parsing the same JSON should produce consistent results."""
+        request = ExerciseSelectionRequest(
+            workout_type="push",
+            muscle_groups=["chest"],
+            equipment=["barbell"],
+            exercise_count=3,
+            intensity_percent=0.8,
+            volume_modifier=1.0,
+            available_exercises=sample_exercises,
+            experience_level="intermediate",
+            goal="hypertrophy",
+            is_deload=False,
+        )
+
+        raw_response = '{"exercises": [{"exercise_id": "bench-press", "exercise_name": "Bench Press", "sets": 4, "reps": "8-12", "rest_seconds": 90, "order": 1}], "workout_notes": "Consistent", "estimated_duration_minutes": 45}'
+
+        parsed1 = selector._parse_response(raw_response, request)
+        parsed2 = selector._parse_response(raw_response, request)
+
+        assert parsed1.workout_notes == parsed2.workout_notes
+        assert len(parsed1.exercises) == len(parsed2.exercises)
+        assert parsed1.exercises[0].exercise_id == parsed2.exercises[0].exercise_id
+        assert parsed1.exercises[0].sets == parsed2.exercises[0].sets
+        assert parsed1.exercises[0].reps == parsed2.exercises[0].reps
