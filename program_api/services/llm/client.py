@@ -6,13 +6,15 @@ Part of AMA-462: Implement ProgramGenerator Service
 Provides the OpenAIExerciseSelector class for LLM-powered exercise selection.
 """
 
+import asyncio
 import json
 import logging
+import random
 import time
 from dataclasses import dataclass
 from typing import Optional
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError
 
 from services.llm.prompts import (
     EXERCISE_SELECTION_SYSTEM_PROMPT,
@@ -52,6 +54,10 @@ class OpenAIExerciseSelector:
     # Use gpt-4o-mini for cost efficiency
     DEFAULT_MODEL = "gpt-4o-mini"
     MAX_RETRIES = 2
+
+    # Backoff configuration
+    BASE_BACKOFF_SECONDS = 1.0  # Base delay for exponential backoff
+    RATE_LIMIT_BACKOFF_SECONDS = 5.0  # Base delay for rate limit errors
 
     # Cache configuration
     CACHE_MAX_SIZE = 500  # Maximum cache entries
@@ -133,7 +139,7 @@ class OpenAIExerciseSelector:
             limitations=request.user_limitations,
         )
 
-        # Call LLM with retries
+        # Call LLM with retries and exponential backoff
         last_error: Optional[Exception] = None
         for attempt in range(self.MAX_RETRIES + 1):
             try:
@@ -149,9 +155,26 @@ class OpenAIExerciseSelector:
             except json.JSONDecodeError as e:
                 last_error = e
                 logger.warning(f"JSON parse error on attempt {attempt + 1}: {e}")
+            except RateLimitError as e:
+                last_error = e
+                logger.warning(f"Rate limit error on attempt {attempt + 1}: {e}")
+                if attempt < self.MAX_RETRIES:
+                    # Longer backoff for rate limits
+                    delay = self._calculate_backoff(
+                        attempt, self.RATE_LIMIT_BACKOFF_SECONDS
+                    )
+                    logger.info(f"Rate limit backoff: sleeping {delay:.2f}s")
+                    await asyncio.sleep(delay)
+                continue
             except Exception as e:
                 last_error = e
                 logger.warning(f"LLM call error on attempt {attempt + 1}: {e}")
+
+            # Apply exponential backoff with jitter for non-rate-limit errors
+            if attempt < self.MAX_RETRIES:
+                delay = self._calculate_backoff(attempt, self.BASE_BACKOFF_SECONDS)
+                logger.debug(f"Backoff: sleeping {delay:.2f}s before retry")
+                await asyncio.sleep(delay)
 
         # All retries failed - use fallback
         logger.error(f"All LLM attempts failed, using fallback selection")
@@ -186,6 +209,26 @@ class OpenAIExerciseSelector:
             raise ExerciseSelectorError("Empty response from LLM")
 
         return content
+
+    def _calculate_backoff(self, attempt: int, base_delay: float) -> float:
+        """
+        Calculate exponential backoff delay with jitter.
+
+        Uses the formula: (2^attempt * base_delay) + random_jitter
+        Jitter is added to prevent thundering herd problem.
+
+        Args:
+            attempt: Current attempt number (0-indexed)
+            base_delay: Base delay in seconds
+
+        Returns:
+            Delay in seconds with jitter
+        """
+        # Exponential backoff: 2^attempt * base_delay
+        exponential_delay = (2**attempt) * base_delay
+        # Add random jitter between 0 and 1 second
+        jitter = random.uniform(0, 1)
+        return exponential_delay + jitter
 
     def _parse_response(
         self,
