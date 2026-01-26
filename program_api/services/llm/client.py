@@ -176,7 +176,7 @@ class OpenAIExerciseSelector:
                 {"role": "system", "content": EXERCISE_SELECTION_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0.7,
+            temperature=0.3,
             max_tokens=2000,
             response_format={"type": "json_object"},
         )
