@@ -14,10 +14,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from models.program import ProgramGoal, ExperienceLevel, TrainingProgram
-
-# Validation constants
-MAX_LIMITATION_LENGTH = 100
-MAX_LIMITATIONS_COUNT = 10
+from core.constants import MAX_LIMITATION_LENGTH, MAX_LIMITATIONS_COUNT
 
 
 class GenerateProgramRequest(BaseModel):

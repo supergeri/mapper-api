@@ -9,8 +9,7 @@ System and user prompts for structured exercise selection.
 
 import re
 
-# Constants for limitation sanitization
-MAX_LIMITATION_LENGTH = 100
+from core.constants import MAX_LIMITATION_LENGTH
 
 
 def sanitize_limitation(limitation: str) -> str:
