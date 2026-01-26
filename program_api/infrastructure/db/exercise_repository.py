@@ -7,9 +7,12 @@ This implementation uses the Supabase Python client to interact with
 the exercises table defined in AMA-299.
 """
 
+import logging
 from typing import Dict, List, Optional
 
 from supabase import Client
+
+logger = logging.getLogger(__name__)
 
 
 class SupabaseExerciseRepository:
@@ -352,102 +355,122 @@ class SupabaseExerciseRepository:
             limit: Maximum number of similar exercises to return
 
         Returns:
-            List of similar exercise dictionaries, scored by similarity
+            List of similar exercise dictionaries, scored by similarity.
+            Returns empty list on database errors (fails gracefully).
         """
-        # First, get the source exercise
-        source = self.get_by_id(exercise_id)
-        if not source:
+        try:
+            # First, get the source exercise
+            source = self.get_by_id(exercise_id)
+            if not source:
+                return []
+
+            movement_pattern = source.get("movement_pattern")
+            primary_muscles = source.get("primary_muscles", [])
+            category = source.get("category")
+
+            if not movement_pattern or not primary_muscles:
+                return []
+
+            # Query exercises with the same movement pattern
+            query = (
+                self._client.table("exercises")
+                .select("*")
+                .eq("movement_pattern", movement_pattern)
+                .neq("id", exercise_id)  # Exclude the source exercise
+            )
+
+            response = query.execute()
+            candidates = response.data or []
+
+            # Score candidates by similarity
+            def score_exercise(ex: Dict) -> float:
+                score = 0.0
+                ex_muscles = set(ex.get("primary_muscles") or [])
+                source_muscles = set(primary_muscles)
+
+                # Muscle overlap (0-1)
+                if source_muscles:
+                    overlap = len(ex_muscles & source_muscles) / len(source_muscles)
+                    score += overlap * 0.6  # 60% weight for muscle overlap
+
+                # Same category bonus
+                if ex.get("category") == category:
+                    score += 0.3  # 30% weight for same category
+
+                # Same equipment type bonus
+                ex_equipment = set(ex.get("equipment") or [])
+                source_equipment = set(source.get("equipment") or [])
+                if ex_equipment and source_equipment:
+                    equipment_overlap = len(ex_equipment & source_equipment) / max(
+                        len(source_equipment), 1
+                    )
+                    score += equipment_overlap * 0.1  # 10% weight for equipment similarity
+
+                return score
+
+            # Score and sort candidates
+            scored = [(ex, score_exercise(ex)) for ex in candidates]
+            scored.sort(key=lambda x: x[1], reverse=True)
+
+            return [ex for ex, score in scored[:limit]]
+
+        except Exception as e:
+            logger.error(f"Error fetching similar exercises for {exercise_id}: {e}")
             return []
-
-        movement_pattern = source.get("movement_pattern")
-        primary_muscles = source.get("primary_muscles", [])
-        category = source.get("category")
-
-        if not movement_pattern or not primary_muscles:
-            return []
-
-        # Query exercises with the same movement pattern
-        query = (
-            self._client.table("exercises")
-            .select("*")
-            .eq("movement_pattern", movement_pattern)
-            .neq("id", exercise_id)  # Exclude the source exercise
-        )
-
-        response = query.execute()
-        candidates = response.data
-
-        # Score candidates by similarity
-        def score_exercise(ex: Dict) -> float:
-            score = 0.0
-            ex_muscles = set(ex.get("primary_muscles", []))
-            source_muscles = set(primary_muscles)
-
-            # Muscle overlap (0-1)
-            if source_muscles:
-                overlap = len(ex_muscles & source_muscles) / len(source_muscles)
-                score += overlap * 0.6  # 60% weight for muscle overlap
-
-            # Same category bonus
-            if ex.get("category") == category:
-                score += 0.3  # 30% weight for same category
-
-            # Same equipment type bonus
-            ex_equipment = set(ex.get("equipment", []))
-            source_equipment = set(source.get("equipment", []))
-            if ex_equipment and source_equipment:
-                equipment_overlap = len(ex_equipment & source_equipment) / max(
-                    len(source_equipment), 1
-                )
-                score += equipment_overlap * 0.1  # 10% weight for equipment similarity
-
-            return score
-
-        # Score and sort candidates
-        scored = [(ex, score_exercise(ex)) for ex in candidates]
-        scored.sort(key=lambda x: x[1], reverse=True)
-
-        return [ex for ex, score in scored[:limit]]
 
     def validate_exercise_name(self, name: str) -> Optional[Dict]:
         """
         Check if exercise exists by name or alias (case-insensitive).
 
         First tries exact name match (case-insensitive), then falls back
-        to searching aliases.
+        to searching aliases with exact match. Note: case-insensitive alias
+        search is not supported to avoid fetching all exercises.
 
         Args:
             name: The exercise name or alias to validate
 
         Returns:
-            Exercise dictionary if found, None otherwise
+            Exercise dictionary if found, None otherwise.
+            Returns None on database errors (fails gracefully).
         """
-        # Try case-insensitive name match first
-        response = (
-            self._client.table("exercises")
-            .select("*")
-            .ilike("name", name)
-            .limit(1)
-            .execute()
-        )
+        if not name or not name.strip():
+            return None
 
-        if response.data:
-            return response.data[0]
+        try:
+            # Try case-insensitive name match first (uses database index)
+            response = (
+                self._client.table("exercises")
+                .select("*")
+                .ilike("name", name.strip())
+                .limit(1)
+                .execute()
+            )
 
-        # Fall back to alias search
-        aliases = self.search_by_alias(name)
-        if aliases:
-            return aliases[0]
+            if response.data:
+                return response.data[0]
 
-        # Try case-insensitive partial match on aliases
-        # Note: Supabase doesn't support case-insensitive array contains,
-        # so we fetch all and filter in Python for this edge case
-        response = self._client.table("exercises").select("*").execute()
-        name_lower = name.lower()
+            # Fall back to exact alias search (case-sensitive, uses array contains)
+            # This is efficient as it uses Supabase's array operators
+            aliases = self.search_by_alias(name.strip())
+            if aliases:
+                return aliases[0]
 
-        for ex in response.data:
-            aliases_list = ex.get("aliases", [])
-            if any(alias.lower() == name_lower for alias in aliases_list):
-                return ex
+            # Try common case variations for aliases without fetching all
+            # This covers most real-world cases while staying performant
+            name_variations = [
+                name.strip(),
+                name.strip().lower(),
+                name.strip().upper(),
+                name.strip().title(),
+            ]
 
-        return None
+            for variation in name_variations[1:]:  # Skip first, already tried
+                aliases = self.search_by_alias(variation)
+                if aliases:
+                    return aliases[0]
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error validating exercise name '{name}': {e}")
+            return None

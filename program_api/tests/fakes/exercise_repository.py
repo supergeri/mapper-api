@@ -469,7 +469,10 @@ class FakeExerciseRepository:
         Returns:
             Exercise dictionary if found, None otherwise
         """
-        name_lower = name.lower()
+        if not name or not name.strip():
+            return None
+
+        name_lower = name.strip().lower()
 
         # Try case-insensitive name match first
         for ex in self._exercises.values():
