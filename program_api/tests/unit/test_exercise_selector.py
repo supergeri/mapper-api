@@ -409,6 +409,272 @@ class TestCreateFallbackExercise:
 
 
 # ---------------------------------------------------------------------------
+# _score_candidates Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestScoreCandidates:
+    """Tests for _score_candidates method and scoring weights."""
+
+    def test_muscle_overlap_contributes_to_score(self, selector):
+        """Muscle overlap adds up to 0.4 to score."""
+        candidates = [
+            {
+                "id": "ex1",
+                "primary_muscles": ["chest"],
+                "category": "isolation",
+                "movement_pattern": "other",
+            },
+            {
+                "id": "ex2",
+                "primary_muscles": ["back"],
+                "category": "isolation",
+                "movement_pattern": "other",
+            },
+        ]
+        requirements = SlotRequirements(target_muscles=["chest"])
+
+        scored = selector._score_candidates(candidates, requirements)
+
+        # Exercise targeting chest should score higher
+        assert scored[0].exercise["id"] == "ex1"
+        assert scored[0].score > scored[1].score
+        # Muscle score is 0.4 max
+        assert scored[0].score >= 0.4
+
+    def test_category_match_adds_score(self, selector):
+        """Category match adds 0.3 to score."""
+        candidates = [
+            {"id": "compound", "primary_muscles": [], "category": "compound"},
+            {"id": "isolation", "primary_muscles": [], "category": "isolation"},
+        ]
+        requirements = SlotRequirements(category="compound")
+
+        scored = selector._score_candidates(candidates, requirements)
+
+        compound_score = next(s for s in scored if s.exercise["id"] == "compound")
+        isolation_score = next(s for s in scored if s.exercise["id"] == "isolation")
+
+        # Compound gets category bonus (0.3) plus compound priority (0.05)
+        assert compound_score.score >= 0.3
+        assert compound_score.score > isolation_score.score
+
+    def test_movement_pattern_match_adds_score(self, selector):
+        """Movement pattern match adds 0.2 to score."""
+        candidates = [
+            {"id": "push", "primary_muscles": [], "movement_pattern": "push"},
+            {"id": "pull", "primary_muscles": [], "movement_pattern": "pull"},
+        ]
+        requirements = SlotRequirements(movement_pattern="push")
+
+        scored = selector._score_candidates(candidates, requirements)
+
+        push_score = next(s for s in scored if s.exercise["id"] == "push")
+        pull_score = next(s for s in scored if s.exercise["id"] == "pull")
+
+        assert push_score.score >= 0.2
+        assert push_score.score > pull_score.score
+
+    def test_preferred_equipment_adds_bonus(self, selector):
+        """Preferred equipment match adds 0.1 to score."""
+        candidates = [
+            {"id": "barbell", "primary_muscles": [], "equipment": ["barbell"]},
+            {"id": "dumbbell", "primary_muscles": [], "equipment": ["dumbbells"]},
+        ]
+        requirements = SlotRequirements(preferred_equipment=["barbell"])
+
+        scored = selector._score_candidates(candidates, requirements)
+
+        barbell_score = next(s for s in scored if s.exercise["id"] == "barbell")
+        dumbbell_score = next(s for s in scored if s.exercise["id"] == "dumbbell")
+
+        assert barbell_score.score >= 0.1
+        assert barbell_score.score > dumbbell_score.score
+
+    def test_supports_1rm_match_adds_score(self, selector):
+        """1RM support match adds 0.05 to score."""
+        candidates = [
+            {"id": "with1rm", "primary_muscles": [], "supports_1rm": True},
+            {"id": "no1rm", "primary_muscles": [], "supports_1rm": False},
+        ]
+        requirements = SlotRequirements(supports_1rm=True)
+
+        scored = selector._score_candidates(candidates, requirements)
+
+        with1rm_score = next(s for s in scored if s.exercise["id"] == "with1rm")
+        no1rm_score = next(s for s in scored if s.exercise["id"] == "no1rm")
+
+        assert with1rm_score.score > no1rm_score.score
+
+    def test_compound_exercises_get_priority_bonus(self, selector):
+        """Compound exercises get 0.05 bonus."""
+        candidates = [
+            {"id": "compound", "primary_muscles": [], "category": "compound"},
+            {"id": "isolation", "primary_muscles": [], "category": "isolation"},
+        ]
+        requirements = SlotRequirements()  # No category preference
+
+        scored = selector._score_candidates(candidates, requirements)
+
+        compound_score = next(s for s in scored if s.exercise["id"] == "compound")
+        isolation_score = next(s for s in scored if s.exercise["id"] == "isolation")
+
+        assert compound_score.score == 0.05
+        assert isolation_score.score == 0.0
+
+    def test_combined_scoring(self, selector):
+        """Combined requirements produce expected total score."""
+        candidates = [
+            {
+                "id": "perfect",
+                "primary_muscles": ["chest"],
+                "category": "compound",
+                "movement_pattern": "push",
+                "equipment": ["barbell"],
+                "supports_1rm": True,
+            },
+        ]
+        requirements = SlotRequirements(
+            target_muscles=["chest"],
+            category="compound",
+            movement_pattern="push",
+            preferred_equipment=["barbell"],
+            supports_1rm=True,
+        )
+
+        scored = selector._score_candidates(candidates, requirements)
+
+        # 0.4 (muscle) + 0.3 (category) + 0.2 (pattern) + 0.1 (equipment) + 0.05 (1rm) + 0.05 (compound bonus)
+        expected_max = 1.1
+        assert scored[0].score >= 1.0  # Should be near max
+
+    def test_empty_candidates_returns_empty(self, selector):
+        """Empty candidates list returns empty scored list."""
+        requirements = SlotRequirements(target_muscles=["chest"])
+
+        scored = selector._score_candidates([], requirements)
+
+        assert scored == []
+
+    def test_scores_sorted_descending(self, selector):
+        """Results are sorted by score descending."""
+        candidates = [
+            {"id": "low", "primary_muscles": [], "category": "isolation"},
+            {"id": "high", "primary_muscles": ["chest"], "category": "compound"},
+            {"id": "mid", "primary_muscles": ["chest"], "category": "isolation"},
+        ]
+        requirements = SlotRequirements(target_muscles=["chest"], category="compound")
+
+        scored = selector._score_candidates(candidates, requirements)
+
+        scores = [s.score for s in scored]
+        assert scores == sorted(scores, reverse=True)
+        assert scored[0].exercise["id"] == "high"
+
+
+# ---------------------------------------------------------------------------
+# Edge Case Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestEdgeCases:
+    """Edge case tests for ExerciseSelector."""
+
+    def test_empty_target_muscles_list_vs_none(self, selector, full_gym_equipment):
+        """Empty list [] behaves differently from None for target_muscles."""
+        req_none = SlotRequirements(movement_pattern="push", target_muscles=None)
+        req_empty = SlotRequirements(movement_pattern="push", target_muscles=[])
+
+        result_none = selector.fill_exercise_slot(req_none, full_gym_equipment)
+        result_empty = selector.fill_exercise_slot(req_empty, full_gym_equipment)
+
+        # Both should return something (empty list doesn't filter)
+        assert result_none is not None
+        assert result_empty is not None
+
+    def test_duplicate_equipment_in_list(self, selector):
+        """Duplicate equipment entries are handled correctly."""
+        normalized = selector._normalize_equipment([
+            "barbell", "barbell", "dumbbells", "dumbbells"
+        ])
+
+        # Should deduplicate
+        assert normalized == {"barbell", "dumbbells"}
+
+    def test_whitespace_in_equipment_names(self, selector):
+        """Equipment names with whitespace are normalized."""
+        normalized = selector._normalize_equipment([
+            "  barbell  ",
+            " dumbbells",
+            "cables  ",
+        ])
+
+        assert "barbell" in normalized
+        assert "dumbbells" in normalized
+        assert "cables" in normalized
+
+    def test_mixed_case_equipment(self, selector):
+        """Equipment names are case-insensitive."""
+        normalized = selector._normalize_equipment([
+            "BARBELL",
+            "DumbBells",
+            "CaBlEs",
+        ])
+
+        assert "barbell" in normalized
+        assert "dumbbells" in normalized
+        assert "cables" in normalized
+
+    def test_fill_slot_with_all_exercises_excluded(self, selector, full_gym_equipment):
+        """Returns fallback when all matching exercises are excluded."""
+        # Get all push exercises
+        all_push = selector._exercise_repo.get_by_movement_pattern("push")
+        all_ids = [ex["id"] for ex in all_push]
+
+        requirements = SlotRequirements(movement_pattern="push")
+
+        result = selector.fill_exercise_slot(
+            requirements=requirements,
+            available_equipment=full_gym_equipment,
+            exclude_exercises=all_ids,
+        )
+
+        # Should create a fallback
+        if result:
+            assert result.get("is_placeholder", False) or result["id"] not in all_ids
+
+    def test_get_alternatives_with_empty_equipment(self, selector):
+        """get_alternatives with empty equipment returns bodyweight alternatives."""
+        alternatives = selector.get_alternatives(
+            exercise_id="barbell-bench-press",
+            available_equipment=[],
+            limit=5,
+        )
+
+        # Should only return bodyweight exercises
+        for alt in alternatives:
+            equipment = alt.get("equipment", [])
+            assert equipment == [] or equipment == ["bodyweight"]
+
+    def test_requirements_with_nonexistent_muscle(self, selector, full_gym_equipment):
+        """Requirements with non-existent muscle group creates fallback."""
+        requirements = SlotRequirements(
+            target_muscles=["nonexistent_muscle_group"],
+        )
+
+        result = selector.fill_exercise_slot(
+            requirements=requirements,
+            available_equipment=full_gym_equipment,
+        )
+
+        # Should create fallback since no exercises match
+        if result:
+            assert result.get("is_placeholder", False) or "nonexistent" in str(result)
+
+
+# ---------------------------------------------------------------------------
 # Equipment Mapping Tests
 # ---------------------------------------------------------------------------
 

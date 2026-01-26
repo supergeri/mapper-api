@@ -3,6 +3,7 @@ Service unit tests.
 
 Part of AMA-461: Create program-api service scaffold
 Updated in AMA-462: Full implementation tests
+Updated in AMA-472: Added fallback exercise selection tests
 
 Tests service layer logic.
 """
@@ -10,6 +11,7 @@ Tests service layer logic.
 import pytest
 
 from services.program_generator import ProgramGenerator
+from services.exercise_selector import ExerciseSelector
 from services.periodization import PeriodizationService, PeriodizationModel
 from services.progression_engine import ProgressionEngine
 from models.program import ProgramGoal, ExperienceLevel
@@ -83,6 +85,193 @@ class TestProgramGenerator:
         assert fake_program_repo.count() == 0
         await program_generator.generate(request, "user-123")
         assert fake_program_repo.count() == 1
+
+    def test_has_db_exercise_selector(
+        self, fake_program_repo, fake_template_repo, fake_exercise_repo
+    ):
+        """Generator initializes with DB exercise selector for fallback."""
+        generator = ProgramGenerator(
+            program_repo=fake_program_repo,
+            template_repo=fake_template_repo,
+            exercise_repo=fake_exercise_repo,
+        )
+
+        assert generator._db_exercise_selector is not None
+        assert isinstance(generator._db_exercise_selector, ExerciseSelector)
+
+
+# ---------------------------------------------------------------------------
+# ProgramGenerator Fallback Selection Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestProgramGeneratorFallback:
+    """Tests for ProgramGenerator fallback exercise selection."""
+
+    @pytest.fixture
+    def generator_no_llm(
+        self, fake_program_repo, fake_template_repo, fake_exercise_repo
+    ):
+        """Generator without LLM (uses fallback)."""
+        return ProgramGenerator(
+            program_repo=fake_program_repo,
+            template_repo=fake_template_repo,
+            exercise_repo=fake_exercise_repo,
+            openai_api_key=None,  # No LLM
+        )
+
+    def test_fallback_uses_exercise_selector(
+        self, generator_no_llm, fake_exercise_repo
+    ):
+        """Fallback selection uses ExerciseSelector when equipment provided."""
+        available = list(fake_exercise_repo._exercises.values())
+
+        exercises = generator_no_llm._fallback_exercise_selection(
+            available_exercises=available,
+            exercise_count=3,
+            goal="strength",
+            is_deload=False,
+            equipment=["barbell", "dumbbells", "bench"],
+            workout_type="push",
+            muscle_groups=["chest"],
+        )
+
+        assert len(exercises) <= 3
+        # Should have exercise structure
+        for ex in exercises:
+            assert "exercise_id" in ex
+            assert "exercise_name" in ex
+            assert "sets" in ex
+            assert "reps" in ex
+
+    def test_fallback_respects_goal_rep_scheme(
+        self, generator_no_llm, fake_exercise_repo
+    ):
+        """Fallback applies correct rep scheme based on goal."""
+        available = list(fake_exercise_repo._exercises.values())
+
+        strength = generator_no_llm._fallback_exercise_selection(
+            available_exercises=available,
+            exercise_count=2,
+            goal="strength",
+            is_deload=False,
+        )
+
+        hypertrophy = generator_no_llm._fallback_exercise_selection(
+            available_exercises=available,
+            exercise_count=2,
+            goal="hypertrophy",
+            is_deload=False,
+        )
+
+        # Strength: 3-5 reps, Hypertrophy: 8-12 reps
+        assert strength[0]["reps"] == "3-5"
+        assert hypertrophy[0]["reps"] == "8-12"
+
+    def test_fallback_reduces_sets_on_deload(
+        self, generator_no_llm, fake_exercise_repo
+    ):
+        """Fallback reduces sets during deload weeks."""
+        available = list(fake_exercise_repo._exercises.values())
+
+        normal = generator_no_llm._fallback_exercise_selection(
+            available_exercises=available,
+            exercise_count=2,
+            goal="hypertrophy",
+            is_deload=False,
+        )
+
+        deload = generator_no_llm._fallback_exercise_selection(
+            available_exercises=available,
+            exercise_count=2,
+            goal="hypertrophy",
+            is_deload=True,
+        )
+
+        # Deload should have fewer sets
+        assert deload[0]["sets"] < normal[0]["sets"]
+
+    def test_fallback_returns_unique_exercises(
+        self, generator_no_llm, fake_exercise_repo
+    ):
+        """Fallback returns exercises with unique IDs."""
+        available = list(fake_exercise_repo._exercises.values())
+
+        exercises = generator_no_llm._fallback_exercise_selection(
+            available_exercises=available,
+            exercise_count=5,
+            goal="hypertrophy",
+            is_deload=False,
+            equipment=["barbell", "dumbbells", "cables", "bench"],
+            workout_type="push",
+        )
+
+        ids = [ex["exercise_id"] for ex in exercises]
+        assert len(ids) == len(set(ids)), "Duplicate exercise IDs found"
+
+    def test_fallback_without_equipment_uses_simple_sort(
+        self, generator_no_llm, fake_exercise_repo
+    ):
+        """Without equipment, fallback uses simple compound-first sorting."""
+        available = list(fake_exercise_repo._exercises.values())
+
+        exercises = generator_no_llm._fallback_exercise_selection(
+            available_exercises=available,
+            exercise_count=3,
+            goal="strength",
+            is_deload=False,
+            equipment=None,  # No equipment specified
+        )
+
+        # Should still return exercises
+        assert len(exercises) > 0
+
+    def test_fallback_with_empty_available_returns_empty(self, generator_no_llm):
+        """Fallback with no available exercises returns empty list."""
+        exercises = generator_no_llm._fallback_exercise_selection(
+            available_exercises=[],
+            exercise_count=3,
+            goal="strength",
+            is_deload=False,
+        )
+
+        assert exercises == []
+
+    def test_fallback_includes_order_field(
+        self, generator_no_llm, fake_exercise_repo
+    ):
+        """Fallback exercises include order field starting at 1."""
+        available = list(fake_exercise_repo._exercises.values())
+
+        exercises = generator_no_llm._fallback_exercise_selection(
+            available_exercises=available,
+            exercise_count=3,
+            goal="hypertrophy",
+            is_deload=False,
+        )
+
+        orders = [ex["order"] for ex in exercises]
+        assert orders == [1, 2, 3]
+
+    def test_fallback_includes_muscle_and_equipment_info(
+        self, generator_no_llm, fake_exercise_repo
+    ):
+        """Fallback exercises include muscle and equipment info."""
+        available = list(fake_exercise_repo._exercises.values())
+
+        exercises = generator_no_llm._fallback_exercise_selection(
+            available_exercises=available,
+            exercise_count=2,
+            goal="strength",
+            is_deload=False,
+        )
+
+        for ex in exercises:
+            assert "primary_muscles" in ex
+            assert "equipment" in ex
+            assert isinstance(ex["primary_muscles"], list)
+            assert isinstance(ex["equipment"], list)
 
 
 # ---------------------------------------------------------------------------
