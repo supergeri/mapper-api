@@ -29,6 +29,7 @@ from models.program import (
     ProgramWorkout,
     TrainingProgram,
 )
+from services.exercise_selector import ExerciseSelector, SlotRequirements
 from services.llm import OpenAIExerciseSelector, ExerciseSelectionRequest
 from services.periodization import PeriodizationModel, PeriodizationService, WeekParameters
 from services.program_validator import ProgramValidator, ValidationSeverity
@@ -83,6 +84,9 @@ class ProgramGenerator:
         self._periodization = PeriodizationService()
         self._template_selector = TemplateSelector(template_repo)
         self._validator = ProgramValidator()
+
+        # Initialize exercise selector for intelligent fallback
+        self._db_exercise_selector = ExerciseSelector(exercise_repo)
 
         # Initialize LLM selector if API key provided
         self._exercise_selector: Optional[OpenAIExerciseSelector] = None
@@ -495,12 +499,15 @@ class ProgramGenerator:
             except Exception as e:
                 logger.warning(f"LLM exercise selection failed, using fallback: {e}")
 
-        # Fallback: deterministic selection
+        # Fallback: deterministic selection with intelligent exercise selector
         return self._fallback_exercise_selection(
             available_exercises=available_exercises,
             exercise_count=exercise_count,
             goal=goal_str,
             is_deload=params.is_deload,
+            equipment=equipment,
+            workout_type=workout_type,
+            muscle_groups=muscle_groups,
         )
 
     def _fallback_exercise_selection(
@@ -509,26 +516,97 @@ class ProgramGenerator:
         exercise_count: int,
         goal: str,
         is_deload: bool,
+        equipment: Optional[List[str]] = None,
+        workout_type: Optional[str] = None,
+        muscle_groups: Optional[List[str]] = None,
     ) -> List[Dict]:
         """
         Fallback exercise selection when LLM is unavailable.
+
+        Uses the ExerciseSelector for intelligent selection based on
+        equipment availability and workout requirements.
 
         Args:
             available_exercises: Available exercises
             exercise_count: Target count
             goal: Training goal
             is_deload: Deload flag
+            equipment: Available equipment (for intelligent selection)
+            workout_type: Type of workout (push, pull, legs, etc.)
+            muscle_groups: Target muscle groups
 
         Returns:
             List of exercise dictionaries
         """
-        # Sort by category (compounds first)
-        sorted_exercises = sorted(
-            available_exercises,
-            key=lambda x: (0 if x.get("category") == "compound" else 1, x.get("name", "")),
-        )
+        selected = []
+        exclude_ids: List[str] = []
+        equipment_list = equipment or []
 
-        selected = sorted_exercises[:exercise_count]
+        # Determine category preference based on goal
+        prefer_compound = goal in ("strength", "hypertrophy", "general_fitness")
+
+        # Try to use ExerciseSelector for intelligent selection
+        if self._db_exercise_selector and equipment_list:
+            # Determine movement patterns based on workout type
+            workout_patterns = {
+                "push": ["push"],
+                "pull": ["pull"],
+                "legs": ["squat", "hinge"],
+                "upper": ["push", "pull"],
+                "lower": ["squat", "hinge"],
+                "full_body": ["push", "pull", "squat", "hinge"],
+            }
+            patterns = workout_patterns.get(workout_type or "", [])
+
+            # Select compound exercises first
+            compound_count = max(2, exercise_count // 2) if prefer_compound else 1
+
+            for pattern in patterns[:compound_count]:
+                requirements = SlotRequirements(
+                    movement_pattern=pattern,
+                    target_muscles=muscle_groups,
+                    category="compound" if prefer_compound else None,
+                    supports_1rm=goal == "strength",
+                )
+                ex = self._db_exercise_selector.fill_exercise_slot(
+                    requirements=requirements,
+                    available_equipment=equipment_list,
+                    exclude_exercises=exclude_ids,
+                )
+                if ex:
+                    selected.append(ex)
+                    exclude_ids.append(ex["id"])
+
+            # Fill remaining slots with isolation exercises
+            while len(selected) < exercise_count:
+                requirements = SlotRequirements(
+                    target_muscles=muscle_groups,
+                    category="isolation" if prefer_compound else None,
+                )
+                ex = self._db_exercise_selector.fill_exercise_slot(
+                    requirements=requirements,
+                    available_equipment=equipment_list,
+                    exclude_exercises=exclude_ids,
+                )
+                if ex:
+                    selected.append(ex)
+                    exclude_ids.append(ex["id"])
+                else:
+                    break
+
+        # Fallback to simple sorting if ExerciseSelector didn't fill all slots
+        if len(selected) < exercise_count and available_exercises:
+            selected_ids = set(ex.get("id") for ex in selected)
+            remaining = [
+                ex for ex in available_exercises
+                if ex.get("id") not in selected_ids
+            ]
+            # Sort by category (compounds first)
+            sorted_remaining = sorted(
+                remaining,
+                key=lambda x: (0 if x.get("category") == "compound" else 1, x.get("name", "")),
+            )
+            selected.extend(sorted_remaining[:exercise_count - len(selected)])
 
         # Determine rep scheme based on goal
         rep_schemes = {
@@ -555,7 +633,7 @@ class ProgramGenerator:
                 "primary_muscles": ex.get("primary_muscles", []),
                 "equipment": ex.get("equipment", []),
             }
-            for i, ex in enumerate(selected)
+            for i, ex in enumerate(selected[:exercise_count])
         ]
 
     def _get_exercise_muscles(self, exercise_id: str, exercises: List[Dict]) -> List[str]:

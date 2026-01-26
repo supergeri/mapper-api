@@ -170,3 +170,32 @@ class ExerciseRepository(Protocol):
             List of matching exercise dictionaries
         """
         ...
+
+    def get_similar_exercises(
+        self,
+        exercise_id: str,
+        limit: int = 5,
+    ) -> List[Dict]:
+        """
+        Find similar/alternative exercises based on movement pattern and muscles.
+
+        Args:
+            exercise_id: The ID of the exercise to find alternatives for
+            limit: Maximum number of similar exercises to return
+
+        Returns:
+            List of similar exercise dictionaries, scored by similarity
+        """
+        ...
+
+    def validate_exercise_name(self, name: str) -> Optional[Dict]:
+        """
+        Check if exercise exists by name or alias (case-insensitive).
+
+        Args:
+            name: The exercise name or alias to validate
+
+        Returns:
+            Exercise dictionary if found, None otherwise
+        """
+        ...

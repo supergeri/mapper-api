@@ -392,3 +392,94 @@ class FakeExerciseRepository:
             results.append(ex)
 
         return results[:limit]
+
+    def get_similar_exercises(
+        self,
+        exercise_id: str,
+        limit: int = 5,
+    ) -> List[Dict]:
+        """
+        Find similar/alternative exercises based on movement pattern and muscles.
+
+        Args:
+            exercise_id: The ID of the exercise to find alternatives for
+            limit: Maximum number of similar exercises to return
+
+        Returns:
+            List of similar exercise dictionaries, scored by similarity
+        """
+        source = self._exercises.get(exercise_id)
+        if not source:
+            return []
+
+        movement_pattern = source.get("movement_pattern")
+        primary_muscles = set(source.get("primary_muscles", []))
+        category = source.get("category")
+        source_equipment = set(source.get("equipment", []))
+
+        if not movement_pattern or not primary_muscles:
+            return []
+
+        # Find candidates with same movement pattern
+        candidates = []
+        for ex_id, ex in self._exercises.items():
+            if ex_id == exercise_id:
+                continue
+            if ex.get("movement_pattern") != movement_pattern:
+                continue
+            candidates.append(ex)
+
+        # Score candidates by similarity
+        def score_exercise(ex: Dict) -> float:
+            score = 0.0
+            ex_muscles = set(ex.get("primary_muscles", []))
+
+            # Muscle overlap (0-1)
+            if primary_muscles:
+                overlap = len(ex_muscles & primary_muscles) / len(primary_muscles)
+                score += overlap * 0.6  # 60% weight for muscle overlap
+
+            # Same category bonus
+            if ex.get("category") == category:
+                score += 0.3  # 30% weight for same category
+
+            # Equipment overlap bonus
+            ex_equipment = set(ex.get("equipment", []))
+            if ex_equipment and source_equipment:
+                equipment_overlap = len(ex_equipment & source_equipment) / max(
+                    len(source_equipment), 1
+                )
+                score += equipment_overlap * 0.1  # 10% weight for equipment similarity
+
+            return score
+
+        # Score and sort candidates
+        scored = [(ex, score_exercise(ex)) for ex in candidates]
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+        return [ex for ex, score in scored[:limit]]
+
+    def validate_exercise_name(self, name: str) -> Optional[Dict]:
+        """
+        Check if exercise exists by name or alias (case-insensitive).
+
+        Args:
+            name: The exercise name or alias to validate
+
+        Returns:
+            Exercise dictionary if found, None otherwise
+        """
+        name_lower = name.lower()
+
+        # Try case-insensitive name match first
+        for ex in self._exercises.values():
+            if ex.get("name", "").lower() == name_lower:
+                return ex
+
+        # Fall back to alias search (case-insensitive)
+        for ex in self._exercises.values():
+            aliases = ex.get("aliases", [])
+            if any(alias.lower() == name_lower for alias in aliases):
+                return ex
+
+        return None
