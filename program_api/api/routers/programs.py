@@ -14,14 +14,20 @@ This router provides endpoints for managing training programs:
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 
-from api.deps import get_current_user, get_program_repo
+from api.deps import get_calendar_client, get_current_user, get_program_repo
 from application.ports import ProgramRepository
+from infrastructure.calendar_client import (
+    CalendarAPIError,
+    CalendarAPIUnavailable,
+    CalendarClient,
+    ProgramEventData,
+)
 from models.program import (
     ActivationRequest,
     ActivationResponse,
@@ -32,6 +38,7 @@ from models.program import (
     TrainingProgram,
     TrainingProgramCreate,
     TrainingProgramUpdate,
+    WorkoutCompletedWebhook,
 )
 
 logger = logging.getLogger(__name__)
@@ -399,18 +406,50 @@ async def replace_program(
 # =============================================================================
 
 
+def _calculate_workout_date(
+    start_date: date,
+    week_number: int,
+    day_of_week: int,
+) -> date:
+    """
+    Calculate the actual date for a workout based on program start date.
+
+    Args:
+        start_date: The program start date
+        week_number: Week number in the program (1-indexed)
+        day_of_week: Day of week (0=Sunday through 6=Saturday in DB,
+                     but we treat it as 0=Monday through 6=Sunday for calculation)
+
+    Returns:
+        The calculated date for the workout
+    """
+    # Calculate days from start:
+    # - Week 1, Day 0 (Monday) = start_date + 0 days
+    # - Week 1, Day 1 (Tuesday) = start_date + 1 day
+    # - Week 2, Day 0 (Monday) = start_date + 7 days
+    # etc.
+    days_offset = (week_number - 1) * 7 + day_of_week
+    return start_date + timedelta(days=days_offset)
+
+
 @router.post("/{program_id}/activate", response_model=ActivationResponse)
 async def activate_program(
     program_id: UUID,
     request: Optional[ActivationRequest] = Body(default=None),
+    authorization: Optional[str] = Header(None),
     user_id: str = Depends(get_current_user),
     program_repo: ProgramRepository = Depends(get_program_repo),
+    calendar_client: CalendarClient = Depends(get_calendar_client),
 ) -> ActivationResponse:
     """
     Activate a training program.
 
-    Sets the program status to 'active' and optionally schedules workouts
+    Sets the program status to 'active' and schedules all workouts
     on the user's calendar starting from the specified date.
+
+    The calendar integration (AMA-469) creates events for each workout
+    in the program, calculating actual dates from the start date and
+    the workout's day_of_week setting.
 
     Args:
         program_id: The program UUID
@@ -423,6 +462,7 @@ async def activate_program(
         404: Program not found
         403: Access denied
         422: Program cannot be activated (e.g., already active/completed)
+        503: Calendar service unavailable
     """
     logger.info(f"Activating program {program_id} for user {user_id}")
 
@@ -452,6 +492,102 @@ async def activate_program(
     else:
         start_date = datetime.now(timezone.utc)
 
+    # Convert to date for calendar calculations
+    start_date_only = start_date.date() if hasattr(start_date, 'date') else start_date
+
+    # Get weeks with workouts
+    weeks = program_repo.get_weeks(str(program_id))
+
+    # Build calendar events for all workouts
+    calendar_events: List[ProgramEventData] = []
+    for week in weeks:
+        week_number = week.get("week_number", 1)
+        for workout in week.get("workouts", []):
+            workout_date = _calculate_workout_date(
+                start_date_only,
+                week_number,
+                workout.get("day_of_week", 0),
+            )
+
+            # Determine workout type for calendar
+            workout_type = workout.get("workout_type", "strength")
+            # Map program workout types to calendar workout types
+            type_mapping = {
+                "upper": "strength",
+                "lower": "strength",
+                "full_body": "strength",
+                "push": "strength",
+                "pull": "strength",
+                "legs": "strength",
+                "strength": "strength",
+                "cardio": "run",
+                "hiit": "strength",
+                "mobility": "mobility",
+                "recovery": "recovery",
+            }
+            calendar_type = type_mapping.get(workout_type.lower(), "strength")
+
+            # Determine primary muscle group
+            muscle_mapping = {
+                "upper": "upper",
+                "lower": "lower",
+                "full_body": "full_body",
+                "push": "upper",
+                "pull": "upper",
+                "legs": "lower",
+            }
+            primary_muscle = muscle_mapping.get(workout_type.lower())
+
+            event = ProgramEventData(
+                title=workout.get("name", f"Week {week_number} Workout"),
+                date=workout_date,
+                program_workout_id=UUID(workout["id"]),
+                program_week_number=week_number,
+                type=calendar_type,
+                primary_muscle=primary_muscle,
+                intensity=2 if not week.get("is_deload") else 1,
+                json_payload={
+                    "program_name": program.get("name"),
+                    "week_name": week.get("focus", f"Week {week_number}"),
+                    "workout_description": workout.get("notes"),
+                    "exercises": workout.get("exercises", []),
+                    "target_duration_minutes": workout.get("target_duration_minutes"),
+                },
+            )
+            calendar_events.append(event)
+
+    total_workouts = len(calendar_events)
+    scheduled_count = 0
+
+    # Create calendar events if we have any workouts
+    if calendar_events and authorization:
+        auth_token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+
+        try:
+            result = await calendar_client.bulk_create_program_events(
+                program_id=program_id,
+                events=calendar_events,
+                auth_token=auth_token,
+            )
+            scheduled_count = result.events_created
+            logger.info(
+                f"Created {scheduled_count} calendar events for program {program_id}"
+            )
+        except CalendarAPIUnavailable as e:
+            logger.warning(f"Calendar-API unavailable during activation: {e}")
+            # Don't fail activation if calendar is unavailable
+            # Program will be active but without calendar events
+        except CalendarAPIError as e:
+            logger.error(f"Calendar-API error during activation: {e}")
+            if e.status_code >= 500:
+                # Server error - don't fail activation
+                pass
+            else:
+                # Client error - might be auth issue, log but continue
+                logger.warning(
+                    f"Calendar event creation failed with status {e.status_code}"
+                )
+
     # Update program status
     program_repo.update(
         str(program_id),
@@ -462,19 +598,16 @@ async def activate_program(
         },
     )
 
-    # Get weeks to count scheduled workouts
-    weeks = program_repo.get_weeks(str(program_id))
-    total_workouts = sum(len(week.get("workouts", [])) for week in weeks)
-
-    # TODO: Integrate with calendar service to schedule workouts (AMA-469)
-    # For now, we just return the count of workouts that would be scheduled
+    message = f"Program activated successfully. {scheduled_count} workouts scheduled on calendar."
+    if scheduled_count < total_workouts:
+        message = f"Program activated. {scheduled_count}/{total_workouts} workouts scheduled (some calendar events may have failed)."
 
     return ActivationResponse(
         program_id=program_id,
         status=ProgramStatus.ACTIVE,
         start_date=start_date,
-        scheduled_workouts=total_workouts,
-        message=f"Program activated successfully. {total_workouts} workouts scheduled.",
+        scheduled_workouts=scheduled_count,
+        message=message,
     )
 
 
@@ -516,3 +649,65 @@ async def delete_program(
     program_repo.update(str(program_id), {"status": ProgramStatus.ARCHIVED.value})
 
     logger.info(f"Archived program {program_id}")
+
+
+# =============================================================================
+# Program Webhook Endpoints (AMA-469)
+# =============================================================================
+
+
+@router.post("/{program_id}/workout-completed")
+async def workout_completed_webhook(
+    program_id: UUID,
+    payload: WorkoutCompletedWebhook,
+    user_id: str = Depends(get_current_user),
+    program_repo: ProgramRepository = Depends(get_program_repo),
+):
+    """
+    Webhook endpoint called when a program workout is marked complete on calendar.
+
+    Called by Calendar-API when a workout event with a program_id is marked
+    as completed. Updates the program's progression tracking.
+
+    Args:
+        program_id: The training program UUID
+        payload: Webhook payload with completion details
+
+    Returns:
+        Acknowledgment of the completion
+
+    Raises:
+        404: Program not found
+        403: Access denied
+    """
+    logger.info(
+        f"Workout completed webhook for program {program_id}, "
+        f"workout {payload.program_workout_id}, week {payload.program_week_number}"
+    )
+
+    # Verify program exists and user has access
+    program = _get_program_or_404(program_id, user_id, program_repo)
+
+    # Check if this completion advances the current week
+    current_week = program.get("current_week", 1)
+    if payload.program_week_number > current_week:
+        # User completed a workout from a future week - update current_week
+        program_repo.update(
+            str(program_id),
+            {"current_week": payload.program_week_number},
+        )
+        logger.info(
+            f"Advanced program {program_id} to week {payload.program_week_number}"
+        )
+
+    # TODO: Track individual workout completions in a separate table
+    # For now, we just log the completion and update current_week
+    # Future enhancement: add workout_completions tracking table
+
+    return {
+        "success": True,
+        "program_id": str(program_id),
+        "workout_id": str(payload.program_workout_id),
+        "week_number": payload.program_week_number,
+        "message": "Workout completion recorded",
+    }

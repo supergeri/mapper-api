@@ -20,6 +20,7 @@ if root_str not in sys.path:
 from backend.main import create_app
 from backend.settings import Settings
 from api.deps import (
+    get_calendar_client,
     get_current_user,
     get_exercise_repo,
     get_program_repo,
@@ -306,3 +307,157 @@ def program_generator(
     )
     gen._exercise_selector = fake_llm_selector
     return gen
+
+
+# ---------------------------------------------------------------------------
+# Calendar Client Fixtures (AMA-469)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fake_calendar_client():
+    """Create a fake calendar client for testing."""
+    from tests.fakes import FakeCalendarClient
+    client = FakeCalendarClient()
+    client.set_user_id(TEST_USER_ID)
+    return client
+
+
+@pytest.fixture
+def failing_calendar_client():
+    """Create a calendar client that always fails."""
+    from tests.fakes import FailingCalendarClient
+    return FailingCalendarClient(unavailable=True)
+
+
+@pytest.fixture
+def client_with_calendar(
+    app,
+    fake_program_repo,
+    fake_calendar_client,
+) -> Generator[TestClient, None, None]:
+    """TestClient with fake program repo and calendar client injected."""
+    app.dependency_overrides[get_current_user] = mock_get_current_user
+    app.dependency_overrides[get_program_repo] = lambda: fake_program_repo
+    app.dependency_overrides[get_calendar_client] = lambda: fake_calendar_client
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client_with_failing_calendar(
+    app,
+    fake_program_repo,
+    failing_calendar_client,
+) -> Generator[TestClient, None, None]:
+    """TestClient with fake program repo and failing calendar client."""
+    app.dependency_overrides[get_current_user] = mock_get_current_user
+    app.dependency_overrides[get_program_repo] = lambda: fake_program_repo
+    app.dependency_overrides[get_calendar_client] = lambda: failing_calendar_client
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def sample_program_with_weeks(sample_program_data) -> Dict[str, Any]:
+    """Program data with weeks and workouts for calendar integration tests."""
+    from datetime import datetime
+    program_id = sample_program_data["id"]
+    # Use valid UUIDs for weeks and workouts
+    week1_id = "550e8400-e29b-41d4-a716-446655440010"
+    week2_id = "550e8400-e29b-41d4-a716-446655440011"
+    workout1_id = "550e8400-e29b-41d4-a716-446655440020"
+    workout2_id = "550e8400-e29b-41d4-a716-446655440021"
+    workout3_id = "550e8400-e29b-41d4-a716-446655440022"
+    return {
+        "program": sample_program_data,
+        "weeks": [
+            {
+                "id": week1_id,
+                "program_id": program_id,
+                "week_number": 1,
+                "focus": "Foundation",
+                "is_deload": False,
+                "workouts": [
+                    {
+                        "id": workout1_id,
+                        "program_week_id": week1_id,
+                        "name": "Upper Body A",
+                        "day_of_week": 0,  # Monday
+                        "workout_type": "upper",
+                        "target_duration_minutes": 60,
+                        "exercises": [{"name": "Bench Press", "sets": 3, "reps": 8}],
+                        "notes": "Focus on form",
+                        "created_at": "2024-01-15T10:00:00Z",
+                        "updated_at": "2024-01-15T10:00:00Z",
+                    },
+                    {
+                        "id": workout2_id,
+                        "program_week_id": week1_id,
+                        "name": "Lower Body A",
+                        "day_of_week": 2,  # Wednesday
+                        "workout_type": "lower",
+                        "target_duration_minutes": 60,
+                        "exercises": [{"name": "Squat", "sets": 3, "reps": 8}],
+                        "notes": None,
+                        "created_at": "2024-01-15T10:00:00Z",
+                        "updated_at": "2024-01-15T10:00:00Z",
+                    },
+                ],
+            },
+            {
+                "id": week2_id,
+                "program_id": program_id,
+                "week_number": 2,
+                "focus": "Progression",
+                "is_deload": False,
+                "workouts": [
+                    {
+                        "id": workout3_id,
+                        "program_week_id": week2_id,
+                        "name": "Upper Body B",
+                        "day_of_week": 0,
+                        "workout_type": "upper",
+                        "target_duration_minutes": 60,
+                        "exercises": [],
+                        "notes": None,
+                        "created_at": "2024-01-15T10:00:00Z",
+                        "updated_at": "2024-01-15T10:00:00Z",
+                    },
+                ],
+            },
+        ],
+    }
+
+
+@pytest.fixture
+def seeded_program_with_weeks_repo(fake_program_repo, sample_program_with_weeks):
+    """Fake program repo seeded with a program that has weeks and workouts."""
+    program = sample_program_with_weeks["program"]
+    weeks = sample_program_with_weeks["weeks"]
+
+    # Seed the program
+    fake_program_repo.seed([program])
+
+    # Seed weeks and workouts
+    for week in weeks:
+        workouts = week.pop("workouts", [])
+        fake_program_repo._weeks[week["id"]] = week
+        for workout in workouts:
+            fake_program_repo._workouts[workout["id"]] = workout
+
+    return fake_program_repo
+
+
+@pytest.fixture
+def client_with_seeded_calendar_repo(
+    app,
+    seeded_program_with_weeks_repo,
+    fake_calendar_client,
+) -> Generator[TestClient, None, None]:
+    """TestClient with seeded program repo and calendar client."""
+    app.dependency_overrides[get_current_user] = mock_get_current_user
+    app.dependency_overrides[get_program_repo] = lambda: seeded_program_with_weeks_repo
+    app.dependency_overrides[get_calendar_client] = lambda: fake_calendar_client
+    yield TestClient(app)
+    app.dependency_overrides.clear()

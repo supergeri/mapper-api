@@ -40,6 +40,7 @@ from infrastructure.db import (
     SupabaseProgramRepository,
     SupabaseTemplateRepository,
 )
+from infrastructure.calendar_client import CalendarClient
 from backend.settings import Settings, get_settings as _get_settings
 
 
@@ -167,6 +168,28 @@ def get_exercise_repo(
 
 
 # =============================================================================
+# Calendar Client Provider (AMA-469)
+# =============================================================================
+
+
+def get_calendar_client(
+    settings: Settings = Depends(get_settings),
+) -> CalendarClient:
+    """
+    Get CalendarClient instance for Calendar-API communication.
+
+    Returns a CalendarClient configured with the Calendar-API URL from settings.
+
+    Args:
+        settings: Application settings (injected)
+
+    Returns:
+        CalendarClient: Client for calendar event operations
+    """
+    return CalendarClient(base_url=settings.calendar_api_url)
+
+
+# =============================================================================
 # Authentication Providers
 # =============================================================================
 
@@ -266,6 +289,8 @@ __all__ = [
     "get_exercise_repo",
     "get_program_repo",
     "get_template_repo",
+    # Calendar
+    "get_calendar_client",
     # Authentication
     "get_current_user",
     "get_optional_user",

@@ -160,3 +160,12 @@ class ProgramListResponse(BaseModel):
     limit: int
     offset: int
     has_more: bool
+
+
+class WorkoutCompletedWebhook(BaseModel):
+    """Webhook payload when a program workout is marked complete on calendar."""
+
+    event_id: UUID = Field(description="The calendar event ID that was completed")
+    program_workout_id: UUID = Field(description="The program workout ID")
+    program_week_number: int = Field(ge=1, description="Week number in the program")
+    completed_at: datetime = Field(description="When the workout was completed")
