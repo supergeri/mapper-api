@@ -406,3 +406,107 @@ class TestWorkoutCompletedWebhook:
         )
 
         assert response.status_code == 404
+
+    def test_webhook_accepts_x_user_id_header(
+        self,
+        client_with_calendar,
+        fake_program_repo,
+    ):
+        """Webhook accepts X-User-Id header for service-to-service calls."""
+        fake_program_repo.seed([{
+            "id": PROGRAM_ID,
+            "user_id": TEST_USER_ID,
+            "name": "Active Program",
+            "status": "active",
+            "current_week": 1,
+            "goal": "strength",
+            "experience_level": "intermediate",
+            "duration_weeks": 12,
+            "sessions_per_week": 4,
+        }])
+
+        # Use X-User-Id header instead of Authorization
+        response = client_with_calendar.post(
+            f"/programs/{PROGRAM_ID}/workout-completed",
+            json={
+                "event_id": "550e8400-e29b-41d4-a716-446655440001",
+                "program_workout_id": "550e8400-e29b-41d4-a716-446655440002",
+                "program_week_number": 1,
+                "completed_at": "2026-02-02T18:00:00Z",
+            },
+            headers={"X-User-Id": TEST_USER_ID},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+
+
+# ---------------------------------------------------------------------------
+# Calendar Event Mapping Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+class TestCalendarEventMapping:
+    """Tests for calendar event ID mapping in activation response."""
+
+    def test_activation_returns_event_mapping(
+        self,
+        client_with_seeded_calendar_repo,
+        fake_calendar_client,
+        sample_program_with_weeks,
+    ):
+        """Activation response includes mapping of workout IDs to event IDs."""
+        program_id = sample_program_with_weeks["program"]["id"]
+
+        response = client_with_seeded_calendar_repo.post(
+            f"/programs/{program_id}/activate",
+            json={"start_date": "2026-02-02T00:00:00Z"},
+            headers=make_auth_header(),
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should have event mapping
+        assert "calendar_event_mapping" in data
+        assert data["calendar_event_mapping"] is not None
+        assert len(data["calendar_event_mapping"]) == 3  # 3 workouts
+
+        # Each mapping should have workout_id and event_id
+        for mapping in data["calendar_event_mapping"]:
+            assert "program_workout_id" in mapping
+            assert "calendar_event_id" in mapping
+
+    def test_activation_mapping_empty_when_calendar_fails(
+        self,
+        client_with_failing_calendar,
+        fake_program_repo,
+        sample_program_with_weeks,
+    ):
+        """Event mapping is None when calendar service fails."""
+        # Seed the program data
+        program = sample_program_with_weeks["program"]
+        weeks = sample_program_with_weeks["weeks"]
+        fake_program_repo.seed([program])
+        for week in weeks:
+            workouts = week.pop("workouts", [])
+            fake_program_repo._weeks[week["id"]] = week
+            for workout in workouts:
+                fake_program_repo._workouts[workout["id"]] = workout
+
+        program_id = program["id"]
+
+        response = client_with_failing_calendar.post(
+            f"/programs/{program_id}/activate",
+            json={"start_date": "2026-02-02T00:00:00Z"},
+            headers=make_auth_header(),
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Event mapping should be None when calendar fails
+        assert data["calendar_event_mapping"] is None
+        assert data["scheduled_workouts"] == 0

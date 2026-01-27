@@ -20,7 +20,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 
-from api.deps import get_calendar_client, get_current_user, get_program_repo
+from api.deps import get_calendar_client, get_current_user, get_program_repo, verify_service_token
 from application.ports import ProgramRepository
 from infrastructure.calendar_client import (
     CalendarAPIError,
@@ -31,6 +31,7 @@ from infrastructure.calendar_client import (
 from models.program import (
     ActivationRequest,
     ActivationResponse,
+    CalendarEventMapping,
     ProgramListResponse,
     ProgramStatus,
     ProgramUpdateRequest,
@@ -558,6 +559,7 @@ async def activate_program(
 
     total_workouts = len(calendar_events)
     scheduled_count = 0
+    event_mapping: List[CalendarEventMapping] = []
 
     # Create calendar events if we have any workouts
     if calendar_events and authorization:
@@ -570,6 +572,17 @@ async def activate_program(
                 auth_token=auth_token,
             )
             scheduled_count = result.events_created
+
+            # Build mapping between workout IDs and calendar event IDs
+            # Events are created in the same order as calendar_events
+            for event_data, event_id in zip(calendar_events, result.event_ids):
+                event_mapping.append(
+                    CalendarEventMapping(
+                        program_workout_id=event_data.program_workout_id,
+                        calendar_event_id=event_id,
+                    )
+                )
+
             logger.info(
                 f"Created {scheduled_count} calendar events for program {program_id}"
             )
@@ -588,13 +601,22 @@ async def activate_program(
                     f"Calendar event creation failed with status {e.status_code}"
                 )
 
-    # Update program status
+    # Build calendar_event_mapping JSON for storage
+    calendar_mapping_json = None
+    if event_mapping:
+        calendar_mapping_json = {
+            str(m.program_workout_id): str(m.calendar_event_id)
+            for m in event_mapping
+        }
+
+    # Update program status and store calendar event mapping
     program_repo.update(
         str(program_id),
         {
             "status": ProgramStatus.ACTIVE.value,
             "start_date": start_date.isoformat(),
             "current_week": 1,
+            "calendar_event_mapping": calendar_mapping_json,
         },
     )
 
@@ -607,6 +629,7 @@ async def activate_program(
         status=ProgramStatus.ACTIVE,
         start_date=start_date,
         scheduled_workouts=scheduled_count,
+        calendar_event_mapping=event_mapping if event_mapping else None,
         message=message,
     )
 
@@ -660,7 +683,9 @@ async def delete_program(
 async def workout_completed_webhook(
     program_id: UUID,
     payload: WorkoutCompletedWebhook,
-    user_id: str = Depends(get_current_user),
+    x_user_id: Optional[str] = Header(None, description="User ID from calling service"),
+    authorization: Optional[str] = Header(None),
+    service_authenticated: bool = Depends(verify_service_token),
     program_repo: ProgramRepository = Depends(get_program_repo),
 ):
     """
@@ -669,20 +694,39 @@ async def workout_completed_webhook(
     Called by Calendar-API when a workout event with a program_id is marked
     as completed. Updates the program's progression tracking.
 
+    Requires service-to-service authentication via X-Service-Token header.
+    User context is provided via X-User-Id header from the calling service.
+
     Args:
         program_id: The training program UUID
         payload: Webhook payload with completion details
+        x_user_id: User ID passed from Calendar-API
+        authorization: Fallback Bearer token for user auth
 
     Returns:
         Acknowledgment of the completion
 
     Raises:
+        401: Missing or invalid service token
         404: Program not found
-        403: Access denied
     """
+    # Extract user_id from X-User-Id header (set by Calendar-API) or Authorization
+    user_id = x_user_id
+    if not user_id and authorization:
+        # Fallback to extracting from Bearer token
+        if authorization.startswith("Bearer "):
+            user_id = authorization[7:]
+
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing user identification (X-User-Id header or Authorization)",
+        )
+
     logger.info(
         f"Workout completed webhook for program {program_id}, "
-        f"workout {payload.program_workout_id}, week {payload.program_week_number}"
+        f"workout {payload.program_workout_id}, week {payload.program_week_number}, "
+        f"user {user_id}"
     )
 
     # Verify program exists and user has access

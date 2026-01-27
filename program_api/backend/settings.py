@@ -98,6 +98,14 @@ class Settings(BaseSettings):
     )
 
     # -------------------------------------------------------------------------
+    # Service-to-Service Authentication (AMA-469)
+    # -------------------------------------------------------------------------
+    internal_service_token: Optional[str] = Field(
+        default=None,
+        description="Shared secret for service-to-service authentication",
+    )
+
+    # -------------------------------------------------------------------------
     # Validators
     # -------------------------------------------------------------------------
     @field_validator("environment")
