@@ -510,3 +510,90 @@ class TestCalendarEventMapping:
         # Event mapping should be None when calendar fails
         assert data["calendar_event_mapping"] is None
         assert data["scheduled_workouts"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Service Token Authentication Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+class TestServiceTokenAuthentication:
+    """Tests for service-to-service authentication on webhook endpoint."""
+
+    def test_webhook_requires_user_identification(
+        self,
+        client_with_calendar,
+        fake_program_repo,
+    ):
+        """Webhook returns 401 when no user identification is provided."""
+        fake_program_repo.seed([{
+            "id": PROGRAM_ID,
+            "user_id": TEST_USER_ID,
+            "name": "Active Program",
+            "status": "active",
+            "current_week": 1,
+            "goal": "strength",
+            "experience_level": "intermediate",
+            "duration_weeks": 12,
+            "sessions_per_week": 4,
+        }])
+
+        # No Authorization or X-User-Id header
+        response = client_with_calendar.post(
+            f"/programs/{PROGRAM_ID}/workout-completed",
+            json={
+                "event_id": "550e8400-e29b-41d4-a716-446655440001",
+                "program_workout_id": "550e8400-e29b-41d4-a716-446655440002",
+                "program_week_number": 1,
+                "completed_at": "2026-02-02T18:00:00Z",
+            },
+            # No headers - missing user identification
+        )
+
+        assert response.status_code == 401
+        assert "user identification" in response.json()["detail"].lower()
+
+    def test_webhook_works_with_both_auth_methods(
+        self,
+        client_with_calendar,
+        fake_program_repo,
+    ):
+        """Webhook works with either Authorization or X-User-Id header."""
+        fake_program_repo.seed([{
+            "id": PROGRAM_ID,
+            "user_id": TEST_USER_ID,
+            "name": "Active Program",
+            "status": "active",
+            "current_week": 1,
+            "goal": "strength",
+            "experience_level": "intermediate",
+            "duration_weeks": 12,
+            "sessions_per_week": 4,
+        }])
+
+        # Test with Authorization header
+        response1 = client_with_calendar.post(
+            f"/programs/{PROGRAM_ID}/workout-completed",
+            json={
+                "event_id": "550e8400-e29b-41d4-a716-446655440001",
+                "program_workout_id": "550e8400-e29b-41d4-a716-446655440002",
+                "program_week_number": 1,
+                "completed_at": "2026-02-02T18:00:00Z",
+            },
+            headers={"Authorization": f"Bearer {TEST_USER_ID}"},
+        )
+        assert response1.status_code == 200
+
+        # Test with X-User-Id header
+        response2 = client_with_calendar.post(
+            f"/programs/{PROGRAM_ID}/workout-completed",
+            json={
+                "event_id": "550e8400-e29b-41d4-a716-446655440001",
+                "program_workout_id": "550e8400-e29b-41d4-a716-446655440002",
+                "program_week_number": 1,
+                "completed_at": "2026-02-02T18:00:00Z",
+            },
+            headers={"X-User-Id": TEST_USER_ID},
+        )
+        assert response2.status_code == 200
