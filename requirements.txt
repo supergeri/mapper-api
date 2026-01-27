@@ -6,7 +6,7 @@ pyyaml>=6.0
 rapidfuzz==3.9.1
 supabase>=2.0.0
 httpx>=0.25.0
-fit-tool>=0.9.13
+fit-tool @ git+https://bitbucket.org/stagescycling/python_fit_tool.git@version/0.9.13
 python-dotenv>=1.0.0
 python-multipart>=0.0.6
 PyJWT>=2.8.0
