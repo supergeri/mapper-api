@@ -573,13 +573,13 @@ async def activate_program(
             )
             scheduled_count = result.events_created
 
-            # Build mapping between workout IDs and calendar event IDs
-            # Events are created in the same order as calendar_events
-            for event_data, event_id in zip(calendar_events, result.event_ids):
+            # Use explicit mapping returned by Calendar-API
+            # This ensures correct mapping regardless of processing order
+            for workout_id_str, event_id_str in result.event_mapping.items():
                 event_mapping.append(
                     CalendarEventMapping(
-                        program_workout_id=event_data.program_workout_id,
-                        calendar_event_id=event_id,
+                        program_workout_id=UUID(workout_id_str),
+                        calendar_event_id=UUID(event_id_str),
                     )
                 )
 

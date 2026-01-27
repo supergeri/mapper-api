@@ -118,12 +118,14 @@ class TestCalendarClientBulkCreate:
     ):
         """Successful bulk create returns BulkCreateResult."""
         event_ids = [str(uuid4()), str(uuid4())]
+        workout_id = str(sample_event_data.program_workout_id)
         mock_response = MagicMock()
         mock_response.status_code = 201
         mock_response.json.return_value = {
             "program_id": str(program_id),
             "events_created": 2,
             "event_ids": event_ids,
+            "event_mapping": {workout_id: event_ids[0]},
         }
 
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -149,12 +151,15 @@ class TestCalendarClientBulkCreate:
         self, calendar_client, sample_event_data, auth_token, program_id
     ):
         """Bulk create sends correct request payload."""
+        event_id = str(uuid4())
+        workout_id = str(sample_event_data.program_workout_id)
         mock_response = MagicMock()
         mock_response.status_code = 201
         mock_response.json.return_value = {
             "program_id": str(program_id),
             "events_created": 1,
-            "event_ids": [str(uuid4())],
+            "event_ids": [event_id],
+            "event_mapping": {workout_id: event_id},
         }
 
         with patch("httpx.AsyncClient") as mock_client_class:

@@ -194,10 +194,16 @@ class FakeCalendarClient:
             self._events[event_id] = stored
             created_ids.append(event_id)
 
+        # Build explicit mapping: program_workout_id -> calendar_event_id
+        event_mapping = {}
+        for event, event_id in zip(events, created_ids):
+            event_mapping[str(event.program_workout_id)] = str(event_id)
+
         return BulkCreateResult(
             program_id=program_id,
             events_created=len(created_ids),
             event_ids=created_ids,
+            event_mapping=event_mapping,
         )
 
     async def get_program_events(

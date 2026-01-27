@@ -65,6 +65,7 @@ class BulkCreateResult:
     program_id: UUID
     events_created: int
     event_ids: list[UUID]
+    event_mapping: dict[str, str]  # program_workout_id -> calendar_event_id
 
 
 @dataclass
@@ -162,6 +163,7 @@ class CalendarClient:
                         program_id=UUID(data["program_id"]),
                         events_created=data["events_created"],
                         event_ids=[UUID(eid) for eid in data["event_ids"]],
+                        event_mapping=data.get("event_mapping", {}),
                     )
                 else:
                     logger.error(
