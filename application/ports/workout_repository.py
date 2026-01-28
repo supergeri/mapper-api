@@ -294,3 +294,24 @@ class WorkoutRepository(Protocol):
             Updated workout record or None on failure
         """
         ...
+
+    def log_patch_audit(
+        self,
+        workout_id: str,
+        user_id: str,
+        operations: List[Dict[str, Any]],
+        changes_applied: int,
+    ) -> None:
+        """
+        Log patch operations to audit trail.
+
+        This is a best-effort operation - failures should not
+        cause the main patch operation to fail.
+
+        Args:
+            workout_id: Workout UUID that was patched
+            user_id: User who performed the patch
+            operations: List of patch operations applied
+            changes_applied: Number of operations that resulted in changes
+        """
+        ...

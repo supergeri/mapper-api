@@ -567,3 +567,30 @@ class SupabaseWorkoutRepository:
         except Exception as e:
             logger.error(f"Failed to update workout data for {workout_id}: {e}")
             return None
+
+    def log_patch_audit(
+        self,
+        workout_id: str,
+        user_id: str,
+        operations: List[Dict[str, Any]],
+        changes_applied: int,
+    ) -> None:
+        """
+        Log patch operations to audit trail (best-effort).
+
+        This method logs to workout_edit_history table. Failures are
+        logged but do not raise exceptions to avoid affecting the
+        main patch operation.
+        """
+        try:
+            self._client.table("workout_edit_history").insert({
+                "workout_id": workout_id,
+                "user_id": user_id,
+                "operations": operations,
+                "changes_applied": changes_applied,
+            }).execute()
+
+            logger.debug(f"Logged patch audit for workout {workout_id}: {changes_applied} changes")
+        except Exception as e:
+            # Best-effort - log but don't raise
+            logger.warning(f"Failed to log patch audit for {workout_id}: {e}")

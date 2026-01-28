@@ -190,87 +190,81 @@ class TestValidatePathStructure:
 
 
 # =============================================================================
-# Mock Supabase Client
+# Mock Workout Repository
 # =============================================================================
 
 
-def create_mock_supabase():
-    """Create a mock Supabase client for testing."""
-    mock_client = MagicMock()
+class MockWorkoutRepository:
+    """Mock implementation of WorkoutRepository for testing."""
 
-    # Store for workouts and edit history
-    mock_client._workouts = {}
-    mock_client._edit_history = []
+    def __init__(self):
+        self._workouts = {}
+        self._audit_logs = []
 
-    def table(name):
-        if name == "workouts":
-            return mock_client._workouts_table
-        elif name == "workout_edit_history":
-            return mock_client._edit_history_table
-        return MagicMock()
+    def setup_workout(self, workout_id: str, user_id: str, workout_data: dict):
+        """Setup a workout in the mock repository."""
+        self._workouts[(workout_id, user_id)] = {
+            "id": workout_id,
+            "profile_id": user_id,
+            "title": workout_data.get("title", "Test Workout"),
+            "description": workout_data.get("description"),
+            "tags": workout_data.get("tags", []),
+            "workout_data": workout_data,
+            "embedding_content_hash": "hash123",
+        }
 
-    mock_client.table = table
+    def get_workout_by_id(self, workout_id: str, profile_id: str):
+        """Get workout by ID."""
+        return self._workouts.get((workout_id, profile_id))
 
-    # Setup workouts table mock
-    mock_client._workouts_table = MagicMock()
+    def update_workout_data(
+        self,
+        workout_id: str,
+        profile_id: str,
+        workout_data: dict,
+        *,
+        title=None,
+        description=None,
+        tags=None,
+        clear_embedding=False,
+    ):
+        """Update workout data."""
+        key = (workout_id, profile_id)
+        if key not in self._workouts:
+            return None
 
-    return mock_client
+        workout = self._workouts[key]
+        workout["workout_data"] = workout_data
+        if title is not None:
+            workout["title"] = title
+        if description is not None:
+            workout["description"] = description
+        if tags is not None:
+            workout["tags"] = tags
+        if clear_embedding:
+            workout["embedding_content_hash"] = None
+
+        return workout
+
+    def log_patch_audit(
+        self,
+        workout_id: str,
+        user_id: str,
+        operations: list,
+        changes_applied: int,
+    ):
+        """Log patch audit (mock implementation)."""
+        self._audit_logs.append({
+            "workout_id": workout_id,
+            "user_id": user_id,
+            "operations": operations,
+            "changes_applied": changes_applied,
+        })
 
 
-def setup_mock_workout(mock_client, workout_id, user_id, workout_data):
-    """Setup a workout in the mock client."""
-    workout_row = {
-        "id": workout_id,
-        "profile_id": user_id,
-        "title": workout_data.get("title", "Test Workout"),
-        "description": workout_data.get("description"),
-        "tags": workout_data.get("tags", []),
-        "workout_data": workout_data,
-        "embedding_content_hash": "hash123",
-    }
-    mock_client._workouts[workout_id] = workout_row
-
-    # Configure select chain
-    select_mock = MagicMock()
-    eq_mock = MagicMock()
-    single_mock = MagicMock()
-
-    def execute_select():
-        result = MagicMock()
-        result.data = workout_row
-        return result
-
-    single_mock.execute = execute_select
-    eq_mock.single.return_value = single_mock
-    eq_mock.eq.return_value = eq_mock
-    select_mock.eq.return_value = eq_mock
-    mock_client._workouts_table.select.return_value = select_mock
-
-    # Configure update chain
-    update_mock = MagicMock()
-    update_eq_mock = MagicMock()
-
-    def execute_update():
-        result = MagicMock()
-        result.data = [workout_row]
-        return result
-
-    update_eq_mock.execute = execute_update
-    update_eq_mock.eq.return_value = update_eq_mock
-    update_mock.eq.return_value = update_eq_mock
-    mock_client._workouts_table.update.return_value = update_mock
-
-    # Configure edit history insert
-    insert_mock = MagicMock()
-
-    def execute_insert():
-        result = MagicMock()
-        result.data = [{}]
-        return result
-
-    insert_mock.execute = execute_insert
-    mock_client._edit_history_table = MagicMock()
-    mock_client._edit_history_table.insert.return_value = insert_mock
+def setup_mock_workout(mock_repo: MockWorkoutRepository, workout_id: str, user_id: str, workout_data: dict):
+    """Setup a workout in the mock repository."""
+    mock_repo.setup_workout(workout_id, user_id, workout_data)
 
 
 # =============================================================================
@@ -282,14 +276,14 @@ class TestPatchWorkoutUseCase:
     """Tests for PatchWorkoutUseCase."""
 
     @pytest.fixture
-    def mock_client(self):
-        """Create mock Supabase client."""
-        return create_mock_supabase()
+    def mock_repo(self):
+        """Create mock workout repository."""
+        return MockWorkoutRepository()
 
     @pytest.fixture
-    def use_case(self, mock_client):
-        """Create use case with mock client."""
-        return PatchWorkoutUseCase(supabase_client=mock_client)
+    def use_case(self, mock_repo):
+        """Create use case with mock repository."""
+        return PatchWorkoutUseCase(workout_repo=mock_repo)
 
     @pytest.fixture
     def sample_workout_data(self):
@@ -310,9 +304,9 @@ class TestPatchWorkoutUseCase:
         }
 
     @pytest.mark.unit
-    def test_replace_title(self, mock_client, use_case, sample_workout_data):
+    def test_replace_title(self, mock_repo, use_case, sample_workout_data):
         """Replace title operation works."""
-        setup_mock_workout(mock_client, "w-123", "user-123", sample_workout_data)
+        setup_mock_workout(mock_repo, "w-123", "user-123", sample_workout_data)
 
         result = use_case.execute(
             workout_id="w-123",
@@ -326,9 +320,9 @@ class TestPatchWorkoutUseCase:
         assert result.changes_applied == 1
 
     @pytest.mark.unit
-    def test_replace_name_alias(self, mock_client, use_case, sample_workout_data):
+    def test_replace_name_alias(self, mock_repo, use_case, sample_workout_data):
         """/name is alias for /title."""
-        setup_mock_workout(mock_client, "w-123", "user-123", sample_workout_data)
+        setup_mock_workout(mock_repo, "w-123", "user-123", sample_workout_data)
 
         result = use_case.execute(
             workout_id="w-123",
@@ -342,9 +336,9 @@ class TestPatchWorkoutUseCase:
         assert result.changes_applied == 1
 
     @pytest.mark.unit
-    def test_add_tag(self, mock_client, use_case, sample_workout_data):
+    def test_add_tag(self, mock_repo, use_case, sample_workout_data):
         """Add tag operation works."""
-        setup_mock_workout(mock_client, "w-123", "user-123", sample_workout_data)
+        setup_mock_workout(mock_repo, "w-123", "user-123", sample_workout_data)
 
         result = use_case.execute(
             workout_id="w-123",
@@ -358,9 +352,9 @@ class TestPatchWorkoutUseCase:
         assert result.changes_applied == 1
 
     @pytest.mark.unit
-    def test_replace_tags(self, mock_client, use_case, sample_workout_data):
+    def test_replace_tags(self, mock_repo, use_case, sample_workout_data):
         """Replace entire tags array works."""
-        setup_mock_workout(mock_client, "w-123", "user-123", sample_workout_data)
+        setup_mock_workout(mock_repo, "w-123", "user-123", sample_workout_data)
 
         result = use_case.execute(
             workout_id="w-123",
@@ -374,9 +368,9 @@ class TestPatchWorkoutUseCase:
         assert result.changes_applied == 1
 
     @pytest.mark.unit
-    def test_replace_exercise_field(self, mock_client, use_case, sample_workout_data):
+    def test_replace_exercise_field(self, mock_repo, use_case, sample_workout_data):
         """Replace exercise field works."""
-        setup_mock_workout(mock_client, "w-123", "user-123", sample_workout_data)
+        setup_mock_workout(mock_repo, "w-123", "user-123", sample_workout_data)
 
         result = use_case.execute(
             workout_id="w-123",
@@ -390,9 +384,9 @@ class TestPatchWorkoutUseCase:
         assert result.changes_applied == 1
 
     @pytest.mark.unit
-    def test_add_exercise(self, mock_client, use_case, sample_workout_data):
+    def test_add_exercise(self, mock_repo, use_case, sample_workout_data):
         """Add exercise operation works."""
-        setup_mock_workout(mock_client, "w-123", "user-123", sample_workout_data)
+        setup_mock_workout(mock_repo, "w-123", "user-123", sample_workout_data)
 
         result = use_case.execute(
             workout_id="w-123",
@@ -410,9 +404,9 @@ class TestPatchWorkoutUseCase:
         assert result.changes_applied == 1
 
     @pytest.mark.unit
-    def test_remove_exercise(self, mock_client, use_case, sample_workout_data):
+    def test_remove_exercise(self, mock_repo, use_case, sample_workout_data):
         """Remove exercise operation works."""
-        setup_mock_workout(mock_client, "w-123", "user-123", sample_workout_data)
+        setup_mock_workout(mock_repo, "w-123", "user-123", sample_workout_data)
 
         result = use_case.execute(
             workout_id="w-123",
@@ -426,9 +420,9 @@ class TestPatchWorkoutUseCase:
         assert result.changes_applied == 1
 
     @pytest.mark.unit
-    def test_multiple_operations(self, mock_client, use_case, sample_workout_data):
+    def test_multiple_operations(self, mock_repo, use_case, sample_workout_data):
         """Multiple operations are applied in sequence."""
-        setup_mock_workout(mock_client, "w-123", "user-123", sample_workout_data)
+        setup_mock_workout(mock_repo, "w-123", "user-123", sample_workout_data)
 
         result = use_case.execute(
             workout_id="w-123",
@@ -444,23 +438,9 @@ class TestPatchWorkoutUseCase:
         assert result.changes_applied == 3
 
     @pytest.mark.unit
-    def test_workout_not_found(self, mock_client, use_case):
+    def test_workout_not_found(self, mock_repo, use_case):
         """Returns error when workout not found."""
-        # Setup mock to return None
-        select_mock = MagicMock()
-        eq_mock = MagicMock()
-        single_mock = MagicMock()
-
-        def execute_select():
-            result = MagicMock()
-            result.data = None
-            return result
-
-        single_mock.execute = execute_select
-        eq_mock.single.return_value = single_mock
-        eq_mock.eq.return_value = eq_mock
-        select_mock.eq.return_value = eq_mock
-        mock_client._workouts_table.select.return_value = select_mock
+        # Don't set up any workout in the mock repo - it should return None
 
         result = use_case.execute(
             workout_id="nonexistent",
@@ -531,8 +511,8 @@ class TestApplyOperationLogic:
 
     @pytest.fixture
     def use_case(self):
-        """Create use case with mock client."""
-        return PatchWorkoutUseCase(supabase_client=MagicMock())
+        """Create use case with mock repository."""
+        return PatchWorkoutUseCase(workout_repo=MockWorkoutRepository())
 
     @pytest.mark.unit
     def test_apply_title_replace(self, use_case):
@@ -655,19 +635,19 @@ class TestValidationErrors:
     """Tests for validation error cases."""
 
     @pytest.fixture
-    def mock_client(self):
-        """Create mock Supabase client."""
-        return create_mock_supabase()
+    def mock_repo(self):
+        """Create mock workout repository."""
+        return MockWorkoutRepository()
 
     @pytest.fixture
-    def use_case(self, mock_client):
-        """Create use case with mock client."""
-        return PatchWorkoutUseCase(supabase_client=mock_client)
+    def use_case(self, mock_repo):
+        """Create use case with mock repository."""
+        return PatchWorkoutUseCase(workout_repo=mock_repo)
 
     @pytest.mark.unit
-    def test_invalid_path_validation(self, mock_client, use_case):
+    def test_invalid_path_validation(self, mock_repo, use_case):
         """Invalid paths are rejected during validation."""
-        setup_mock_workout(mock_client, "w-123", "user-123", {
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
             "title": "Test",
             "blocks": [{"exercises": [{"name": "Squat", "sets": 3}]}],
         })
@@ -684,9 +664,9 @@ class TestValidationErrors:
         assert len(result.validation_errors) > 0
 
     @pytest.mark.unit
-    def test_empty_title_validation(self, mock_client, use_case):
+    def test_empty_title_validation(self, mock_repo, use_case):
         """Empty title is rejected."""
-        setup_mock_workout(mock_client, "w-123", "user-123", {
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
             "title": "Test",
             "blocks": [{"exercises": [{"name": "Squat", "sets": 3}]}],
         })
@@ -702,9 +682,9 @@ class TestValidationErrors:
         assert result.success is False
 
     @pytest.mark.unit
-    def test_tags_must_be_array(self, mock_client, use_case):
+    def test_tags_must_be_array(self, mock_repo, use_case):
         """Tags must be an array when replacing entire tags."""
-        setup_mock_workout(mock_client, "w-123", "user-123", {
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
             "title": "Test",
             "tags": ["existing"],
             "blocks": [{"exercises": [{"name": "Squat", "sets": 3}]}],
@@ -730,24 +710,24 @@ class TestEdgeCases:
     """Tests for edge cases."""
 
     @pytest.fixture
-    def mock_client(self):
-        """Create mock Supabase client."""
-        return create_mock_supabase()
+    def mock_repo(self):
+        """Create mock workout repository."""
+        return MockWorkoutRepository()
 
     @pytest.fixture
-    def use_case(self, mock_client):
-        """Create use case with mock client."""
-        return PatchWorkoutUseCase(supabase_client=mock_client)
+    def use_case(self, mock_repo):
+        """Create use case with mock repository."""
+        return PatchWorkoutUseCase(workout_repo=mock_repo)
 
     @pytest.mark.unit
-    def test_remove_nonexistent_index_no_change(self, mock_client, use_case):
+    def test_remove_nonexistent_index_no_change(self, mock_repo, use_case):
         """Remove on non-existent index succeeds with 0 changes applied.
 
         The implementation is lenient - operations on non-existent indices
         simply don't apply any changes rather than failing validation.
         This allows batch operations to be more flexible.
         """
-        setup_mock_workout(mock_client, "w-123", "user-123", {
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
             "title": "Test",
             "blocks": [{"exercises": [{"name": "Squat", "sets": 3}]}],
         })
@@ -766,57 +746,13 @@ class TestEdgeCases:
         assert result.changes_applied == 0
 
     @pytest.mark.unit
-    def test_add_exercise_creates_default_block(self, mock_client, use_case):
+    def test_add_exercise_creates_default_block(self, mock_repo, use_case):
         """Adding exercise when no blocks exist creates default block."""
-        # Configure to return workout with empty blocks
-        select_mock = MagicMock()
-        eq_mock = MagicMock()
-        single_mock = MagicMock()
-
-        workout_row = {
-            "id": "w-123",
-            "profile_id": "user-123",
+        # Setup workout with empty blocks
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
             "title": "Test",
-            "workout_data": {"title": "Test", "blocks": []},
-            "tags": [],
-        }
-
-        def execute_select():
-            result = MagicMock()
-            result.data = workout_row
-            return result
-
-        single_mock.execute = execute_select
-        eq_mock.single.return_value = single_mock
-        eq_mock.eq.return_value = eq_mock
-        select_mock.eq.return_value = eq_mock
-        mock_client._workouts_table.select.return_value = select_mock
-
-        # Configure update chain
-        update_mock = MagicMock()
-        update_eq_mock = MagicMock()
-
-        def execute_update():
-            result = MagicMock()
-            result.data = [workout_row]
-            return result
-
-        update_eq_mock.execute = execute_update
-        update_eq_mock.eq.return_value = update_eq_mock
-        update_mock.eq.return_value = update_eq_mock
-        mock_client._workouts_table.update.return_value = update_mock
-
-        # Configure edit history insert
-        insert_mock = MagicMock()
-
-        def execute_insert():
-            result = MagicMock()
-            result.data = [{}]
-            return result
-
-        insert_mock.execute = execute_insert
-        mock_client._edit_history_table = MagicMock()
-        mock_client._edit_history_table.insert.return_value = insert_mock
+            "blocks": [],
+        })
 
         # Adding to exercises with empty blocks - the implementation
         # creates a default block automatically
@@ -837,9 +773,9 @@ class TestEdgeCases:
         assert result.changes_applied == 1
 
     @pytest.mark.unit
-    def test_remove_valid_exercise(self, mock_client, use_case):
+    def test_remove_valid_exercise(self, mock_repo, use_case):
         """Remove existing exercise by valid index."""
-        setup_mock_workout(mock_client, "w-123", "user-123", {
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
             "title": "Test",
             "blocks": [{"exercises": [
                 {"name": "Squat", "sets": 3},
