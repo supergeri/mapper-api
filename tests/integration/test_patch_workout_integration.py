@@ -16,9 +16,21 @@ from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 
 from backend.app import app
-from api.deps import get_patch_workout_use_case
+from api.deps import get_patch_workout_use_case, get_current_user
 from application.use_cases.patch_workout import PatchWorkoutUseCase, PatchWorkoutResult
 from domain.models.patch_operation import PatchOperation
+
+
+# =============================================================================
+# Auth Mock
+# =============================================================================
+
+TEST_USER_ID = "test-user-integration"
+
+
+async def mock_get_current_user() -> str:
+    """Mock auth dependency for integration tests."""
+    return TEST_USER_ID
 
 
 # =============================================================================
@@ -91,6 +103,15 @@ def business_rule_error_use_case():
     ))
 
 
+@pytest.fixture
+def patch_client():
+    """Test client with auth mocked for PATCH endpoint tests."""
+    app.dependency_overrides[get_current_user] = mock_get_current_user
+    client = TestClient(app)
+    yield client
+    app.dependency_overrides.pop(get_current_user, None)
+
+
 # =============================================================================
 # Success Path Tests
 # =============================================================================
@@ -100,11 +121,11 @@ def business_rule_error_use_case():
 class TestPatchWorkoutSuccess:
     """Tests for successful patch operations."""
 
-    def test_successful_patch_returns_200(self, api_client, success_use_case):
+    def test_successful_patch_returns_200(self, patch_client, success_use_case):
         """Successful patch returns 200 with workout data."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: success_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/w-123",
                 json={"operations": [{"op": "replace", "path": "/title", "value": "New Title"}]},
             )
@@ -117,11 +138,11 @@ class TestPatchWorkoutSuccess:
         finally:
             app.dependency_overrides.pop(get_patch_workout_use_case, None)
 
-    def test_passes_workout_id_to_use_case(self, api_client, success_use_case):
+    def test_passes_workout_id_to_use_case(self, patch_client, success_use_case):
         """Workout ID from URL is passed to use case."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: success_use_case
         try:
-            api_client.patch(
+            patch_client.patch(
                 "/workouts/my-workout-id-456",
                 json={"operations": [{"op": "replace", "path": "/title", "value": "Test"}]},
             )
@@ -130,11 +151,11 @@ class TestPatchWorkoutSuccess:
         finally:
             app.dependency_overrides.pop(get_patch_workout_use_case, None)
 
-    def test_passes_operations_to_use_case(self, api_client, success_use_case):
+    def test_passes_operations_to_use_case(self, patch_client, success_use_case):
         """Operations from request are passed to use case."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: success_use_case
         try:
-            api_client.patch(
+            patch_client.patch(
                 "/workouts/w-123",
                 json={
                     "operations": [
@@ -152,11 +173,11 @@ class TestPatchWorkoutSuccess:
         finally:
             app.dependency_overrides.pop(get_patch_workout_use_case, None)
 
-    def test_multiple_operations_accepted(self, api_client, success_use_case):
+    def test_multiple_operations_accepted(self, patch_client, success_use_case):
         """Multiple operations in single request are accepted."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: success_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/w-123",
                 json={
                     "operations": [
@@ -181,11 +202,11 @@ class TestPatchWorkoutSuccess:
 class TestPatchWorkoutErrors:
     """Tests for error responses."""
 
-    def test_not_found_returns_404(self, api_client, not_found_use_case):
+    def test_not_found_returns_404(self, patch_client, not_found_use_case):
         """Missing workout returns 404."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: not_found_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/nonexistent-id",
                 json={"operations": [{"op": "replace", "path": "/title", "value": "X"}]},
             )
@@ -196,11 +217,11 @@ class TestPatchWorkoutErrors:
         finally:
             app.dependency_overrides.pop(get_patch_workout_use_case, None)
 
-    def test_validation_error_returns_422(self, api_client, validation_error_use_case):
+    def test_validation_error_returns_422(self, patch_client, validation_error_use_case):
         """Validation failure returns 422 with error details."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: validation_error_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/w-123",
                 json={"operations": [{"op": "replace", "path": "/invalid", "value": "X"}]},
             )
@@ -212,11 +233,11 @@ class TestPatchWorkoutErrors:
         finally:
             app.dependency_overrides.pop(get_patch_workout_use_case, None)
 
-    def test_business_rule_error_returns_422(self, api_client, business_rule_error_use_case):
+    def test_business_rule_error_returns_422(self, patch_client, business_rule_error_use_case):
         """Business rule validation failure returns 422."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: business_rule_error_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/w-123",
                 json={"operations": [{"op": "remove", "path": "/blocks/0"}]},
             )
@@ -236,9 +257,9 @@ class TestPatchWorkoutErrors:
 class TestPatchWorkoutRequestValidation:
     """Tests for request validation via Pydantic."""
 
-    def test_empty_operations_rejected(self, api_client):
+    def test_empty_operations_rejected(self, patch_client):
         """Empty operations array is rejected by Pydantic."""
-        response = api_client.patch(
+        response = patch_client.patch(
             "/workouts/w-123",
             json={"operations": []},
         )
@@ -246,49 +267,49 @@ class TestPatchWorkoutRequestValidation:
         data = response.json()
         assert "detail" in data
 
-    def test_missing_operations_rejected(self, api_client):
+    def test_missing_operations_rejected(self, patch_client):
         """Missing operations field is rejected."""
-        response = api_client.patch(
+        response = patch_client.patch(
             "/workouts/w-123",
             json={},
         )
         assert response.status_code == 422
 
-    def test_invalid_operation_type_rejected(self, api_client):
+    def test_invalid_operation_type_rejected(self, patch_client):
         """Invalid op type is rejected by Pydantic."""
-        response = api_client.patch(
+        response = patch_client.patch(
             "/workouts/w-123",
             json={"operations": [{"op": "move", "path": "/title", "value": "X"}]},
         )
         assert response.status_code == 422
 
-    def test_path_without_slash_rejected(self, api_client):
+    def test_path_without_slash_rejected(self, patch_client):
         """Path without leading / is rejected."""
-        response = api_client.patch(
+        response = patch_client.patch(
             "/workouts/w-123",
             json={"operations": [{"op": "replace", "path": "title", "value": "X"}]},
         )
         assert response.status_code == 422
 
-    def test_empty_path_rejected(self, api_client):
+    def test_empty_path_rejected(self, patch_client):
         """Empty path is rejected."""
-        response = api_client.patch(
+        response = patch_client.patch(
             "/workouts/w-123",
             json={"operations": [{"op": "replace", "path": "", "value": "X"}]},
         )
         assert response.status_code == 422
 
-    def test_missing_op_field_rejected(self, api_client):
+    def test_missing_op_field_rejected(self, patch_client):
         """Missing op field is rejected."""
-        response = api_client.patch(
+        response = patch_client.patch(
             "/workouts/w-123",
             json={"operations": [{"path": "/title", "value": "X"}]},
         )
         assert response.status_code == 422
 
-    def test_missing_path_field_rejected(self, api_client):
+    def test_missing_path_field_rejected(self, patch_client):
         """Missing path field is rejected."""
-        response = api_client.patch(
+        response = patch_client.patch(
             "/workouts/w-123",
             json={"operations": [{"op": "replace", "value": "X"}]},
         )
@@ -304,11 +325,11 @@ class TestPatchWorkoutRequestValidation:
 class TestPatchOperationTypes:
     """Tests for different operation types."""
 
-    def test_replace_operation_accepted(self, api_client, success_use_case):
+    def test_replace_operation_accepted(self, patch_client, success_use_case):
         """Replace operation is accepted."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: success_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/w-123",
                 json={"operations": [{"op": "replace", "path": "/title", "value": "New"}]},
             )
@@ -316,11 +337,11 @@ class TestPatchOperationTypes:
         finally:
             app.dependency_overrides.pop(get_patch_workout_use_case, None)
 
-    def test_add_operation_accepted(self, api_client, success_use_case):
+    def test_add_operation_accepted(self, patch_client, success_use_case):
         """Add operation is accepted."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: success_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/w-123",
                 json={"operations": [{"op": "add", "path": "/tags/-", "value": "strength"}]},
             )
@@ -328,11 +349,11 @@ class TestPatchOperationTypes:
         finally:
             app.dependency_overrides.pop(get_patch_workout_use_case, None)
 
-    def test_remove_operation_accepted(self, api_client, success_use_case):
+    def test_remove_operation_accepted(self, patch_client, success_use_case):
         """Remove operation is accepted (no value needed)."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: success_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/w-123",
                 json={"operations": [{"op": "remove", "path": "/exercises/0"}]},
             )
@@ -340,11 +361,11 @@ class TestPatchOperationTypes:
         finally:
             app.dependency_overrides.pop(get_patch_workout_use_case, None)
 
-    def test_remove_with_value_accepted(self, api_client, success_use_case):
+    def test_remove_with_value_accepted(self, patch_client, success_use_case):
         """Remove operation with value is accepted (value ignored)."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: success_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/w-123",
                 json={"operations": [{"op": "remove", "path": "/exercises/0", "value": "ignored"}]},
             )
@@ -362,11 +383,11 @@ class TestPatchOperationTypes:
 class TestPatchComplexValues:
     """Tests for complex values in operations."""
 
-    def test_array_value_accepted(self, api_client, success_use_case):
+    def test_array_value_accepted(self, patch_client, success_use_case):
         """Array value for tags replacement is accepted."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: success_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/w-123",
                 json={"operations": [
                     {"op": "replace", "path": "/tags", "value": ["tag1", "tag2", "tag3"]}
@@ -376,11 +397,11 @@ class TestPatchComplexValues:
         finally:
             app.dependency_overrides.pop(get_patch_workout_use_case, None)
 
-    def test_object_value_accepted(self, api_client, success_use_case):
+    def test_object_value_accepted(self, patch_client, success_use_case):
         """Object value for exercise is accepted."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: success_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/w-123",
                 json={"operations": [
                     {"op": "add", "path": "/exercises/-", "value": {
@@ -394,11 +415,11 @@ class TestPatchComplexValues:
         finally:
             app.dependency_overrides.pop(get_patch_workout_use_case, None)
 
-    def test_null_value_accepted(self, api_client, success_use_case):
+    def test_null_value_accepted(self, patch_client, success_use_case):
         """Null value for clearing description is accepted."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: success_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/w-123",
                 json={"operations": [
                     {"op": "replace", "path": "/description", "value": None}
@@ -408,11 +429,11 @@ class TestPatchComplexValues:
         finally:
             app.dependency_overrides.pop(get_patch_workout_use_case, None)
 
-    def test_numeric_value_accepted(self, api_client, success_use_case):
+    def test_numeric_value_accepted(self, patch_client, success_use_case):
         """Numeric value for sets/reps is accepted."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: success_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/w-123",
                 json={"operations": [
                     {"op": "replace", "path": "/exercises/0/sets", "value": 5}
@@ -432,11 +453,11 @@ class TestPatchComplexValues:
 class TestPatchResponseShape:
     """Tests for response body shape."""
 
-    def test_success_response_has_required_fields(self, api_client, success_use_case):
+    def test_success_response_has_required_fields(self, patch_client, success_use_case):
         """Success response contains all required fields."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: success_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/w-123",
                 json={"operations": [{"op": "replace", "path": "/title", "value": "X"}]},
             )
@@ -454,11 +475,11 @@ class TestPatchResponseShape:
         finally:
             app.dependency_overrides.pop(get_patch_workout_use_case, None)
 
-    def test_error_response_has_detail(self, api_client, not_found_use_case):
+    def test_error_response_has_detail(self, patch_client, not_found_use_case):
         """Error response contains detail with message."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: not_found_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/w-123",
                 json={"operations": [{"op": "replace", "path": "/title", "value": "X"}]},
             )
@@ -469,11 +490,11 @@ class TestPatchResponseShape:
         finally:
             app.dependency_overrides.pop(get_patch_workout_use_case, None)
 
-    def test_validation_error_response_has_errors_list(self, api_client, validation_error_use_case):
+    def test_validation_error_response_has_errors_list(self, patch_client, validation_error_use_case):
         """Validation error response contains errors list."""
         app.dependency_overrides[get_patch_workout_use_case] = lambda: validation_error_use_case
         try:
-            response = api_client.patch(
+            response = patch_client.patch(
                 "/workouts/w-123",
                 json={"operations": [{"op": "replace", "path": "/invalid", "value": "X"}]},
             )
