@@ -517,3 +517,53 @@ class SupabaseWorkoutRepository:
         except Exception as e:
             logger.error(f"Failed to report sync failure: {e}")
             return None
+
+    # =========================================================================
+    # Patch Operations (AMA-433)
+    # =========================================================================
+
+    def get_workout_by_id(
+        self,
+        workout_id: str,
+        profile_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Get a workout by ID with all fields for patching."""
+        # Delegate to existing get() method
+        return self.get(workout_id, profile_id)
+
+    def update_workout_data(
+        self,
+        workout_id: str,
+        profile_id: str,
+        workout_data: Dict[str, Any],
+        *,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        clear_embedding: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """Update workout data and optionally clear embedding hash."""
+        try:
+            update_data: Dict[str, Any] = {
+                "workout_data": workout_data,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+            if title is not None:
+                update_data["title"] = title
+            if description is not None:
+                update_data["description"] = description
+            if tags is not None:
+                update_data["tags"] = tags
+            if clear_embedding:
+                update_data["embedding_content_hash"] = None
+
+            result = self._client.table("workouts").update(update_data).eq("id", workout_id).eq("profile_id", profile_id).execute()
+
+            if result.data and len(result.data) > 0:
+                logger.info(f"Workout {workout_id} data updated (clear_embedding={clear_embedding})")
+                return result.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Failed to update workout data for {workout_id}: {e}")
+            return None

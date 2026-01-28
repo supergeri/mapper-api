@@ -6,12 +6,13 @@ Updated in AMA-381: Move workout CRUD endpoints from app.py
 Updated in AMA-383: Move completion endpoints to routers/completions.py
 Updated in AMA-388: Refactor to use dependency injection for repositories
 Updated in AMA-394: Refactor to call SaveWorkoutUseCase
+Updated in AMA-433: Add PATCH /workouts/{id} endpoint for JSON Patch operations
 
 This router contains endpoints for:
 - /workouts/save - Save workout to database
 - /workouts - List user workouts
 - /workouts/incoming - Get incoming (pending) workouts
-- /workouts/{workout_id} - Get, delete workout
+- /workouts/{workout_id} - Get, delete, patch workout
 - /workouts/{workout_id}/export-status - Update export status
 - /workouts/{workout_id}/favorite - Toggle favorite
 - /workouts/{workout_id}/used - Track usage
@@ -23,20 +24,23 @@ api/routers/completions.py and must be registered BEFORE this router.
 
 import logging
 import time
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
-from fastapi import APIRouter, Query, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, Query, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from api.deps import (
     get_current_user,
     get_workout_repo,
     get_save_workout_use_case,
+    get_patch_workout_use_case,
     get_search_repo,
     get_embedding_service,
 )
 from application.ports import WorkoutRepository, SearchRepository, EmbeddingService
 from application.use_cases import SaveWorkoutUseCase
+from application.use_cases.patch_workout import PatchWorkoutUseCase
+from domain.models.patch_operation import PatchOperation
 from backend.adapters.blocks_to_workoutkit import to_workoutkit
 from domain.converters.blocks_to_workout import blocks_to_workout
 from domain.models import WorkoutMetadata, WorkoutSource
@@ -114,6 +118,45 @@ class UpdateTagsRequest(BaseModel):
     """Request for updating workout tags."""
     profile_id: str
     tags: List[str]
+
+
+class PatchWorkoutRequest(BaseModel):
+    """Request for patching a workout with JSON Patch operations.
+
+    Part of AMA-433: PATCH /workouts/{id} endpoint implementation.
+    """
+    operations: List[PatchOperation] = Field(
+        ...,
+        min_length=1,
+        description="List of JSON Patch operations to apply",
+        json_schema_extra={
+            "example": [
+                {"op": "replace", "path": "/title", "value": "Updated Title"},
+                {"op": "add", "path": "/tags/-", "value": "strength"},
+            ]
+        },
+    )
+
+
+class PatchWorkoutResponse(BaseModel):
+    """Response for patch workout endpoint."""
+    success: bool = True
+    workout: dict | None = None
+    changes_applied: int = 0
+    embedding_regeneration: str = "none"
+
+
+class PatchWorkoutErrorResponse(BaseModel):
+    """Error response for patch workout endpoint."""
+    detail: dict = Field(
+        ...,
+        json_schema_extra={
+            "example": {
+                "message": "Patch operation failed",
+                "validation_errors": ["Invalid path: /exercises/99"],
+            }
+        },
+    )
 
 
 # =============================================================================
@@ -651,3 +694,85 @@ def update_workout_tags_endpoint(
             "success": False,
             "message": "Failed to update tags"
         }
+
+
+# =============================================================================
+# Patch Workout Endpoint (AMA-433)
+# =============================================================================
+
+
+@router.patch(
+    "/workouts/{workout_id}",
+    response_model=PatchWorkoutResponse,
+    responses={
+        404: {"description": "Workout not found"},
+        422: {"model": PatchWorkoutErrorResponse, "description": "Validation error"},
+    },
+)
+def patch_workout_endpoint(
+    workout_id: str,
+    request: PatchWorkoutRequest,
+    user_id: str = Depends(get_current_user),
+    patch_use_case: PatchWorkoutUseCase = Depends(get_patch_workout_use_case),
+):
+    """
+    Apply JSON Patch operations to a workout.
+
+    This endpoint supports a subset of RFC 6902 JSON Patch for workout editing.
+    Operations are applied atomically - all succeed or all fail.
+
+    **Supported operations:**
+    - `replace`: Replace a value at a path
+    - `add`: Add a value at a path (e.g., append to array with `/-`)
+    - `remove`: Remove a value at a path
+
+    **Supported paths:**
+    - `/title` or `/name`: Workout title
+    - `/description`: Workout description
+    - `/tags`: Replace tags array
+    - `/tags/-`: Add tag (add op)
+    - `/exercises/-`: Add exercise to first block
+    - `/exercises/{index}`: Replace or remove exercise
+    - `/exercises/{index}/{field}`: Replace exercise field (sets, reps, etc.)
+    - `/blocks/{index}/exercises/-`: Add exercise to specific block
+    - `/blocks/{index}/exercises/{index}`: Modify exercise in block
+
+    **Example request:**
+    ```json
+    {
+      "operations": [
+        {"op": "replace", "path": "/title", "value": "New Title"},
+        {"op": "add", "path": "/tags/-", "value": "strength"},
+        {"op": "replace", "path": "/exercises/0/sets", "value": 4}
+      ]
+    }
+    ```
+
+    Part of AMA-433: PATCH /workouts/{id} endpoint implementation.
+    """
+    result = patch_use_case.execute(
+        workout_id=workout_id,
+        user_id=user_id,
+        operations=request.operations,
+    )
+
+    if not result.success:
+        if result.error == "Workout not found or not owned by user":
+            raise HTTPException(
+                status_code=404,
+                detail={"message": result.error},
+            )
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": result.error or "Patch operation failed",
+                "validation_errors": result.validation_errors,
+            },
+        )
+
+    return PatchWorkoutResponse(
+        success=True,
+        workout=result.workout,
+        changes_applied=result.changes_applied,
+        embedding_regeneration=result.embedding_regeneration,
+    )

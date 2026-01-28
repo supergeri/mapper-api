@@ -85,6 +85,7 @@ from application.use_cases import (
     MapWorkoutUseCase,
     ExportWorkoutUseCase,
     SaveWorkoutUseCase,
+    PatchWorkoutUseCase,
 )
 
 
@@ -449,6 +450,23 @@ def get_save_workout_use_case(
     return SaveWorkoutUseCase(workout_repo=workout_repo)
 
 
+def get_patch_workout_use_case(
+    client: Client = Depends(get_supabase_client_required),
+) -> PatchWorkoutUseCase:
+    """
+    Get PatchWorkoutUseCase with injected dependencies.
+
+    Part of AMA-433: PATCH /workouts/{id} endpoint implementation.
+
+    Args:
+        client: Supabase client (injected)
+
+    Returns:
+        PatchWorkoutUseCase: Use case for patching workouts
+    """
+    return PatchWorkoutUseCase(supabase_client=client)
+
+
 def get_export_workout_use_case(
     workout_repo: WorkoutRepository = Depends(get_workout_repo),
 ) -> ExportWorkoutUseCase:
@@ -587,6 +605,7 @@ __all__ = [
     "get_save_workout_use_case",
     "get_export_workout_use_case",
     "get_map_workout_use_case",
+    "get_patch_workout_use_case",
     # Authentication
     "get_current_user",
     "get_optional_user",

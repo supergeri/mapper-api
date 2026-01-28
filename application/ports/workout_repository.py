@@ -244,3 +244,53 @@ class WorkoutRepository(Protocol):
             True if updated successfully
         """
         ...
+
+    def get_workout_by_id(
+        self,
+        workout_id: str,
+        profile_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get a workout by ID with all fields for patching.
+
+        Similar to get() but explicitly named for patch operations.
+
+        Args:
+            workout_id: Workout UUID
+            profile_id: User profile ID (for authorization)
+
+        Returns:
+            Full workout record or None if not found/unauthorized
+        """
+        ...
+
+    def update_workout_data(
+        self,
+        workout_id: str,
+        profile_id: str,
+        workout_data: Dict[str, Any],
+        *,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        clear_embedding: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Update workout data and optionally clear embedding hash.
+
+        Used for patch operations where the full workout_data JSON
+        has been modified.
+
+        Args:
+            workout_id: Workout UUID
+            profile_id: User profile ID (for authorization)
+            workout_data: Updated workout_data JSON
+            title: Optional updated title
+            description: Optional updated description
+            tags: Optional updated tags list
+            clear_embedding: Whether to clear embedding_content_hash
+
+        Returns:
+            Updated workout record or None on failure
+        """
+        ...
