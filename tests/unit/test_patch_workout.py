@@ -793,3 +793,605 @@ class TestEdgeCases:
 
         assert result.success is True
         assert result.changes_applied == 1
+
+
+# =============================================================================
+# Length Validation Tests (Code Review Fix Verification)
+# =============================================================================
+
+
+class TestLengthValidation:
+    """Tests for input length validation constants.
+
+    Verifies the code review fix that added:
+    - MAX_TITLE_LENGTH = 200
+    - MAX_DESCRIPTION_LENGTH = 2000 (matches domain model)
+    - MAX_NOTES_LENGTH = 2000 (matches domain model)
+    - MAX_TAG_LENGTH = 100
+    - MAX_TAGS_COUNT = 50
+    - MAX_EXERCISE_NAME_LENGTH = 200
+    - MAX_EXERCISE_NOTES_LENGTH = 1000
+    """
+
+    @pytest.fixture
+    def mock_repo(self):
+        """Create mock workout repository."""
+        return MockWorkoutRepository()
+
+    @pytest.fixture
+    def use_case(self, mock_repo):
+        """Create use case with mock repository."""
+        return PatchWorkoutUseCase(workout_repo=mock_repo)
+
+    @pytest.fixture
+    def basic_workout(self, mock_repo):
+        """Setup a basic workout for testing."""
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
+            "title": "Test Workout",
+            "description": "Test description",
+            "tags": ["cardio"],
+            "blocks": [{"exercises": [{"name": "Squat", "sets": 3, "reps": 10}]}],
+        })
+        return mock_repo
+
+    # -------------------------------------------------------------------------
+    # Title Length Tests (MAX_TITLE_LENGTH = 200)
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.unit
+    def test_title_at_max_length_accepted(self, use_case, basic_workout):
+        """Title exactly at 200 chars is accepted."""
+        title = "x" * 200
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="replace", path="/title", value=title)],
+        )
+        assert result.success is True
+        assert result.changes_applied == 1
+
+    @pytest.mark.unit
+    def test_title_exceeds_max_length_rejected(self, use_case, basic_workout):
+        """Title exceeding 200 chars is rejected."""
+        title = "x" * 201
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="replace", path="/title", value=title)],
+        )
+        assert result.success is False
+        assert len(result.validation_errors) > 0
+        assert any("200" in err or "Title" in err for err in result.validation_errors)
+
+    # -------------------------------------------------------------------------
+    # Description Length Tests (MAX_DESCRIPTION_LENGTH = 2000)
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.unit
+    def test_description_at_max_length_accepted(self, use_case, basic_workout):
+        """Description exactly at 2000 chars is accepted."""
+        desc = "x" * 2000
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="replace", path="/description", value=desc)],
+        )
+        assert result.success is True
+        assert result.changes_applied == 1
+
+    @pytest.mark.unit
+    def test_description_exceeds_max_length_rejected(self, use_case, basic_workout):
+        """Description exceeding 2000 chars is rejected."""
+        desc = "x" * 2001
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="replace", path="/description", value=desc)],
+        )
+        assert result.success is False
+        assert len(result.validation_errors) > 0
+        assert any("2000" in err or "Description" in err for err in result.validation_errors)
+
+    # -------------------------------------------------------------------------
+    # Notes Length Tests (MAX_NOTES_LENGTH = 2000)
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.unit
+    def test_notes_at_max_length_accepted(self, use_case, basic_workout):
+        """Notes exactly at 2000 chars is accepted."""
+        notes = "x" * 2000
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="replace", path="/notes", value=notes)],
+        )
+        assert result.success is True
+        assert result.changes_applied == 1
+
+    @pytest.mark.unit
+    def test_notes_exceeds_max_length_rejected(self, use_case, basic_workout):
+        """Notes exceeding 2000 chars is rejected."""
+        notes = "x" * 2001
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="replace", path="/notes", value=notes)],
+        )
+        assert result.success is False
+        assert len(result.validation_errors) > 0
+        assert any("2000" in err or "Notes" in err for err in result.validation_errors)
+
+    # -------------------------------------------------------------------------
+    # Tags Count Tests (MAX_TAGS_COUNT = 50)
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.unit
+    def test_tags_at_max_count_accepted(self, use_case, basic_workout):
+        """Exactly 50 tags is accepted."""
+        tags = [f"tag{i}" for i in range(50)]
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="replace", path="/tags", value=tags)],
+        )
+        assert result.success is True
+        assert result.changes_applied == 1
+
+    @pytest.mark.unit
+    def test_tags_exceeds_max_count_rejected(self, use_case, basic_workout):
+        """More than 50 tags is rejected."""
+        tags = [f"tag{i}" for i in range(51)]
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="replace", path="/tags", value=tags)],
+        )
+        assert result.success is False
+        assert len(result.validation_errors) > 0
+        assert any("50" in err for err in result.validation_errors)
+
+    # -------------------------------------------------------------------------
+    # Single Tag Length Tests (MAX_TAG_LENGTH = 100)
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.unit
+    def test_single_tag_at_max_length_accepted(self, use_case, basic_workout):
+        """Single tag exactly at 100 chars is accepted."""
+        tag = "x" * 100
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="add", path="/tags/-", value=tag)],
+        )
+        assert result.success is True
+        assert result.changes_applied == 1
+
+    @pytest.mark.unit
+    def test_single_tag_exceeds_max_length_rejected(self, use_case, basic_workout):
+        """Single tag exceeding 100 chars is rejected."""
+        tag = "x" * 101
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="add", path="/tags/-", value=tag)],
+        )
+        assert result.success is False
+        assert len(result.validation_errors) > 0
+        assert any("100" in err or "Tag" in err for err in result.validation_errors)
+
+    @pytest.mark.unit
+    def test_tag_in_array_exceeds_max_length_rejected(self, use_case, basic_workout):
+        """Tag within array exceeding 100 chars is rejected."""
+        tags = ["valid", "x" * 101, "also-valid"]
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="replace", path="/tags", value=tags)],
+        )
+        assert result.success is False
+        assert len(result.validation_errors) > 0
+
+    # -------------------------------------------------------------------------
+    # Exercise Name Length Tests (MAX_EXERCISE_NAME_LENGTH = 200)
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.unit
+    def test_exercise_name_at_max_length_accepted(self, use_case, basic_workout):
+        """Exercise name exactly at 200 chars is accepted."""
+        name = "x" * 200
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="replace", path="/exercises/0/name", value=name)],
+        )
+        assert result.success is True
+        assert result.changes_applied == 1
+
+    @pytest.mark.unit
+    def test_exercise_name_exceeds_max_length_rejected(self, use_case, basic_workout):
+        """Exercise name exceeding 200 chars is rejected."""
+        name = "x" * 201
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="replace", path="/exercises/0/name", value=name)],
+        )
+        assert result.success is False
+        assert len(result.validation_errors) > 0
+        assert any("200" in err or "name" in err.lower() for err in result.validation_errors)
+
+    @pytest.mark.unit
+    def test_new_exercise_name_exceeds_max_length_rejected(self, use_case, basic_workout):
+        """Adding exercise with name exceeding 200 chars is rejected."""
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(
+                op="add",
+                path="/exercises/-",
+                value={"name": "x" * 201, "sets": 3, "reps": 10},
+            )],
+        )
+        assert result.success is False
+        assert len(result.validation_errors) > 0
+
+    # -------------------------------------------------------------------------
+    # Exercise Notes Length Tests (MAX_EXERCISE_NOTES_LENGTH = 1000)
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.unit
+    def test_exercise_notes_at_max_length_accepted(self, use_case, basic_workout):
+        """Exercise notes exactly at 1000 chars is accepted."""
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(
+                op="add",
+                path="/exercises/-",
+                value={"name": "New Exercise", "sets": 3, "notes": "x" * 1000},
+            )],
+        )
+        assert result.success is True
+        assert result.changes_applied == 1
+
+    @pytest.mark.unit
+    def test_exercise_notes_exceeds_max_length_rejected(self, use_case, basic_workout):
+        """Exercise notes exceeding 1000 chars is rejected."""
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(
+                op="add",
+                path="/exercises/-",
+                value={"name": "New Exercise", "sets": 3, "notes": "x" * 1001},
+            )],
+        )
+        assert result.success is False
+        assert len(result.validation_errors) > 0
+        assert any("1000" in err or "notes" in err.lower() for err in result.validation_errors)
+
+
+# =============================================================================
+# Business Rule Edge Cases
+# =============================================================================
+
+
+class TestBusinessRuleEdgeCases:
+    """Tests for business rule validation edge cases."""
+
+    @pytest.fixture
+    def mock_repo(self):
+        """Create mock workout repository."""
+        return MockWorkoutRepository()
+
+    @pytest.fixture
+    def use_case(self, mock_repo):
+        """Create use case with mock repository."""
+        return PatchWorkoutUseCase(workout_repo=mock_repo)
+
+    @pytest.mark.unit
+    def test_remove_last_exercise_rejected(self, mock_repo, use_case):
+        """Removing the only exercise results in business rule failure."""
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
+            "title": "Test",
+            "blocks": [{"exercises": [{"name": "Squat", "sets": 3}]}],
+        })
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="remove", path="/exercises/0")],
+        )
+        assert result.success is False
+        assert any(
+            "at least one" in err.lower() or "no exercises" in err.lower()
+            for err in result.validation_errors
+        )
+
+    @pytest.mark.unit
+    def test_remove_last_block_rejected(self, mock_repo, use_case):
+        """Removing the only block is rejected."""
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
+            "title": "Test",
+            "blocks": [{"exercises": [{"name": "Squat", "sets": 3}]}],
+        })
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="remove", path="/blocks/0")],
+        )
+        assert result.success is False
+        assert any(
+            "at least one" in err.lower() or "block" in err.lower()
+            for err in result.validation_errors
+        )
+
+    @pytest.mark.unit
+    def test_add_exercise_with_empty_name_rejected(self, mock_repo, use_case):
+        """Adding exercise with empty name is rejected."""
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
+            "title": "Test",
+            "blocks": [{"exercises": [{"name": "Squat", "sets": 3}]}],
+        })
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(
+                op="add",
+                path="/exercises/-",
+                value={"name": "", "sets": 3},
+            )],
+        )
+        assert result.success is False
+
+    @pytest.mark.unit
+    def test_add_exercise_without_name_rejected(self, mock_repo, use_case):
+        """Adding exercise without name field is rejected."""
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
+            "title": "Test",
+            "blocks": [{"exercises": [{"name": "Squat", "sets": 3}]}],
+        })
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(
+                op="add",
+                path="/exercises/-",
+                value={"sets": 3, "reps": 10},
+            )],
+        )
+        assert result.success is False
+
+    @pytest.mark.unit
+    def test_replace_exercise_name_with_empty_rejected(self, mock_repo, use_case):
+        """Replacing exercise name with empty string is rejected."""
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
+            "title": "Test",
+            "blocks": [{"exercises": [{"name": "Squat", "sets": 3}]}],
+        })
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="replace", path="/exercises/0/name", value="")],
+        )
+        assert result.success is False
+
+    @pytest.mark.unit
+    def test_replace_title_with_empty_rejected(self, mock_repo, use_case):
+        """Replacing title with empty string is rejected."""
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
+            "title": "Test",
+            "blocks": [{"exercises": [{"name": "Squat", "sets": 3}]}],
+        })
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="replace", path="/title", value="")],
+        )
+        assert result.success is False
+
+    @pytest.mark.unit
+    def test_replace_title_with_whitespace_only_rejected(self, mock_repo, use_case):
+        """Replacing title with whitespace-only string is rejected."""
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
+            "title": "Test",
+            "blocks": [{"exercises": [{"name": "Squat", "sets": 3}]}],
+        })
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="replace", path="/title", value="   ")],
+        )
+        assert result.success is False
+
+
+# =============================================================================
+# Audit Log Resilience Tests
+# =============================================================================
+
+
+class TestAuditLogResilience:
+    """Tests verifying main operation succeeds even if audit logging fails."""
+
+    @pytest.mark.unit
+    def test_patch_succeeds_when_audit_log_fails(self):
+        """Patch operation should succeed even if audit logging throws."""
+
+        class FailingAuditRepository(MockWorkoutRepository):
+            """Repository that fails on audit log."""
+
+            def log_patch_audit(self, workout_id, user_id, operations, changes_applied):
+                raise Exception("Database connection lost")
+
+        mock_repo = FailingAuditRepository()
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
+            "title": "Test",
+            "blocks": [{"exercises": [{"name": "Squat", "sets": 3}]}],
+        })
+
+        use_case = PatchWorkoutUseCase(workout_repo=mock_repo)
+        result = use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[PatchOperation(op="replace", path="/title", value="New Title")],
+        )
+
+        # Main operation should still succeed
+        assert result.success is True
+        assert result.changes_applied == 1
+
+    @pytest.mark.unit
+    def test_audit_log_receives_correct_data(self):
+        """Verify audit log receives the correct operation data."""
+
+        class AuditCapturingRepository(MockWorkoutRepository):
+            """Repository that captures audit log calls."""
+
+            def __init__(self):
+                super().__init__()
+                self.audit_calls = []
+
+            def log_patch_audit(self, workout_id, user_id, operations, changes_applied):
+                self.audit_calls.append({
+                    "workout_id": workout_id,
+                    "user_id": user_id,
+                    "operations": operations,
+                    "changes_applied": changes_applied,
+                })
+
+        mock_repo = AuditCapturingRepository()
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
+            "title": "Test",
+            "blocks": [{"exercises": [{"name": "Squat", "sets": 3}]}],
+        })
+
+        use_case = PatchWorkoutUseCase(workout_repo=mock_repo)
+        use_case.execute(
+            workout_id="w-123",
+            user_id="user-123",
+            operations=[
+                PatchOperation(op="replace", path="/title", value="New Title"),
+                PatchOperation(op="add", path="/tags/-", value="strength"),
+            ],
+        )
+
+        assert len(mock_repo.audit_calls) == 1
+        audit = mock_repo.audit_calls[0]
+        assert audit["workout_id"] == "w-123"
+        assert audit["user_id"] == "user-123"
+        assert audit["changes_applied"] == 2
+        assert len(audit["operations"]) == 2
+        assert audit["operations"][0]["op"] == "replace"
+        assert audit["operations"][0]["path"] == "/title"
+
+
+# =============================================================================
+# Mock Repository Contract Tests
+# =============================================================================
+
+
+class TestMockRepositoryContract:
+    """Verify MockWorkoutRepository matches WorkoutRepository Protocol."""
+
+    @pytest.fixture
+    def mock_repo(self):
+        """Create mock workout repository."""
+        return MockWorkoutRepository()
+
+    @pytest.mark.unit
+    def test_mock_has_get_workout_by_id(self, mock_repo):
+        """Mock implements get_workout_by_id."""
+        assert hasattr(mock_repo, "get_workout_by_id")
+        assert callable(mock_repo.get_workout_by_id)
+
+    @pytest.mark.unit
+    def test_mock_has_update_workout_data(self, mock_repo):
+        """Mock implements update_workout_data."""
+        assert hasattr(mock_repo, "update_workout_data")
+        assert callable(mock_repo.update_workout_data)
+
+    @pytest.mark.unit
+    def test_mock_has_log_patch_audit(self, mock_repo):
+        """Mock implements log_patch_audit."""
+        assert hasattr(mock_repo, "log_patch_audit")
+        assert callable(mock_repo.log_patch_audit)
+
+    @pytest.mark.unit
+    def test_get_workout_by_id_returns_none_for_missing(self, mock_repo):
+        """get_workout_by_id returns None when workout doesn't exist."""
+        result = mock_repo.get_workout_by_id("nonexistent", "user-123")
+        assert result is None
+
+    @pytest.mark.unit
+    def test_get_workout_by_id_returns_workout_when_exists(self, mock_repo):
+        """get_workout_by_id returns workout dict when it exists."""
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
+            "title": "Test",
+            "blocks": [],
+        })
+        result = mock_repo.get_workout_by_id("w-123", "user-123")
+        assert result is not None
+        assert result["id"] == "w-123"
+        assert result["profile_id"] == "user-123"
+
+    @pytest.mark.unit
+    def test_update_workout_data_returns_none_for_missing(self, mock_repo):
+        """update_workout_data returns None when workout doesn't exist."""
+        result = mock_repo.update_workout_data(
+            "nonexistent", "user-123", {"title": "New", "blocks": []}
+        )
+        assert result is None
+
+    @pytest.mark.unit
+    def test_update_workout_data_updates_and_returns_workout(self, mock_repo):
+        """update_workout_data modifies workout and returns updated dict."""
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
+            "title": "Old Title",
+            "blocks": [],
+        })
+        result = mock_repo.update_workout_data(
+            "w-123", "user-123",
+            {"title": "New Title", "blocks": []},
+            title="New Title",
+        )
+        assert result is not None
+        assert result["title"] == "New Title"
+
+    @pytest.mark.unit
+    def test_update_clears_embedding_when_requested(self, mock_repo):
+        """update_workout_data clears embedding hash when clear_embedding=True."""
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
+            "title": "Test",
+            "blocks": [],
+        })
+        # Verify hash exists initially
+        workout = mock_repo.get_workout_by_id("w-123", "user-123")
+        assert workout["embedding_content_hash"] is not None
+
+        # Update with clear_embedding=True
+        mock_repo.update_workout_data(
+            "w-123", "user-123",
+            {"title": "New", "blocks": []},
+            clear_embedding=True,
+        )
+
+        # Verify hash is cleared
+        workout = mock_repo.get_workout_by_id("w-123", "user-123")
+        assert workout["embedding_content_hash"] is None
+
+    @pytest.mark.unit
+    def test_update_preserves_embedding_when_not_clearing(self, mock_repo):
+        """update_workout_data preserves embedding hash when clear_embedding=False."""
+        setup_mock_workout(mock_repo, "w-123", "user-123", {
+            "title": "Test",
+            "blocks": [],
+        })
+        original_hash = mock_repo.get_workout_by_id("w-123", "user-123")["embedding_content_hash"]
+
+        mock_repo.update_workout_data(
+            "w-123", "user-123",
+            {"title": "New", "blocks": []},
+            clear_embedding=False,
+        )
+
+        workout = mock_repo.get_workout_by_id("w-123", "user-123")
+        assert workout["embedding_content_hash"] == original_hash

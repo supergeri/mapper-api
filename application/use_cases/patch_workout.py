@@ -39,8 +39,8 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 MAX_TITLE_LENGTH = 200
-MAX_DESCRIPTION_LENGTH = 5000
-MAX_NOTES_LENGTH = 5000
+MAX_DESCRIPTION_LENGTH = 2000  # Must match domain/models/workout.py
+MAX_NOTES_LENGTH = 2000  # Must match domain/models/workout.py
 MAX_TAG_LENGTH = 100
 MAX_TAGS_COUNT = 50
 MAX_EXERCISE_NAME_LENGTH = 200
