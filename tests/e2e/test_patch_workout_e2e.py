@@ -633,3 +633,468 @@ class TestPatchE2EEdgeCases:
         # All should succeed (last one wins)
         success_count = sum(1 for r in results if r.status_code == 200)
         assert success_count >= 1  # At least one should succeed
+
+
+# =============================================================================
+# P1 Remove Operations Tests
+# =============================================================================
+
+
+@pytest.mark.e2e
+class TestPatchE2ERemoveOperations:
+    """P1 tests for remove operations - critical gap identified by E2E QA."""
+
+    def test_remove_tag_by_index_persists(
+        self, authed_http_client, seed_workout, supabase_client
+    ):
+        """Removing a tag by index persists to database."""
+        # First ensure workout has multiple tags
+        setup_tags = ["tag-to-keep", "tag-to-remove", "another-tag"]
+        authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/tags", "value": setup_tags}]},
+        )
+
+        # Remove the middle tag (index 1)
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "remove", "path": "/tags/1"}]},
+        )
+
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+        # Verify tag was removed
+        row = (
+            supabase_client.table("workouts")
+            .select("tags")
+            .eq("id", seed_workout["workout_id"])
+            .single()
+            .execute()
+        )
+        assert "tag-to-remove" not in row.data["tags"]
+        assert "tag-to-keep" in row.data["tags"]
+        assert "another-tag" in row.data["tags"]
+
+    def test_remove_exercise_persists(
+        self, authed_http_client, seed_workout, supabase_client
+    ):
+        """Removing an exercise persists to database."""
+        # First add an extra exercise to ensure we have at least 2
+        authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={
+                "operations": [
+                    {"op": "add", "path": "/exercises/-", "value": {"name": "Extra Exercise", "sets": 3, "reps": 10}}
+                ]
+            },
+        )
+
+        # Get current exercise count
+        before = (
+            supabase_client.table("workouts")
+            .select("workout_data")
+            .eq("id", seed_workout["workout_id"])
+            .single()
+            .execute()
+        )
+        before_count = len(before.data["workout_data"]["blocks"][0]["exercises"])
+
+        # Remove the first exercise
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "remove", "path": "/exercises/0"}]},
+        )
+
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+        # Verify exercise count reduced
+        after = (
+            supabase_client.table("workouts")
+            .select("workout_data")
+            .eq("id", seed_workout["workout_id"])
+            .single()
+            .execute()
+        )
+        after_count = len(after.data["workout_data"]["blocks"][0]["exercises"])
+        assert after_count == before_count - 1
+
+    def test_remove_description_sets_null(
+        self, authed_http_client, seed_workout, supabase_client
+    ):
+        """Removing description sets it to null."""
+        # First ensure description is set
+        authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={
+                "operations": [
+                    {"op": "replace", "path": "/description", "value": "Temp description"}
+                ]
+            },
+        )
+
+        # Remove description
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "remove", "path": "/description"}]},
+        )
+
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+        # Verify description is null
+        row = (
+            supabase_client.table("workouts")
+            .select("description")
+            .eq("id", seed_workout["workout_id"])
+            .single()
+            .execute()
+        )
+        assert row.data["description"] is None
+
+
+# =============================================================================
+# P1 Length Limit Boundary Tests
+# =============================================================================
+
+
+@pytest.mark.e2e
+class TestPatchE2ELengthLimits:
+    """P1 tests for length limit enforcement at exact boundaries."""
+
+    def test_title_at_200_chars_accepted(self, authed_http_client, seed_workout):
+        """Title at exactly 200 characters is accepted."""
+        title = "x" * 200
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/title", "value": title}]},
+        )
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+    def test_title_at_201_chars_rejected(self, authed_http_client, seed_workout):
+        """Title at 201 characters is rejected with 422."""
+        title = "x" * 201
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/title", "value": title}]},
+        )
+        assert response.status_code == 422, f"Expected 422, got {response.status_code}"
+        data = response.json()
+        assert "detail" in data
+
+    def test_description_at_2000_chars_accepted(self, authed_http_client, seed_workout):
+        """Description at exactly 2000 characters is accepted."""
+        desc = "x" * 2000
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/description", "value": desc}]},
+        )
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+    def test_description_at_2001_chars_rejected(self, authed_http_client, seed_workout):
+        """Description at 2001 characters is rejected with 422."""
+        desc = "x" * 2001
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/description", "value": desc}]},
+        )
+        assert response.status_code == 422, f"Expected 422, got {response.status_code}"
+
+    def test_50_tags_accepted(self, authed_http_client, seed_workout):
+        """Exactly 50 tags is accepted."""
+        tags = [f"tag{i}" for i in range(50)]
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/tags", "value": tags}]},
+        )
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+    def test_51_tags_rejected(self, authed_http_client, seed_workout):
+        """More than 50 tags is rejected with 422."""
+        tags = [f"tag{i}" for i in range(51)]
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/tags", "value": tags}]},
+        )
+        assert response.status_code == 422, f"Expected 422, got {response.status_code}"
+
+    def test_tag_at_100_chars_accepted(self, authed_http_client, seed_workout):
+        """Single tag at exactly 100 characters is accepted."""
+        tag = "x" * 100
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "add", "path": "/tags/-", "value": tag}]},
+        )
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+    def test_tag_at_101_chars_rejected(self, authed_http_client, seed_workout):
+        """Single tag at 101 characters is rejected with 422."""
+        tag = "x" * 101
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "add", "path": "/tags/-", "value": tag}]},
+        )
+        assert response.status_code == 422, f"Expected 422, got {response.status_code}"
+
+    def test_exercise_name_at_200_chars_accepted(self, authed_http_client, seed_workout):
+        """Exercise name at exactly 200 characters is accepted."""
+        name = "x" * 200
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/exercises/0/name", "value": name}]},
+        )
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+    def test_exercise_name_at_201_chars_rejected(self, authed_http_client, seed_workout):
+        """Exercise name at 201 characters is rejected with 422."""
+        name = "x" * 201
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/exercises/0/name", "value": name}]},
+        )
+        assert response.status_code == 422, f"Expected 422, got {response.status_code}"
+
+
+# =============================================================================
+# P1 Notes Field Tests
+# =============================================================================
+
+
+@pytest.mark.e2e
+class TestPatchE2ENotesField:
+    """P1 tests for notes field - identified as having zero E2E coverage."""
+
+    def test_replace_notes_persists(
+        self, authed_http_client, seed_workout, supabase_client
+    ):
+        """Replacing notes field persists to database."""
+        notes = f"Test notes {uuid.uuid4().hex[:6]}"
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/notes", "value": notes}]},
+        )
+
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+        # Verify in database
+        row = (
+            supabase_client.table("workouts")
+            .select("workout_data")
+            .eq("id", seed_workout["workout_id"])
+            .single()
+            .execute()
+        )
+        assert row.data["workout_data"].get("notes") == notes
+
+    def test_remove_notes_persists(
+        self, authed_http_client, seed_workout, supabase_client
+    ):
+        """Removing notes field persists to database."""
+        # First set notes
+        authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/notes", "value": "Temp notes"}]},
+        )
+
+        # Remove notes
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "remove", "path": "/notes"}]},
+        )
+
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+        # Verify notes removed
+        row = (
+            supabase_client.table("workouts")
+            .select("workout_data")
+            .eq("id", seed_workout["workout_id"])
+            .single()
+            .execute()
+        )
+        assert row.data["workout_data"].get("notes") is None
+
+    def test_notes_at_2000_chars_accepted(self, authed_http_client, seed_workout):
+        """Notes at exactly 2000 characters is accepted."""
+        notes = "x" * 2000
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/notes", "value": notes}]},
+        )
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+    def test_notes_at_2001_chars_rejected(self, authed_http_client, seed_workout):
+        """Notes at 2001 characters is rejected with 422."""
+        notes = "x" * 2001
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/notes", "value": notes}]},
+        )
+        assert response.status_code == 422, f"Expected 422, got {response.status_code}"
+
+
+# =============================================================================
+# P2 Block-Level Operations Tests
+# =============================================================================
+
+
+@pytest.mark.e2e
+class TestPatchE2EBlockOperations:
+    """P2 tests for block-level operations."""
+
+    def test_add_exercise_to_specific_block_persists(
+        self, authed_http_client, seed_workout, supabase_client
+    ):
+        """Adding exercise to block 0 via /blocks/0/exercises/- persists."""
+        new_exercise = {"name": f"Block Exercise {uuid.uuid4().hex[:6]}", "sets": 4, "reps": 8}
+
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "add", "path": "/blocks/0/exercises/-", "value": new_exercise}]},
+        )
+
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+        # Verify exercise added
+        row = (
+            supabase_client.table("workouts")
+            .select("workout_data")
+            .eq("id", seed_workout["workout_id"])
+            .single()
+            .execute()
+        )
+        exercises = row.data["workout_data"]["blocks"][0]["exercises"]
+        exercise_names = [ex["name"] for ex in exercises]
+        assert new_exercise["name"] in exercise_names
+
+    def test_replace_block_label_persists(
+        self, authed_http_client, seed_workout, supabase_client
+    ):
+        """Replacing block label persists to database."""
+        new_label = f"Updated Block {uuid.uuid4().hex[:6]}"
+
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/blocks/0/label", "value": new_label}]},
+        )
+
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+        # Verify label updated
+        row = (
+            supabase_client.table("workouts")
+            .select("workout_data")
+            .eq("id", seed_workout["workout_id"])
+            .single()
+            .execute()
+        )
+        assert row.data["workout_data"]["blocks"][0]["label"] == new_label
+
+    def test_replace_exercise_in_block_persists(
+        self, authed_http_client, seed_workout, supabase_client
+    ):
+        """Replacing exercise in specific block persists."""
+        replacement = {"name": "Replacement Exercise", "sets": 5, "reps": 5}
+
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/blocks/0/exercises/0", "value": replacement}]},
+        )
+
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+        # Verify exercise replaced
+        row = (
+            supabase_client.table("workouts")
+            .select("workout_data")
+            .eq("id", seed_workout["workout_id"])
+            .single()
+            .execute()
+        )
+        first_exercise = row.data["workout_data"]["blocks"][0]["exercises"][0]
+        assert first_exercise["name"] == "Replacement Exercise"
+        assert first_exercise["sets"] == 5
+
+
+# =============================================================================
+# P2 Response Schema Validation Tests
+# =============================================================================
+
+
+@pytest.mark.e2e
+class TestPatchE2EResponseSchema:
+    """P2 tests for response payload structure validation."""
+
+    def test_success_response_has_required_fields(self, authed_http_client, seed_workout):
+        """Successful patch response has all required fields."""
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/title", "value": "Schema Test"}]},
+        )
+
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+        data = response.json()
+
+        # Verify required fields exist
+        assert "success" in data, "Missing 'success' field"
+        assert "workout" in data, "Missing 'workout' field"
+        assert "changes_applied" in data, "Missing 'changes_applied' field"
+        assert "embedding_regeneration" in data, "Missing 'embedding_regeneration' field"
+
+        # Verify field types
+        assert data["success"] is True
+        assert isinstance(data["workout"], dict)
+        assert isinstance(data["changes_applied"], int)
+        assert data["embedding_regeneration"] in ("queued", "none", "failed")
+
+    def test_success_response_workout_has_id(self, authed_http_client, seed_workout):
+        """Successful response workout object has id field."""
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/title", "value": "ID Test"}]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "id" in data["workout"]
+        assert data["workout"]["id"] == seed_workout["workout_id"]
+
+    def test_error_response_has_detail(self, authed_http_client, seed_workout):
+        """422 error response has detail field."""
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/invalid_path", "value": "X"}]},
+        )
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+    def test_validation_error_includes_message(self, authed_http_client, seed_workout):
+        """Validation error response includes error message."""
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={"operations": [{"op": "replace", "path": "/title", "value": ""}]},
+        )
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+        # Detail should contain message or validation_errors
+        detail = data["detail"]
+        has_message = isinstance(detail, str) or "message" in str(detail) or "validation_errors" in str(detail)
+        assert has_message, f"Expected error details, got: {detail}"
+
+    def test_changes_applied_reflects_actual_changes(self, authed_http_client, seed_workout):
+        """changes_applied count reflects actual modifications made."""
+        response = authed_http_client.patch(
+            f"/workouts/{seed_workout['workout_id']}",
+            json={
+                "operations": [
+                    {"op": "replace", "path": "/title", "value": f"Count Test {uuid.uuid4().hex[:4]}"},
+                    {"op": "add", "path": "/tags/-", "value": f"count-{uuid.uuid4().hex[:4]}"},
+                ]
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["changes_applied"] == 2
