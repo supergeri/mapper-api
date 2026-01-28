@@ -14,6 +14,9 @@ clerk-backend-api>=1.0.0
 
 requests
 
+# OpenAI embeddings (AMA-432: Semantic Search)
+openai>=1.0.0
+
 # Error tracking (AMA-225)
 sentry-sdk[fastapi]>=2.0.0
 

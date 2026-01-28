@@ -21,6 +21,7 @@ from infrastructure.db import (
     InMemoryExerciseMatchRepository,
     SupabaseExercisesRepository,
     SupabaseProgressionRepository,
+    SupabaseSearchRepository,
 )
 
 __all__ = [
@@ -35,4 +36,6 @@ __all__ = [
     "SupabaseExercisesRepository",
     # Progression tracking (AMA-299 Phase 3)
     "SupabaseProgressionRepository",
+    # Search (AMA-432)
+    "SupabaseSearchRepository",
 ]

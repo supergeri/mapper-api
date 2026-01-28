@@ -22,13 +22,20 @@ api/routers/completions.py and must be registered BEFORE this router.
 """
 
 import logging
+import time
 from typing import List, Optional
 
 from fastapi import APIRouter, Query, Depends
 from pydantic import BaseModel
 
-from api.deps import get_current_user, get_workout_repo, get_save_workout_use_case
-from application.ports import WorkoutRepository
+from api.deps import (
+    get_current_user,
+    get_workout_repo,
+    get_save_workout_use_case,
+    get_search_repo,
+    get_embedding_service,
+)
+from application.ports import WorkoutRepository, SearchRepository
 from application.use_cases import SaveWorkoutUseCase
 from backend.adapters.blocks_to_workoutkit import to_workoutkit
 from domain.converters.blocks_to_workout import blocks_to_workout
@@ -57,6 +64,27 @@ class SaveWorkoutRequest(BaseModel):
     title: str | None = None
     description: str | None = None
     workout_id: str | None = None  # Optional: for explicit updates to existing workouts
+
+
+class SearchResultItem(BaseModel):
+    """A single search result item."""
+    workout_id: str
+    title: str | None = None
+    description: str | None = None
+    sources: list[str] = []
+    similarity_score: float | None = None
+    created_at: str | None = None
+
+
+class SearchResponse(BaseModel):
+    """Response model for workout search."""
+    success: bool = True
+    results: list[SearchResultItem] = []
+    total: int = 0
+    query: str
+    search_type: str  # "semantic" or "keyword"
+    query_embedding_time_ms: int | None = None
+    search_time_ms: int | None = None
 
 
 class UpdateWorkoutExportRequest(BaseModel):
@@ -268,6 +296,132 @@ def get_workouts_endpoint(
         "workouts": workouts,
         "count": len(workouts)
     }
+
+
+@router.get("/workouts/search", response_model=SearchResponse)
+def search_workouts_endpoint(
+    q: str = Query(..., min_length=1, description="Natural language search query"),
+    limit: int = Query(10, ge=1, le=50, description="Maximum number of results"),
+    offset: int = Query(0, ge=0, description="Result offset for pagination"),
+    workout_type: Optional[str] = Query(None, description="Filter by workout type"),
+    min_duration: Optional[int] = Query(None, ge=0, description="Minimum duration in minutes"),
+    max_duration: Optional[int] = Query(None, ge=0, description="Maximum duration in minutes"),
+    user_id: str = Depends(get_current_user),
+    search_repo: SearchRepository = Depends(get_search_repo),
+    embedding_service=Depends(get_embedding_service),
+):
+    """
+    Search workouts using semantic similarity or keyword fallback.
+
+    Generates an embedding for the query via OpenAI and performs cosine similarity
+    search against workout embeddings. Falls back to keyword search (ILIKE) if
+    OpenAI is unavailable or embedding generation fails.
+
+    Part of AMA-432: Semantic Search Endpoint
+    """
+    try:
+        search_type = "semantic"
+        query_embedding_time_ms = None
+        query_embedding = None
+
+        # Try semantic search first
+        if embedding_service is not None:
+            try:
+                t0 = time.perf_counter()
+                query_embedding = embedding_service.generate_query_embedding(q)
+                query_embedding_time_ms = int((time.perf_counter() - t0) * 1000)
+            except Exception as e:
+                logger.warning(f"Embedding generation failed, falling back to keyword search: {e}")
+                query_embedding = None
+
+        # Perform search
+        t0 = time.perf_counter()
+
+        if query_embedding is not None:
+            raw_results = search_repo.semantic_search(
+                profile_id=user_id,
+                query_embedding=query_embedding,
+                limit=limit + offset,  # fetch enough to handle offset
+                threshold=0.5,
+            )
+            search_type = "semantic"
+        else:
+            raw_results = search_repo.keyword_search(
+                profile_id=user_id,
+                query=q,
+                limit=limit + offset,
+            )
+            search_type = "keyword"
+
+        search_time_ms = int((time.perf_counter() - t0) * 1000)
+
+        # Apply offset
+        raw_results = raw_results[offset:]
+
+        # Apply application-level filters
+        if workout_type:
+            raw_results = [
+                r for r in raw_results
+                if _matches_workout_type(r, workout_type)
+            ]
+        if min_duration is not None or max_duration is not None:
+            raw_results = [
+                r for r in raw_results
+                if _matches_duration(r, min_duration, max_duration)
+            ]
+
+        # Build response items
+        results = []
+        for row in raw_results[:limit]:
+            results.append(SearchResultItem(
+                workout_id=str(row.get("id", "")),
+                title=row.get("title"),
+                description=row.get("description"),
+                sources=row.get("sources") or [],
+                similarity_score=row.get("similarity"),
+                created_at=str(row["created_at"]) if row.get("created_at") else None,
+            ))
+
+        return SearchResponse(
+            success=True,
+            results=results,
+            total=len(results),
+            query=q,
+            search_type=search_type,
+            query_embedding_time_ms=query_embedding_time_ms,
+            search_time_ms=search_time_ms,
+        )
+
+    except Exception as e:
+        logger.exception(f"Search failed: {e}")
+        return SearchResponse(
+            success=False,
+            results=[],
+            total=0,
+            query=q,
+            search_type="error",
+        )
+
+
+def _matches_workout_type(row: dict, workout_type: str) -> bool:
+    """Check if a workout row matches the given workout type filter."""
+    workout_data = row.get("workout_data") or {}
+    wtype = workout_data.get("type") or workout_data.get("workout_type") or ""
+    return wtype.lower() == workout_type.lower()
+
+
+def _matches_duration(row: dict, min_duration: Optional[int], max_duration: Optional[int]) -> bool:
+    """Check if a workout row matches duration filters (in minutes)."""
+    workout_data = row.get("workout_data") or {}
+    duration = workout_data.get("duration") or workout_data.get("duration_minutes")
+    if duration is None:
+        # If no duration info, include in results (don't filter out)
+        return True
+    if min_duration is not None and duration < min_duration:
+        return False
+    if max_duration is not None and duration > max_duration:
+        return False
+    return True
 
 
 @router.get("/workouts/incoming")

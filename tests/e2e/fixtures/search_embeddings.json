@@ -1,0 +1,32 @@
+[
+  {
+    "title": "30 Minute HIIT Blast",
+    "description": "High intensity interval training for fat burning",
+    "workout_data": {"type": "hiit", "duration_minutes": 30},
+    "sources": ["ai"],
+    "embedding": null,
+    "_note": "Run scripts/generate_search_fixtures.py to populate embeddings"
+  },
+  {
+    "title": "Upper Body Strength",
+    "description": "Bench press, rows, and shoulder work",
+    "workout_data": {"type": "strength", "duration_minutes": 45},
+    "sources": ["manual"],
+    "embedding": null
+  },
+  {
+    "title": "Easy Recovery Run",
+    "description": "Light 20 minute jog for active recovery",
+    "workout_data": {"type": "cardio", "duration_minutes": 20},
+    "sources": ["ai"],
+    "embedding": null
+  },
+  {
+    "title": "Secret HIIT Workout",
+    "description": "Another HIIT session belonging to a different user",
+    "workout_data": {"type": "hiit", "duration_minutes": 25},
+    "sources": ["ai"],
+    "embedding": null,
+    "other_user": true
+  }
+]

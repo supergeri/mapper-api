@@ -46,6 +46,7 @@ from infrastructure.db.mapping_repository import (
 )
 from infrastructure.db.exercises_repository import SupabaseExercisesRepository
 from infrastructure.db.progression_repository import SupabaseProgressionRepository
+from infrastructure.db.search_repository import SupabaseSearchRepository
 
 __all__ = [
     # Workout persistence
@@ -68,4 +69,7 @@ __all__ = [
 
     # Progression tracking (AMA-299 Phase 3)
     "SupabaseProgressionRepository",
+
+    # Search (AMA-432)
+    "SupabaseSearchRepository",
 ]

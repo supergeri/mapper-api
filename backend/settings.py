@@ -151,6 +151,18 @@ class Settings(BaseSettings):
     )
 
     # -------------------------------------------------------------------------
+    # External Services - OpenAI (AMA-432: Semantic Search)
+    # -------------------------------------------------------------------------
+    openai_api_key: Optional[str] = Field(
+        default=None,
+        description="OpenAI API key for embedding generation",
+    )
+    embedding_model: str = Field(
+        default="text-embedding-3-small",
+        description="OpenAI embedding model name",
+    )
+
+    # -------------------------------------------------------------------------
     # Observability - Sentry
     # -------------------------------------------------------------------------
     sentry_dsn: Optional[str] = Field(
