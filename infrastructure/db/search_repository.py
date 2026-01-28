@@ -65,9 +65,14 @@ class SupabaseSearchRepository:
 
     @staticmethod
     def _escape_ilike(value: str) -> str:
-        """Escape SQL ILIKE metacharacters in user input.
+        """Escape metacharacters in user input for safe use in PostgREST ILIKE filters.
 
-        Backslash-escapes ``%``, ``_``, and ``\\`` so they are treated as
-        literal characters rather than wildcards in ILIKE patterns.
+        Backslash-escapes SQL ILIKE wildcards (``%``, ``_``, ``\\``) and strips
+        PostgREST filter-syntax delimiters (``.`` and ``,``) to prevent filter
+        injection via the ``.or_()`` method.
         """
-        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        # Escape SQL ILIKE wildcards
+        value = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        # Strip PostgREST filter delimiters that could inject additional clauses
+        value = value.replace(",", " ").replace(".", " ")
+        return value

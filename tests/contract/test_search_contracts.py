@@ -34,7 +34,7 @@ SAMPLE_ROW = {
 SEARCH_RESPONSE_SHAPE = {
     "success": bool,
     "results": list,
-    "total": int,
+    "count": int,
     "query": str,
     "search_type": str,
     "query_embedding_time_ms": Optional[int],
@@ -132,7 +132,7 @@ class TestSearchResponseContract:
         data = response.json()
         assert_response_shape(data, SEARCH_RESPONSE_SHAPE)
         assert data["results"] == []
-        assert data["total"] == 0
+        assert data["count"] == 0
 
     def test_error_response_shape(self):
         """When search fails entirely, response must still match shape."""

@@ -127,7 +127,7 @@ class TestSearchE2ESmoke:
         data = response.json()
         assert isinstance(data["success"], bool)
         assert isinstance(data["results"], list)
-        assert isinstance(data["total"], int)
+        assert isinstance(data["count"], int)
         assert isinstance(data["query"], str)
         assert data["search_type"] in ("semantic", "keyword", "error")
 
@@ -149,7 +149,7 @@ class TestSearchE2ESmoke:
         data = response.json()
         assert data["success"] is True
 
-        if data["search_type"] == "semantic" and data["total"] > 0:
+        if data["search_type"] == "semantic" and data["count"] > 0:
             # HIIT-related workout should rank highly
             titles = [r["title"].lower() for r in data["results"] if r.get("title")]
             assert any("hiit" in t or "interval" in t or "intensity" in t for t in titles), (
@@ -172,7 +172,7 @@ class TestSearchE2ESmoke:
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert data["total"] > 0
+        assert data["count"] > 0
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +202,7 @@ class TestSearchE2ERegression:
         )
         all_data = all_resp.json()
 
-        if all_data["total"] < 2:
+        if all_data["count"] < 2:
             pytest.skip("Need at least 2 results to test offset")
 
         offset_resp = authed_http_client.get(
@@ -210,7 +210,7 @@ class TestSearchE2ERegression:
             params={"q": "workout", "limit": 50, "offset": 1},
         )
         offset_data = offset_resp.json()
-        assert offset_data["total"] == all_data["total"] - 1
+        assert offset_data["count"] == all_data["count"] - 1
 
     def test_workout_type_filter(self, authed_http_client, seed_workouts):
         """workout_type filter narrows results without errors."""
@@ -269,7 +269,7 @@ class TestSearchE2ERegression:
             params={"q": "HIIT training"},
         )
         data = response.json()
-        if data["search_type"] == "semantic" and data["total"] > 0:
+        if data["search_type"] == "semantic" and data["count"] > 0:
             for result in data["results"]:
                 assert result["similarity_score"] is not None
                 assert result["similarity_score"] > 0.5

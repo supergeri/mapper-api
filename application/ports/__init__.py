@@ -61,6 +61,7 @@ from application.ports.progression_repository import (
 
 # Search (AMA-432: Semantic Search)
 from application.ports.search_repository import SearchRepository
+from application.ports.embedding_service import EmbeddingService
 
 __all__ = [
     # Workout
@@ -87,4 +88,5 @@ __all__ = [
     "VolumeDataPoint",
     # Search (AMA-432)
     "SearchRepository",
+    "EmbeddingService",
 ]

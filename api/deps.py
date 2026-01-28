@@ -48,6 +48,7 @@ from application.ports import (
     ExercisesRepository,
     ProgressionRepository,
     SearchRepository,
+    EmbeddingService,
 )
 
 # Concrete implementations
@@ -403,24 +404,26 @@ def get_search_repo(
     return SupabaseSearchRepository(client)
 
 
-def get_embedding_service():
+@lru_cache
+def get_embedding_service() -> Optional[EmbeddingService]:
     """
-    Get EmbeddingService if OpenAI is configured, None otherwise.
+    Get EmbeddingService if OpenAI is configured, None otherwise (cached).
 
     Returns None when OPENAI_API_KEY is not set, allowing the search
-    endpoint to fall back to keyword search.
+    endpoint to fall back to keyword search. The instance is cached
+    for the lifetime of the process to reuse the underlying HTTP client.
 
     Part of AMA-432: Semantic Search Endpoint
 
     Returns:
         Optional[EmbeddingService]: Service for generating embeddings, or None
     """
-    from backend.services.embedding_service import EmbeddingService
+    from backend.services.embedding_service import EmbeddingService as EmbeddingServiceImpl
 
     settings = _get_settings()
     if not settings.openai_api_key:
         return None
-    return EmbeddingService(
+    return EmbeddingServiceImpl(
         api_key=settings.openai_api_key,
         model=settings.embedding_model,
     )

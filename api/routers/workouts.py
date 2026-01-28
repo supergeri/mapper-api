@@ -23,7 +23,7 @@ api/routers/completions.py and must be registered BEFORE this router.
 
 import logging
 import time
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Query, Depends
 from pydantic import BaseModel
@@ -35,7 +35,7 @@ from api.deps import (
     get_search_repo,
     get_embedding_service,
 )
-from application.ports import WorkoutRepository, SearchRepository
+from application.ports import WorkoutRepository, SearchRepository, EmbeddingService
 from application.use_cases import SaveWorkoutUseCase
 from backend.adapters.blocks_to_workoutkit import to_workoutkit
 from domain.converters.blocks_to_workout import blocks_to_workout
@@ -77,12 +77,17 @@ class SearchResultItem(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    """Response model for workout search."""
+    """Response model for workout search.
+
+    Note: ``count`` is the number of results returned on this page after
+    filters and pagination are applied. It is **not** the total number of
+    matching workouts in the database.
+    """
     success: bool = True
     results: list[SearchResultItem] = []
-    total: int = 0
+    count: int = 0
     query: str
-    search_type: str  # "semantic" or "keyword"
+    search_type: Literal["semantic", "keyword", "error"]
     query_embedding_time_ms: int | None = None
     search_time_ms: int | None = None
 
@@ -308,7 +313,7 @@ def search_workouts_endpoint(
     max_duration: Optional[int] = Query(None, ge=0, description="Maximum duration in minutes"),
     user_id: str = Depends(get_current_user),
     search_repo: SearchRepository = Depends(get_search_repo),
-    embedding_service=Depends(get_embedding_service),
+    embedding_service: Optional[EmbeddingService] = Depends(get_embedding_service),
 ):
     """
     Search workouts using semantic similarity or keyword fallback.
@@ -385,7 +390,7 @@ def search_workouts_endpoint(
         return SearchResponse(
             success=True,
             results=results,
-            total=len(results),
+            count=len(results),
             query=q,
             search_type=search_type,
             query_embedding_time_ms=query_embedding_time_ms,
@@ -397,7 +402,7 @@ def search_workouts_endpoint(
         return SearchResponse(
             success=False,
             results=[],
-            total=0,
+            count=0,
             query=q,
             search_type="error",
         )
@@ -413,7 +418,9 @@ def _matches_workout_type(row: dict, workout_type: str) -> bool:
 def _matches_duration(row: dict, min_duration: Optional[int], max_duration: Optional[int]) -> bool:
     """Check if a workout row matches duration filters (in minutes)."""
     workout_data = row.get("workout_data") or {}
-    duration = workout_data.get("duration") or workout_data.get("duration_minutes")
+    duration = workout_data.get("duration")
+    if duration is None:
+        duration = workout_data.get("duration_minutes")
     if duration is None:
         # If no duration info, include in results (don't filter out)
         return True

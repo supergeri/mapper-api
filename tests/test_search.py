@@ -212,6 +212,11 @@ class TestMatchesDuration:
         row = {"workout_data": {"duration_minutes": 60}}
         assert _matches_duration(row, min_duration=None, max_duration=None) is True
 
+    def test_duration_zero_not_filtered_out(self):
+        """duration=0 is a valid value and should not be treated as missing."""
+        row = {"workout_data": {"duration": 0}}
+        assert _matches_duration(row, min_duration=0, max_duration=10) is True
+
 
 # ===========================================================================
 # ILIKE Sanitization Tests
@@ -235,6 +240,16 @@ class TestEscapeIlike:
 
     def test_all_metacharacters_escaped(self):
         assert SupabaseSearchRepository._escape_ilike("%_\\") == "\\%\\_\\\\"
+
+    def test_comma_replaced_with_space(self):
+        assert SupabaseSearchRepository._escape_ilike("a,b") == "a b"
+
+    def test_dot_replaced_with_space(self):
+        assert SupabaseSearchRepository._escape_ilike("a.b") == "a b"
+
+    def test_postgrest_delimiters_and_sql_wildcards(self):
+        """Combined: SQL wildcards escaped AND PostgREST delimiters stripped."""
+        assert SupabaseSearchRepository._escape_ilike("a%b,c.d_e") == "a\\%b c d\\_e"
 
     def test_empty_string(self):
         assert SupabaseSearchRepository._escape_ilike("") == ""
@@ -283,7 +298,7 @@ class TestSearchEndpoint:
         assert data["success"] is True
         assert data["search_type"] == "semantic"
         assert data["query"] == "HIIT for beginners"
-        assert data["total"] == 1
+        assert data["count"] == 1
         assert len(data["results"]) == 1
 
         result = data["results"][0]
@@ -310,7 +325,7 @@ class TestSearchEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["search_type"] == "keyword"
-        assert data["total"] == 1
+        assert data["count"] == 1
         assert len(repo.keyword_search_calls) == 1
         assert len(repo.semantic_search_calls) == 0
 
@@ -338,7 +353,7 @@ class TestSearchEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert data["total"] == 0
+        assert data["count"] == 0
         assert data["results"] == []
 
     def test_missing_query_param(self):
@@ -363,7 +378,7 @@ class TestSearchEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["total"] == 2
+        assert data["count"] == 2
         assert data["results"][0]["workout_id"] == "id-1"
         assert data["results"][1]["workout_id"] == "id-2"
 
@@ -380,7 +395,7 @@ class TestSearchEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["total"] == 1
+        assert data["count"] == 1
         assert data["results"][0]["workout_id"] == "match"
 
     def test_duration_filter(self):
@@ -400,7 +415,7 @@ class TestSearchEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["total"] == 1
+        assert data["count"] == 1
         assert data["results"][0]["workout_id"] == "medium"
 
     def test_timing_fields_present(self):
@@ -461,7 +476,7 @@ class TestSearchEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["total"] == 0
+        assert data["count"] == 0
         assert data["results"] == []
 
     def test_keyword_results_have_null_similarity(self):
@@ -508,7 +523,7 @@ class TestSearchEndpoint:
         )
 
         assert response.status_code == 200
-        assert response.json()["total"] == 1
+        assert response.json()["count"] == 1
 
     def test_semantic_search_passes_correct_threshold(self):
         """Verify the hardcoded threshold 0.5 is passed to the repo."""
@@ -555,7 +570,7 @@ class TestSearchEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["total"] == 1
+        assert data["count"] == 1
         assert data["results"][0]["workout_id"] == "1"
 
     def test_search_repo_exception_returns_error(self):
@@ -579,4 +594,4 @@ class TestSearchEndpoint:
         assert data["success"] is False
         assert data["search_type"] == "error"
         assert data["results"] == []
-        assert data["total"] == 0
+        assert data["count"] == 0
