@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 import pytest
 
 from backend.parsers.models import ParsedExercise, ParsedWorkout
+from backend.adapters.blocks_to_workoutkit import to_workoutkit
 from domain.converters import (
     blocks_to_workout,
     db_row_to_workout,
@@ -781,8 +782,8 @@ class TestWorkoutToDbRow:
         row = workout_to_db_row(workout, profile_id="user-123")
 
         block_data = row["workout_data"]["blocks"][0]
-        assert "supersets" in block_data
-        assert len(block_data["supersets"][0]["exercises"]) == 2
+        assert block_data["structure"] == "superset"
+        assert len(block_data["exercises"]) == 2
 
     def test_rounds_serialization(self):
         """Rounds > 1 are serialized to structure."""
@@ -799,7 +800,7 @@ class TestWorkoutToDbRow:
         row = workout_to_db_row(workout, profile_id="user-123")
 
         block_data = row["workout_data"]["blocks"][0]
-        assert "4 rounds" in block_data.get("structure", "")
+        assert block_data.get("rounds") == 4
 
     def test_duration_serialization(self):
         """Duration is serialized to duration_sec."""
@@ -882,3 +883,189 @@ class TestRoundTrip:
         assert new_row["is_favorite"] == original_row["is_favorite"]
         assert new_row["times_completed"] == original_row["times_completed"]
         assert new_row["tags"] == original_row["tags"]
+
+    def test_superset_roundtrip_preserves_block_type(self):
+        """Superset block type survives write → read → write round-trip."""
+        workout = Workout(
+            title="Superset Round Trip",
+            blocks=[
+                Block(
+                    type=BlockType.SUPERSET,
+                    rounds=4,
+                    exercises=[
+                        Exercise(name="Pull-ups", reps=8),
+                        Exercise(name="Z Press", reps=8),
+                    ],
+                    rest_between_seconds=60,
+                )
+            ],
+        )
+
+        # Write to DB format
+        row = workout_to_db_row(workout, profile_id="user-123")
+        # Read back from DB format
+        reconstructed = db_row_to_workout(row)
+
+        assert reconstructed.blocks[0].type == BlockType.SUPERSET
+        assert reconstructed.blocks[0].rounds == 4
+        assert len(reconstructed.blocks[0].exercises) == 2
+        assert reconstructed.blocks[0].rest_between_seconds == 60
+
+    def test_superset_db_to_workoutkit_pipeline(self):
+        """Superset block type flows through DB serialization to WorkoutKit."""
+        workout = Workout(
+            title="Superset Pipeline",
+            blocks=[
+                Block(
+                    type=BlockType.SUPERSET,
+                    rounds=4,
+                    exercises=[
+                        Exercise(name="Pull-ups", reps=8),
+                        Exercise(name="Z Press", reps=8),
+                    ],
+                    rest_between_seconds=60,
+                )
+            ],
+        )
+
+        # Serialize to DB format (what gets stored)
+        row = workout_to_db_row(workout, profile_id="user-123")
+        blocks_json = row["workout_data"]
+
+        # Pass through to WorkoutKit (what iOS receives)
+        wk_dto = to_workoutkit(blocks_json)
+
+        # Should produce a RepeatInterval grouping the exercises
+        assert len(wk_dto.intervals) == 1
+        repeat = wk_dto.intervals[0]
+        assert repeat.kind == "repeat"
+        assert repeat.reps == 4
+        # Inside: two exercise steps + rest
+        exercise_steps = [s for s in repeat.intervals if s.kind == "reps"]
+        rest_steps = [s for s in repeat.intervals if s.kind == "rest"]
+        assert len(exercise_steps) == 2
+        assert len(rest_steps) == 1
+        assert rest_steps[0].seconds == 60
+
+    def test_circuit_db_to_workoutkit_pipeline(self):
+        """Circuit block type flows through DB serialization to WorkoutKit."""
+        workout = Workout(
+            title="Circuit Pipeline",
+            blocks=[
+                Block(
+                    type=BlockType.CIRCUIT,
+                    rounds=3,
+                    exercises=[
+                        Exercise(name="Burpees", reps=10),
+                        Exercise(name="Jump Squats", reps=15),
+                        Exercise(name="Push-ups", reps=20),
+                    ],
+                )
+            ],
+        )
+
+        row = workout_to_db_row(workout, profile_id="user-123")
+        blocks_json = row["workout_data"]
+        wk_dto = to_workoutkit(blocks_json)
+
+        assert len(wk_dto.intervals) == 1
+        repeat = wk_dto.intervals[0]
+        assert repeat.kind == "repeat"
+        assert repeat.reps == 3
+        exercise_steps = [s for s in repeat.intervals if s.kind == "reps"]
+        assert len(exercise_steps) == 3
+
+    def test_legacy_superset_format_still_works(self):
+        """Old DB format with supersets[] array still produces correct domain model."""
+        legacy_blocks_json = {
+            "title": "Legacy Superset",
+            "blocks": [
+                {
+                    "type": "superset",
+                    "structure": "4 rounds",
+                    "supersets": [
+                        {
+                            "exercises": [
+                                {"name": "Curl", "reps": 12},
+                                {"name": "Extension", "reps": 12},
+                            ]
+                        }
+                    ],
+                }
+            ],
+        }
+
+        workout = blocks_to_workout(legacy_blocks_json)
+
+        assert workout.blocks[0].type == BlockType.SUPERSET
+        assert workout.blocks[0].rounds == 4
+        assert len(workout.blocks[0].exercises) == 2
+
+    def test_timed_round_db_to_workoutkit_pipeline(self):
+        """Timed round block type flows through DB serialization to WorkoutKit."""
+        workout = Workout(
+            title="EMOM Pipeline",
+            blocks=[
+                Block(
+                    type=BlockType.TIMED_ROUND,
+                    rounds=5,
+                    exercises=[
+                        Exercise(name="Burpees", reps=10),
+                        Exercise(name="Box Jumps", reps=8),
+                    ],
+                )
+            ],
+        )
+
+        row = workout_to_db_row(workout, profile_id="user-123")
+        blocks_json = row["workout_data"]
+
+        # Verify serialization uses abstract format
+        block_data = blocks_json["blocks"][0]
+        assert block_data["structure"] == "timed_round"
+        assert block_data["rounds"] == 5
+        assert "exercises" in block_data
+
+        # Pass through to WorkoutKit
+        wk_dto = to_workoutkit(blocks_json)
+
+        assert len(wk_dto.intervals) == 1
+        repeat = wk_dto.intervals[0]
+        assert repeat.kind == "repeat"
+        assert repeat.reps == 5
+        exercise_steps = [s for s in repeat.intervals if s.kind == "reps"]
+        assert len(exercise_steps) == 2
+
+    def test_legacy_superset_to_workoutkit_pipeline(self):
+        """Old DB format with supersets[] array still produces correct WorkoutKit output."""
+        legacy_blocks_json = {
+            "title": "Legacy Superset WK",
+            "blocks": [
+                {
+                    "type": "superset",
+                    "structure": "4 rounds",
+                    "supersets": [
+                        {
+                            "exercises": [
+                                {"name": "Curl", "reps": 12},
+                                {"name": "Extension", "reps": 12},
+                            ]
+                        }
+                    ],
+                }
+            ],
+        }
+
+        wk_dto = to_workoutkit(legacy_blocks_json)
+
+        # Legacy supersets[] path should still produce grouped intervals
+        assert len(wk_dto.intervals) >= 1
+        # Exercises should be present (via the legacy supersets[] processing)
+        all_steps = []
+        for interval in wk_dto.intervals:
+            if hasattr(interval, "intervals"):
+                all_steps.extend(interval.intervals)
+            else:
+                all_steps.append(interval)
+        reps_steps = [s for s in all_steps if s.kind == "reps"]
+        assert len(reps_steps) == 2

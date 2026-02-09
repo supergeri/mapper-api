@@ -7,10 +7,13 @@ Converts the blocks-based JSON format used by the web editor to the
 canonical Workout domain model.
 """
 
+import logging
 import re
 from typing import Any, Dict, List, Optional
 
 from domain.models import Block, BlockType, Exercise, Load, Workout, WorkoutMetadata, WorkoutSource
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_structure(structure_str: Optional[str]) -> int:
@@ -135,21 +138,57 @@ def _convert_exercise(ex_data: Dict[str, Any]) -> Exercise:
     )
 
 
+def _resolve_block_type(block_data: Dict[str, Any]) -> BlockType:
+    """Resolve BlockType from block data, supporting both new and legacy formats.
+
+    Priority:
+    1. structure field matching a BlockType value (new format)
+    2. Presence of supersets[] array (legacy format)
+    3. Default to STRAIGHT
+    """
+    structure = block_data.get("structure", "")
+    try:
+        return BlockType(structure)
+    except ValueError:
+        if structure:
+            logger.debug("Unknown structure value %r, falling back to heuristic", structure)
+
+    if block_data.get("supersets"):
+        return BlockType.SUPERSET
+
+    return BlockType.STRAIGHT
+
+
+def _resolve_rounds(block_data: Dict[str, Any]) -> int:
+    """Resolve rounds from block data, supporting both new and legacy formats.
+
+    Priority:
+    1. Explicit rounds integer field (new format)
+    2. Parsed from structure string like "3 rounds" (legacy format)
+    3. Default to 1
+    """
+    rounds = block_data.get("rounds")
+    if rounds is not None and rounds > 0:
+        return rounds
+    return _parse_structure(block_data.get("structure"))
+
+
 def _convert_block(block_data: Dict[str, Any]) -> List[Block]:
     """
     Convert block dict from blocks format to domain Block(s).
 
     A single block in the input format can produce multiple domain blocks
-    if it contains both supersets and standalone exercises.
+    if it contains both supersets and standalone exercises (legacy format).
     """
     blocks: List[Block] = []
 
-    # Get block-level settings
+    # Resolve block-level settings
     label = block_data.get("label") or block_data.get("name")
-    rounds = _parse_structure(block_data.get("structure"))
-    rest_between = block_data.get("rest_between_rounds_sec") or block_data.get("rest_between_sec")
+    block_type = _resolve_block_type(block_data)
+    rounds = _resolve_rounds(block_data)
+    rest_between = block_data.get("rest_between_sec") or block_data.get("rest_between_rounds_sec")
 
-    # Process supersets
+    # Legacy format: supersets[] array
     supersets = block_data.get("supersets", [])
     for i, superset in enumerate(supersets):
         superset_exercises = superset.get("exercises", [])
@@ -158,30 +197,30 @@ def _convert_block(block_data: Dict[str, Any]) -> List[Block]:
 
             # Determine block type based on exercise count
             if len(exercises) > 1:
-                block_type = BlockType.SUPERSET
+                superset_type = BlockType.SUPERSET
                 superset_label = label or f"Superset {i + 1}"
             else:
-                block_type = BlockType.STRAIGHT
+                superset_type = BlockType.STRAIGHT
                 superset_label = label
 
             blocks.append(
                 Block(
                     label=superset_label,
-                    type=block_type,
+                    type=superset_type,
                     rounds=rounds,
                     exercises=exercises,
                     rest_between_seconds=superset.get("rest_between_sec") or rest_between,
                 )
             )
 
-    # Process standalone exercises
+    # Standard format: exercises[] with structure-driven block type
     standalone = block_data.get("exercises", [])
     if standalone:
         exercises = [_convert_exercise(ex) for ex in standalone]
         blocks.append(
             Block(
                 label=label,
-                type=BlockType.STRAIGHT,
+                type=block_type,
                 rounds=rounds,
                 exercises=exercises,
                 rest_between_seconds=rest_between,
@@ -195,14 +234,18 @@ def blocks_to_workout(blocks_json: Dict[str, Any]) -> Workout:
     """
     Convert blocks format JSON to domain Workout.
 
-    The blocks format is used by the web editor and has:
-    - title: Workout name
-    - blocks[]: Array of block objects
-      - structure: "3 rounds" or "3"
-      - supersets[]: Array of superset groups
-        - exercises[]: Array of exercises in superset
-      - exercises[]: Standalone exercises (not in superset)
-      - rest_between_sec, rest_between_rounds_sec
+    Supports two block formats:
+
+    New format (canonical):
+    - blocks[].structure: BlockType value ("superset", "circuit", "timed_round")
+    - blocks[].rounds: integer round count
+    - blocks[].exercises[]: all exercises in a flat array
+    - blocks[].rest_between_sec: rest between rounds (canonical key)
+
+    Legacy format (backward-compatible):
+    - blocks[].structure: "3 rounds" (rounds embedded in string)
+    - blocks[].supersets[].exercises[]: exercises nested in superset groups
+    - blocks[].rest_between_rounds_sec: rest between rounds (legacy key)
 
     Each exercise has:
     - name: Exercise name

@@ -149,9 +149,11 @@ def block_to_intervals(block: dict, default_rest_sec: Optional[int] = None) -> L
         block: The block data from workout JSON
         default_rest_sec: Default rest time from workout settings (used if exercise has no rest_sec)
     """
-    structure = block.get("structure", "")
-    rounds = extract_rounds(structure) if structure else 1
-    rest_between_sec = block.get("rest_between_sec")
+    # Resolve block type from structure field (new format) or type field (legacy)
+    structure = block.get("structure") or block.get("type") or ""
+    # Resolve rounds: explicit integer (new format) > parsed from structure string (legacy)
+    rounds = block.get("rounds") or (extract_rounds(structure) if structure else 1)
+    rest_between_sec = block.get("rest_between_sec") or block.get("rest_between_rounds_sec")
     time_work_sec = block.get("time_work_sec")
 
     intervals: List[WKIntervalDTO] = []
@@ -197,6 +199,41 @@ def block_to_intervals(block: dict, default_rest_sec: Optional[int] = None) -> L
                 return [RepeatInterval(kind="repeat", reps=rounds, intervals=interval_steps)]
             else:
                 return interval_steps
+
+    # Structure-aware grouping: non-straight block types group all exercises
+    # into a single RepeatInterval instead of processing individually.
+    # Covers superset, circuit, and timed_round (EMOM, AMRAP, Tabata).
+    structure_lower = structure.lower() if structure else ""
+    if structure_lower in ("superset", "circuit", "timed_round"):
+        exercises = block.get("exercises", [])
+        if exercises:
+            grouped_steps: List[WKStepDTO] = []
+            for ex in exercises:
+                step = exercise_to_step(ex, default_rest_sec)
+                if step:
+                    grouped_steps.append(step)
+
+            # Add rest after the group (not between exercises for supersets)
+            block_rest = rest_between_sec or block.get("rest_between_rounds_sec")
+            if block_rest:
+                grouped_steps.append(RestStep(kind="rest", seconds=block_rest))
+
+            # Resolve rounds: already-resolved rounds > block sets > first exercise sets > 1
+            group_rounds = rounds
+            if group_rounds <= 1:
+                block_sets = block.get("sets")
+                if block_sets and block_sets > 1:
+                    group_rounds = block_sets
+            if group_rounds <= 1:
+                first_sets = exercises[0].get("sets")
+                if first_sets and first_sets > 1:
+                    group_rounds = first_sets
+
+            if group_rounds > 1:
+                return [RepeatInterval(kind="repeat", reps=group_rounds, intervals=grouped_steps)]
+            elif grouped_steps:
+                return [RepeatInterval(kind="repeat", reps=1, intervals=grouped_steps)]
+        return intervals
 
     # Process standalone exercises - handle sets for strength training
     for ex in block.get("exercises", []):

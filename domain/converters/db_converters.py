@@ -26,7 +26,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from domain.converters.blocks_to_workout import blocks_to_workout
-from domain.models import Workout, WorkoutMetadata, WorkoutSource
+from domain.models import BlockType, Workout, WorkoutMetadata, WorkoutSource
 
 
 def _parse_datetime(value: Any) -> Optional[datetime]:
@@ -259,20 +259,22 @@ def _workout_to_blocks_format(workout: Workout) -> Dict[str, Any]:
         if block.label:
             block_data["label"] = block.label
 
-        if block.type.value != "straight":
-            block_data["type"] = block.type.value
+        # Serialize block type as structure field for downstream consumers.
+        # Straight is the implicit default — only non-straight types are stored.
+        if block.type != BlockType.STRAIGHT:
+            block_data["structure"] = block.type.value
 
+        # Only write rounds > 1; rounds=1 is the read-path default and omitting
+        # it keeps the JSON compact. This means "explicitly 1 round" is
+        # indistinguishable from "rounds not specified" — acceptable trade-off.
         if block.rounds > 1:
-            block_data["structure"] = f"{block.rounds} rounds"
+            block_data["rounds"] = block.rounds
 
         if block.rest_between_seconds:
-            block_data["rest_between_rounds_sec"] = block.rest_between_seconds
+            block_data["rest_between_sec"] = block.rest_between_seconds
 
-        # For supersets, put exercises in supersets array
-        if block.type.value == "superset" and len(exercises_data) > 1:
-            block_data["supersets"] = [{"exercises": exercises_data}]
-        else:
-            block_data["exercises"] = exercises_data
+        # All block types store exercises uniformly in exercises[].
+        block_data["exercises"] = exercises_data
 
         blocks_data.append(block_data)
 

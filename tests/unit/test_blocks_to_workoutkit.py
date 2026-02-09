@@ -344,3 +344,122 @@ class TestRestStepWithDefaultRest:
         rest_step = repeat.intervals[1]
         assert rest_step.kind == "rest"
         assert rest_step.seconds == 45
+
+
+@pytest.mark.unit
+class TestSupersetStructureAware:
+    """Tests for structure-aware superset/circuit handling in block_to_intervals."""
+
+    def test_superset_block_creates_single_repeat_interval(self):
+        """Block with structure='superset' groups exercises into one RepeatInterval."""
+        block = {
+            "structure": "superset",
+            "rounds": 4,
+            "exercises": [
+                {"name": "Pull-ups", "reps": 8},
+                {"name": "Z Press", "reps": 8},
+            ],
+            "rest_between_sec": 60,
+        }
+        intervals = block_to_intervals(block)
+
+        assert len(intervals) == 1
+        repeat = intervals[0]
+        assert repeat.kind == "repeat"
+        assert repeat.reps == 4
+        # Should contain both exercises + rest after the pair
+        exercise_steps = [s for s in repeat.intervals if s.kind == "reps"]
+        rest_steps = [s for s in repeat.intervals if s.kind == "rest"]
+        assert len(exercise_steps) == 2
+        assert exercise_steps[0].name is not None
+        assert exercise_steps[1].name is not None
+        assert len(rest_steps) == 1
+        assert rest_steps[0].seconds == 60
+
+    def test_superset_rounds_from_block_level(self):
+        """RepeatInterval reps come from block-level rounds field."""
+        block = {
+            "structure": "superset",
+            "rounds": 3,
+            "exercises": [
+                {"name": "A", "reps": 10, "sets": 5},
+                {"name": "B", "reps": 10, "sets": 5},
+            ],
+        }
+        intervals = block_to_intervals(block)
+
+        assert len(intervals) == 1
+        # Block-level rounds=3 takes priority over exercise sets=5
+        assert intervals[0].reps == 3
+
+    def test_superset_rounds_fallback_to_exercise_sets(self):
+        """When block has no rounds, fall back to first exercise's sets."""
+        block = {
+            "structure": "superset",
+            "exercises": [
+                {"name": "Pull-ups", "reps": 8, "sets": 4},
+                {"name": "Z Press", "reps": 8, "sets": 4},
+            ],
+        }
+        intervals = block_to_intervals(block)
+
+        assert len(intervals) == 1
+        assert intervals[0].reps == 4
+
+    def test_superset_no_rest_between_exercises(self):
+        """Superset exercises have no rest between them — rest only after the pair."""
+        block = {
+            "structure": "superset",
+            "rounds": 4,
+            "exercises": [
+                {"name": "Pull-ups", "reps": 8},
+                {"name": "Z Press", "reps": 8},
+            ],
+            "rest_between_sec": 90,
+        }
+        intervals = block_to_intervals(block)
+
+        repeat = intervals[0]
+        # Order should be: exercise, exercise, rest
+        assert repeat.intervals[0].kind == "reps"
+        assert repeat.intervals[1].kind == "reps"
+        assert repeat.intervals[2].kind == "rest"
+        assert repeat.intervals[2].seconds == 90
+
+    def test_circuit_block_creates_single_repeat_interval(self):
+        """Block with structure='circuit' also groups exercises into one RepeatInterval."""
+        block = {
+            "structure": "circuit",
+            "rounds": 3,
+            "exercises": [
+                {"name": "Burpees", "reps": 10},
+                {"name": "Jump Squats", "reps": 15},
+                {"name": "Push-ups", "reps": 20},
+            ],
+            "rest_between_sec": 60,
+        }
+        intervals = block_to_intervals(block)
+
+        assert len(intervals) == 1
+        repeat = intervals[0]
+        assert repeat.kind == "repeat"
+        assert repeat.reps == 3
+        exercise_steps = [s for s in repeat.intervals if s.kind == "reps"]
+        assert len(exercise_steps) == 3
+
+    def test_superset_without_rest(self):
+        """Superset with no rest_between_sec omits rest step."""
+        block = {
+            "structure": "superset",
+            "rounds": 4,
+            "exercises": [
+                {"name": "Pull-ups", "reps": 8},
+                {"name": "Z Press", "reps": 8},
+            ],
+        }
+        intervals = block_to_intervals(block)
+
+        repeat = intervals[0]
+        # Should only have exercise steps, no rest
+        assert all(s.kind == "reps" for s in repeat.intervals)
+        assert len(repeat.intervals) == 2

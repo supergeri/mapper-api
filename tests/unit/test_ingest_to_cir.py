@@ -122,11 +122,241 @@ class TestIngestToCIR:
         ingest = {
             "exercises": [{"name": "Exercise"}]
         }
-        
+
         result = to_cir(ingest)
-        
+
         block = result.workout.blocks[0]
         assert block.type == "straight"
         assert block.rounds == 1
+
+
+@pytest.mark.unit
+class TestIngestToCIRBlocks:
+    """Tests for block-aware conversion in to_cir."""
+
+    def test_blocks_with_superset_structure(self):
+        """Input with blocks[].structure='superset' creates superset CIR blocks."""
+        ingest = {
+            "title": "Superset Workout",
+            "blocks": [
+                {
+                    "structure": "superset",
+                    "rounds": 4,
+                    "exercises": [
+                        {"name": "Pull-ups", "reps": 8},
+                        {"name": "Z Press", "reps": 8},
+                    ]
+                },
+                {
+                    "structure": "superset",
+                    "rounds": 4,
+                    "exercises": [
+                        {"name": "SA cable row", "reps": 12},
+                        {"name": "SA DB press", "reps": 8},
+                    ]
+                },
+                {
+                    "exercises": [
+                        {"name": "Seated sled pull", "sets": 5, "reps": 10},
+                    ]
+                }
+            ]
+        }
+
+        result = to_cir(ingest)
+
+        assert len(result.workout.blocks) == 3
+        # Superset A
+        assert result.workout.blocks[0].type == "superset"
+        assert result.workout.blocks[0].rounds == 4
+        assert len(result.workout.blocks[0].items) == 2
+        assert result.workout.blocks[0].items[0].name == "Pull-ups"
+        assert result.workout.blocks[0].items[1].name == "Z Press"
+        # Superset B
+        assert result.workout.blocks[1].type == "superset"
+        assert result.workout.blocks[1].rounds == 4
+        assert len(result.workout.blocks[1].items) == 2
+        # Standalone
+        assert result.workout.blocks[2].type == "straight"
+        assert result.workout.blocks[2].items[0].name == "Seated sled pull"
+
+    def test_blocks_with_circuit_structure(self):
+        """Input with blocks[].structure='circuit' creates circuit CIR blocks."""
+        ingest = {
+            "title": "Circuit Workout",
+            "blocks": [
+                {
+                    "structure": "circuit",
+                    "rounds": 3,
+                    "exercises": [
+                        {"name": "Burpees", "reps": 10},
+                        {"name": "Jump Squats", "reps": 15},
+                        {"name": "Push-ups", "reps": 20},
+                    ]
+                }
+            ]
+        }
+
+        result = to_cir(ingest)
+
+        assert len(result.workout.blocks) == 1
+        assert result.workout.blocks[0].type == "circuit"
+        assert result.workout.blocks[0].rounds == 3
+        assert len(result.workout.blocks[0].items) == 3
+
+    def test_blocks_with_timed_round_structures(self):
+        """Tabata/EMOM/AMRAP map to timed_round BlockType."""
+        for structure in ["tabata", "emom", "amrap", "for-time"]:
+            ingest = {
+                "blocks": [
+                    {
+                        "structure": structure,
+                        "exercises": [{"name": "Exercise"}]
+                    }
+                ]
+            }
+            result = to_cir(ingest)
+            assert result.workout.blocks[0].type == "timed_round", f"Failed for structure={structure}"
+
+    def test_unknown_structure_defaults_to_straight(self):
+        """Unknown structure values fall through to straight."""
+        ingest = {
+            "blocks": [
+                {
+                    "structure": "some_future_type",
+                    "exercises": [{"name": "Exercise"}]
+                }
+            ]
+        }
+
+        result = to_cir(ingest)
+
+        assert result.workout.blocks[0].type == "straight"
+
+    def test_superset_rounds_fallback_to_exercise_sets(self):
+        """When block has no rounds, use first exercise's sets as rounds."""
+        ingest = {
+            "blocks": [
+                {
+                    "structure": "superset",
+                    "exercises": [
+                        {"name": "Pull-ups", "sets": 4, "reps": 8},
+                        {"name": "Z Press", "sets": 4, "reps": 8},
+                    ]
+                }
+            ]
+        }
+
+        result = to_cir(ingest)
+
+        assert result.workout.blocks[0].type == "superset"
+        assert result.workout.blocks[0].rounds == 4
+
+    def test_backward_compat_flat_exercises_no_labels(self):
+        """Flat exercises with no superset indicators produce single straight block."""
+        ingest = {
+            "exercises": [
+                {"name": "Bench Press", "sets": 3, "reps": 10},
+                {"name": "Rows", "sets": 3, "reps": 10},
+            ]
+        }
+
+        result = to_cir(ingest)
+
+        assert len(result.workout.blocks) == 1
+        assert result.workout.blocks[0].type == "straight"
+        assert len(result.workout.blocks[0].items) == 2
+
+
+@pytest.mark.unit
+class TestDetectSupersetGroups:
+    """Tests for the superset detection heuristic on flat exercise lists."""
+
+    def test_detect_superset_label_field(self):
+        """Exercises with superset_label field are grouped."""
+        ingest = {
+            "exercises": [
+                {"name": "Pull-ups", "reps": 8, "sets": 4, "superset_label": "A"},
+                {"name": "Z Press", "reps": 8, "sets": 4, "superset_label": "A"},
+                {"name": "SA cable row", "reps": 12, "sets": 4, "superset_label": "B"},
+                {"name": "SA DB press", "reps": 8, "sets": 4, "superset_label": "B"},
+                {"name": "Seated sled pull", "reps": 10, "sets": 5},
+            ]
+        }
+
+        result = to_cir(ingest)
+
+        assert len(result.workout.blocks) == 3
+        assert result.workout.blocks[0].type == "superset"
+        assert result.workout.blocks[0].rounds == 4
+        assert len(result.workout.blocks[0].items) == 2
+        assert result.workout.blocks[0].items[0].name == "Pull-ups"
+        assert result.workout.blocks[0].items[1].name == "Z Press"
+        assert result.workout.blocks[1].type == "superset"
+        assert result.workout.blocks[1].rounds == 4
+        assert len(result.workout.blocks[1].items) == 2
+        assert result.workout.blocks[2].type == "straight"
+        assert result.workout.blocks[2].items[0].name == "Seated sled pull"
+
+    def test_detect_parenthesized_superset_labels(self):
+        """Exercises with '(superset A)' in name are grouped."""
+        ingest = {
+            "exercises": [
+                {"name": "Pull-ups (superset A)", "reps": 8, "sets": 4},
+                {"name": "Z Press (superset A)", "reps": 8, "sets": 4},
+                {"name": "Rows (superset B)", "reps": 12, "sets": 4},
+                {"name": "DB press (superset B)", "reps": 8, "sets": 4},
+            ]
+        }
+
+        result = to_cir(ingest)
+
+        assert len(result.workout.blocks) == 2
+        assert result.workout.blocks[0].type == "superset"
+        assert result.workout.blocks[0].items[0].name == "Pull-ups"
+        assert result.workout.blocks[0].items[1].name == "Z Press"
+        assert result.workout.blocks[1].type == "superset"
+
+    def test_detect_letter_prefix_groups(self):
+        """Exercises with A1:/A2:/B1:/B2: prefixes are grouped."""
+        ingest = {
+            "exercises": [
+                {"name": "A1: Pull-ups", "reps": 8, "sets": 4},
+                {"name": "A2: Z Press", "reps": 8, "sets": 4},
+                {"name": "B1: Rows", "reps": 12, "sets": 3},
+                {"name": "B2: DB press", "reps": 8, "sets": 3},
+                {"name": "Sled pull", "reps": 10, "sets": 5},
+            ]
+        }
+
+        result = to_cir(ingest)
+
+        assert len(result.workout.blocks) == 3
+        assert result.workout.blocks[0].type == "superset"
+        assert result.workout.blocks[0].items[0].name == "A1: Pull-ups"
+        assert result.workout.blocks[0].items[1].name == "A2: Z Press"
+        assert result.workout.blocks[1].type == "superset"
+        assert result.workout.blocks[2].type == "straight"
+
+    def test_mixed_superset_and_standalone(self):
+        """Mix of superset-labeled and unlabeled exercises creates correct blocks."""
+        ingest = {
+            "exercises": [
+                {"name": "Warmup jog", "duration_seconds": 300},
+                {"name": "Pull-ups", "reps": 8, "sets": 4, "superset_label": "A"},
+                {"name": "Z Press", "reps": 8, "sets": 4, "superset_label": "A"},
+                {"name": "Cooldown stretch", "duration_seconds": 180},
+            ]
+        }
+
+        result = to_cir(ingest)
+
+        assert len(result.workout.blocks) == 3
+        assert result.workout.blocks[0].type == "straight"
+        assert result.workout.blocks[0].items[0].name == "Warmup jog"
+        assert result.workout.blocks[1].type == "superset"
+        assert len(result.workout.blocks[1].items) == 2
+        assert result.workout.blocks[2].type == "straight"
+        assert result.workout.blocks[2].items[0].name == "Cooldown stretch"
 
 
