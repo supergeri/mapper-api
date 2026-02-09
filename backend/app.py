@@ -1276,10 +1276,10 @@ def create_follow_along_from_workout(
 @app.get("/follow-along/{workout_id}")
 def get_follow_along_endpoint(
     workout_id: str,
-    userId: str = Query(..., description="User ID")
+    user_id: str = Depends(get_current_user)
 ):
     """Get a single follow-along workout by ID."""
-    workout = get_follow_along_workout(workout_id, userId)
+    workout = get_follow_along_workout(workout_id, user_id)
     
     if workout:
         return {
@@ -1296,12 +1296,12 @@ def get_follow_along_endpoint(
 @app.delete("/follow-along/{workout_id}")
 def delete_follow_along_endpoint(
     workout_id: str,
-    userId: str = Query(..., description="User ID")
+    user_id: str = Depends(get_current_user)
 ):
     """Delete a follow-along workout."""
     from backend.follow_along_database import delete_follow_along_workout
-    
-    success = delete_follow_along_workout(workout_id, userId)
+
+    success = delete_follow_along_workout(workout_id, user_id)
     
     if success:
         return {
