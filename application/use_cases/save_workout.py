@@ -97,6 +97,20 @@ class SaveWorkoutUseCase:
             SaveWorkoutResult with success status and saved workout
         """
         try:
+            # Defense-in-depth: always reject workouts with 0 exercises,
+            # even when validate=False (AMA-561)
+            if workout.total_exercises == 0:
+                logger.warning(
+                    "Rejecting empty workout '%s': 0 exercises across %d blocks",
+                    workout.title,
+                    len(workout.blocks),
+                )
+                return SaveWorkoutResult(
+                    success=False,
+                    error="Workout must contain at least one exercise",
+                    validation_errors=["Workout has 0 exercises"],
+                )
+
             # Step 1: Validate workout if requested
             if validate:
                 validation_errors = self._validate_workout(workout)
