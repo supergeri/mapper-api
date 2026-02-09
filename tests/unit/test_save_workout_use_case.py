@@ -10,6 +10,8 @@ Tests for:
 - Validation error cases
 """
 
+from unittest.mock import PropertyMock, patch
+
 import pytest
 
 from application.use_cases import (
@@ -325,6 +327,52 @@ class TestSaveWorkoutValidation:
 
         # Should succeed because validation was skipped
         assert result.success is True
+
+    @pytest.mark.unit
+    def test_rejects_zero_exercises_even_without_validation(
+        self,
+        use_case: SaveWorkoutUseCase,
+        valid_workout: Workout,
+        workout_repo: FakeWorkoutRepository,
+    ):
+        """Defense-in-depth: 0 exercises rejected even with validate=False (AMA-561)."""
+        with patch.object(
+            type(valid_workout), "total_exercises", new_callable=PropertyMock, return_value=0
+        ):
+            result = use_case.execute(
+                workout=valid_workout,
+                user_id="user-123",
+                device="garmin",
+                validate=False,
+            )
+
+        assert result.success is False
+        assert "at least one exercise" in result.error
+        assert "0 exercises" in result.validation_errors[0]
+        # Must not have saved anything
+        assert len(workout_repo.get_all()) == 0
+
+    @pytest.mark.unit
+    def test_rejects_zero_exercises_with_validation(
+        self,
+        use_case: SaveWorkoutUseCase,
+        valid_workout: Workout,
+        workout_repo: FakeWorkoutRepository,
+    ):
+        """Defense-in-depth guard fires before regular validation (AMA-561)."""
+        with patch.object(
+            type(valid_workout), "total_exercises", new_callable=PropertyMock, return_value=0
+        ):
+            result = use_case.execute(
+                workout=valid_workout,
+                user_id="user-123",
+                device="garmin",
+                validate=True,
+            )
+
+        assert result.success is False
+        assert "at least one exercise" in result.error
+        assert len(workout_repo.get_all()) == 0
 
 
 # =============================================================================
