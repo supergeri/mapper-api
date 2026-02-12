@@ -9,9 +9,10 @@ This router provides:
 
 from typing import List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from api.deps import get_current_user
 from backend.core.periodization_service import (
     PeriodizationService,
     ProgramGoal,
@@ -34,12 +35,15 @@ router = APIRouter(
 class PeriodizationPlanRequest(BaseModel):
     """Request model for calculating a periodization plan."""
     duration_weeks: int = Field(..., ge=4, le=52, description="Program duration in weeks")
-    goal: str = Field(..., description="Training goal (strength, hypertrophy, etc.)")
-    experience_level: str = Field(..., description="beginner, intermediate, or advanced")
-    model: Optional[str] = Field(
+    goal: ProgramGoal = Field(..., description="Training goal")
+    experience_level: ExperienceLevel = Field(..., description="User experience level")
+    periodization_model: Optional[PeriodizationModel] = Field(
         None,
+        alias="model",
         description="Periodization model (linear, undulating, block, conjugate, reverse_linear). Auto-selected if omitted.",
     )
+
+    model_config = {"populate_by_name": True}
 
 
 class WeekParametersResponse(BaseModel):
@@ -69,8 +73,20 @@ class WeekParametersResponse(BaseModel):
 
 class PeriodizationPlanResponse(BaseModel):
     """Response model for a full periodization plan."""
-    model: str = Field(..., description="Periodization model used")
+    periodization_model: str = Field(..., alias="model", description="Periodization model used")
     weeks: List[WeekParametersResponse]
+
+    model_config = {"populate_by_name": True}
+
+
+# =============================================================================
+# Dependencies
+# =============================================================================
+
+
+def get_periodization_service() -> PeriodizationService:
+    """Dependency for PeriodizationService."""
+    return PeriodizationService()
 
 
 # =============================================================================
@@ -81,6 +97,8 @@ class PeriodizationPlanResponse(BaseModel):
 @router.post("/periodization-plan", response_model=PeriodizationPlanResponse)
 def create_periodization_plan(
     request: PeriodizationPlanRequest,
+    user_id: str = Depends(get_current_user),
+    service: PeriodizationService = Depends(get_periodization_service),
 ) -> PeriodizationPlanResponse:
     """
     Calculate a periodization plan for a training program.
@@ -91,12 +109,9 @@ def create_periodization_plan(
     If no periodization model is specified, one is auto-selected
     based on goal, experience, and duration.
     """
-    service = PeriodizationService()
-
-    # Map string values to enums
-    goal = ProgramGoal(request.goal)
-    experience = ExperienceLevel(request.experience_level)
-    model = PeriodizationModel(request.model) if request.model else None
+    goal = request.goal
+    experience = request.experience_level
+    model = request.periodization_model
 
     # Auto-select model if not specified
     if model is None:
@@ -110,6 +125,6 @@ def create_periodization_plan(
     )
 
     return PeriodizationPlanResponse(
-        model=model.value,
+        periodization_model=model.value,
         weeks=[WeekParametersResponse.from_week_params(w) for w in weeks],
     )
