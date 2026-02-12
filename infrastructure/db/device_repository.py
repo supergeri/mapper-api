@@ -389,6 +389,61 @@ class SupabaseDeviceRepository:
             logger.error(f"Error revoking device {device_id}: {e}")
             return {"success": False, "message": str(e)}
 
+    def update_apns_token(
+        self,
+        device_id: str,
+        user_id: str,
+        apns_token: str,
+    ) -> Dict[str, Any]:
+        """Store or update the APNs push token for a paired device."""
+        try:
+            # Find the paired device by device_id in device_info JSONB, scoped to user
+            result = self._client.table("mobile_pairing_tokens") \
+                .select("id, used_at") \
+                .eq("clerk_user_id", user_id) \
+                .filter("device_info->>device_id", "eq", device_id) \
+                .execute()
+
+            if not result.data or len(result.data) == 0:
+                return {"success": False, "error": "Device not found or not paired"}
+
+            token_record = result.data[0]
+            if not token_record.get("used_at"):
+                return {"success": False, "error": "Device not paired"}
+
+            self._client.table("mobile_pairing_tokens").update({
+                "apns_token": apns_token,
+            }).eq("id", token_record["id"]).execute()
+
+            logger.info(f"APNs token updated for device {device_id[:8]}... user {user_id}")
+            return {"success": True}
+
+        except Exception as e:
+            logger.error(f"Error updating APNs token for device {device_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+    def get_apns_tokens(
+        self,
+        user_id: str,
+    ) -> List[str]:
+        """Get all non-null APNs tokens for a user's paired devices."""
+        try:
+            result = self._client.table("mobile_pairing_tokens") \
+                .select("apns_token") \
+                .eq("clerk_user_id", user_id) \
+                .not_.is_("used_at", "null") \
+                .not_.is_("apns_token", "null") \
+                .execute()
+
+            if not result.data:
+                return []
+
+            return [r["apns_token"] for r in result.data if r.get("apns_token")]
+
+        except Exception as e:
+            logger.error(f"Error fetching APNs tokens for user {user_id}: {e}")
+            return []
+
     def refresh_jwt(
         self,
         device_id: str,

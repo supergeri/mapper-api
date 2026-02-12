@@ -124,6 +124,12 @@ class PairingStatusResponse(BaseModel):
     device_info: Optional[Dict[str, Any]] = None
 
 
+class RegisterPushTokenRequest(BaseModel):
+    """Request to register APNs push token for a paired device (AMA-567)."""
+    apns_token: str
+    device_id: str
+
+
 class RefreshTokenRequest(BaseModel):
     """Request to refresh JWT using device_id (AMA-220)."""
     device_id: str

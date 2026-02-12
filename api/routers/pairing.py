@@ -29,6 +29,7 @@ from backend.mobile_pairing import (
     PairingStatusResponse,
     RefreshTokenRequest,
     RefreshTokenResponse,
+    RegisterPushTokenRequest,
     fetch_clerk_profile,
 )
 
@@ -248,6 +249,61 @@ async def revoke_device_endpoint(
         raise
     except Exception as e:
         logger.error(f"Failed to revoke device {device_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# APNs Push Token Endpoints (AMA-567 Phase D)
+# =============================================================================
+
+
+@router.post("/mobile/devices/register-push-token")
+async def register_push_token_endpoint(
+    request: RegisterPushTokenRequest,
+    user_id: str = Depends(get_current_user),
+    device_repo: DeviceRepository = Depends(get_device_repo),
+):
+    """
+    Register an APNs push token for a paired device (AMA-567).
+
+    Called by the iOS app after obtaining a device token from Apple.
+    The token is stored alongside the paired device record and used
+    to send silent push notifications for workout sync.
+    """
+    try:
+        result = device_repo.update_apns_token(
+            device_id=request.device_id,
+            user_id=user_id,
+            apns_token=request.apns_token,
+        )
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=result.get("error", "Failed to register push token"),
+            )
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to register push token: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/mobile/devices/push-tokens")
+async def get_push_tokens_endpoint(
+    user_id: str = Depends(get_current_user),
+    device_repo: DeviceRepository = Depends(get_device_repo),
+):
+    """
+    Get all APNs push tokens for the authenticated user's paired devices.
+
+    Used by chat-api to send push notifications after saving a workout.
+    """
+    try:
+        tokens = device_repo.get_apns_tokens(user_id)
+        return {"tokens": tokens}
+    except Exception as e:
+        logger.error(f"Failed to get push tokens: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

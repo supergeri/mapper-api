@@ -123,6 +123,40 @@ class DeviceRepository(Protocol):
         """
         ...
 
+    def update_apns_token(
+        self,
+        device_id: str,
+        user_id: str,
+        apns_token: str,
+    ) -> Dict[str, Any]:
+        """
+        Store or update the APNs push token for a paired device.
+
+        Args:
+            device_id: iOS device UUID (identifierForVendor)
+            user_id: User ID (Clerk user ID)
+            apns_token: Hex-encoded APNs device token from Apple
+
+        Returns:
+            Dict with "success" (bool) and optional "error"
+        """
+        ...
+
+    def get_apns_tokens(
+        self,
+        user_id: str,
+    ) -> List[str]:
+        """
+        Get all non-null APNs tokens for a user's paired devices.
+
+        Args:
+            user_id: User ID (Clerk user ID)
+
+        Returns:
+            List of APNs token hex strings
+        """
+        ...
+
     def refresh_jwt(
         self,
         device_id: str,
