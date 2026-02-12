@@ -157,6 +157,21 @@ class DeviceRepository(Protocol):
         """
         ...
 
+    def clear_apns_token(
+        self,
+        apns_token: str,
+    ) -> bool:
+        """
+        Clear a stale APNs token (e.g. after BadDeviceToken from Apple).
+
+        Args:
+            apns_token: The APNs token to clear
+
+        Returns:
+            True if a token was cleared, False otherwise
+        """
+        ...
+
     def refresh_jwt(
         self,
         device_id: str,

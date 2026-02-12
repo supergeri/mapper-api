@@ -7,7 +7,7 @@ import secrets
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, Tuple
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 import logging
 import jwt
 
@@ -128,6 +128,14 @@ class RegisterPushTokenRequest(BaseModel):
     """Request to register APNs push token for a paired device (AMA-567)."""
     apns_token: str
     device_id: str
+
+    @field_validator("apns_token")
+    @classmethod
+    def validate_apns_token(cls, v: str) -> str:
+        import re
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", v):
+            raise ValueError("APNs token must be a 64-character hex string")
+        return v.lower()
 
 
 class RefreshTokenRequest(BaseModel):

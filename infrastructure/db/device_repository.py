@@ -444,6 +444,26 @@ class SupabaseDeviceRepository:
             logger.error(f"Error fetching APNs tokens for user {user_id}: {e}")
             return []
 
+    def clear_apns_token(
+        self,
+        apns_token: str,
+    ) -> bool:
+        """Clear a stale APNs token (e.g. after BadDeviceToken from Apple)."""
+        try:
+            result = self._client.table("mobile_pairing_tokens") \
+                .update({"apns_token": None}) \
+                .eq("apns_token", apns_token) \
+                .execute()
+
+            cleared = bool(result.data)
+            if cleared:
+                logger.info("Cleared stale APNs token %s...", apns_token[:8])
+            return cleared
+
+        except Exception as e:
+            logger.error("Error clearing APNs token %s...: %s", apns_token[:8], e)
+            return False
+
     def refresh_jwt(
         self,
         device_id: str,
