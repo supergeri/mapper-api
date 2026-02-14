@@ -42,6 +42,20 @@ router = APIRouter(
 )
 
 
+def _detect_source_platform(url: str) -> str:
+    """Detect video source platform from URL."""
+    video_url = url.lower()
+    if "instagram.com" in video_url:
+        return "instagram"
+    elif "youtube.com" in video_url or "youtu.be" in video_url:
+        return "youtube"
+    elif "tiktok.com" in video_url:
+        return "tiktok"
+    elif "vimeo.com" in video_url:
+        return "vimeo"
+    return "other"
+
+
 # Request Models
 class CreateFollowAlongManualRequest(BaseModel):
     """Request to create a follow-along workout with manually entered data."""
@@ -80,19 +94,10 @@ class PushToIOSCompanionRequest(BaseModel):
     iosCompanionWorkoutId: str = Field(description="iOS Companion workout ID")
 
 
-class VoiceSettings(BaseModel):
-    """Voice guidance settings."""
-    enabled: bool = Field(default=True)
-    content: str = Field(default="name-reps", description="Voice content type (name, name-reps, name-notes)")
-
-
 class CreateFollowAlongFromWorkoutRequest(BaseModel):
     """Request to create a follow-along from an existing workout."""
     workout: Dict[str, Any] = Field(description="Workout data")
     sourceUrl: Optional[HttpUrl] = Field(None, description="Source video URL")
-    followAlongConfig: Optional[Dict[str, Any]] = Field(None, description="Follow-along configuration")
-    stepConfigs: Optional[List[Dict[str, Any]]] = Field(None, description="Per-step video configuration")
-    voiceSettings: Optional[VoiceSettings] = Field(None, description="Voice guidance settings")
 
 
 # Response Models
@@ -133,20 +138,7 @@ def create_follow_along(
         FollowAlongWorkoutResponse: Created workout or error message
     """
     try:
-        # Detect source platform if not provided
-        source = request.source
-        if not source:
-            video_url = str(request.sourceUrl).lower()
-            if "instagram.com" in video_url:
-                source = "instagram"
-            elif "youtube.com" in video_url or "youtu.be" in video_url:
-                source = "youtube"
-            elif "tiktok.com" in video_url:
-                source = "tiktok"
-            elif "vimeo.com" in video_url:
-                source = "vimeo"
-            else:
-                source = "other"
+        source = request.source or _detect_source_platform(str(request.sourceUrl))
 
         # Convert steps to expected format
         formatted_steps = []
@@ -172,19 +164,20 @@ def create_follow_along(
             steps=formatted_steps,
         )
 
-        if workout:
-            logger.info(f"Created manual follow-along workout for user {user_id}")
-            return FollowAlongWorkoutResponse(
-                success=True,
-                followAlongWorkout=workout,
-            )
-        else:
-            logger.warning(f"Failed to save follow-along workout for user {user_id}")
-            return FollowAlongWorkoutResponse(
-                success=False,
-                message="Failed to save workout to database",
+        if not workout:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to save workout to database",
             )
 
+        logger.info(f"Created manual follow-along workout for user {user_id}")
+        return FollowAlongWorkoutResponse(
+            success=True,
+            followAlongWorkout=workout,
+        )
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error creating follow-along workout: {e}")
         raise HTTPException(
@@ -217,20 +210,7 @@ def ingest_follow_along(
         FollowAlongWorkoutResponse: Ingested workout or error message
     """
     try:
-        # Detect source platform if not provided
-        source = request.source
-        if not source:
-            video_url = str(request.sourceUrl).lower()
-            if "instagram.com" in video_url:
-                source = "instagram"
-            elif "youtube.com" in video_url or "youtu.be" in video_url:
-                source = "youtube"
-            elif "tiktok.com" in video_url:
-                source = "tiktok"
-            elif "vimeo.com" in video_url:
-                source = "vimeo"
-            else:
-                source = "other"
+        source = request.source or _detect_source_platform(str(request.sourceUrl))
 
         # Extract and save follow-along workout from video
         # TODO: Implement AI extraction from video metadata
@@ -246,19 +226,20 @@ def ingest_follow_along(
             steps=[],
         )
 
-        if workout:
-            logger.info(f"Ingested follow-along workout from {request.sourceUrl}")
-            return FollowAlongWorkoutResponse(
-                success=True,
-                followAlongWorkout=workout,
-            )
-        else:
-            logger.warning(f"Failed to ingest workout from {request.sourceUrl}")
-            return FollowAlongWorkoutResponse(
-                success=False,
-                message="Failed to ingest workout from URL",
+        if not workout:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to ingest workout from URL",
             )
 
+        logger.info(f"Ingested follow-along workout from {request.sourceUrl}")
+        return FollowAlongWorkoutResponse(
+            success=True,
+            followAlongWorkout=workout,
+        )
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error ingesting follow-along workout: {e}")
         raise HTTPException(
@@ -343,19 +324,20 @@ def create_follow_along_from_workout(
             steps=steps,
         )
 
-        if workout:
-            logger.info(f"Created follow-along from workout for user {user_id}")
-            return FollowAlongWorkoutResponse(
-                success=True,
-                followAlongWorkout=workout,
-            )
-        else:
-            logger.warning(f"Failed to create follow-along from workout for user {user_id}")
-            return FollowAlongWorkoutResponse(
-                success=False,
-                message="Failed to create follow-along from workout",
+        if not workout:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create follow-along from workout",
             )
 
+        logger.info(f"Created follow-along from workout for user {user_id}")
+        return FollowAlongWorkoutResponse(
+            success=True,
+            followAlongWorkout=workout,
+        )
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error creating follow-along from workout: {e}")
         raise HTTPException(
