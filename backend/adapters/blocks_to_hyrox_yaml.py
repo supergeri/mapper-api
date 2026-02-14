@@ -51,14 +51,19 @@ def load_user_defaults():
         try:
             with open(USER_DEFAULTS_FILE, 'r') as f:
                 data = yaml.safe_load(f) or {}
-                return data.get("defaults", {})
+                defaults = data.get("defaults", {})
+                # Backward compatibility: ensure theme has a default
+                if "theme" not in defaults:
+                    defaults["theme"] = "system"
+                return defaults
         except Exception:
             pass
     # Return defaults
     return {
         "distance_handling": "lap",
         "default_exercise_value": "lap",
-        "ignore_distance": True
+        "ignore_distance": True,
+        "theme": "system"
     }
 
 
