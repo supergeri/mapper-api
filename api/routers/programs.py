@@ -35,7 +35,6 @@ router = APIRouter(
 
 class CreateProgramRequest(BaseModel):
     """Request for creating a program."""
-    profile_id: str
     name: str
     description: Optional[str] = None
     color: Optional[str] = None
@@ -44,7 +43,6 @@ class CreateProgramRequest(BaseModel):
 
 class UpdateProgramRequest(BaseModel):
     """Request for updating a program."""
-    profile_id: str
     name: Optional[str] = None
     description: Optional[str] = None
     color: Optional[str] = None
@@ -55,7 +53,6 @@ class UpdateProgramRequest(BaseModel):
 
 class AddToProgramRequest(BaseModel):
     """Request for adding a workout or follow-along to a program."""
-    profile_id: str
     workout_id: Optional[str] = None
     follow_along_id: Optional[str] = None
     day_order: Optional[int] = None
@@ -127,7 +124,7 @@ async def create_program_endpoint(
     from backend.database import create_program
     
     result = create_program(
-        profile_id=request.profile_id,
+        profile_id=current_user,
         name=request.name,
         description=request.description,
         color=request.color,
@@ -149,7 +146,6 @@ async def create_program_endpoint(
 
 @router.get("/programs", response_model=GetProgramsResponse)
 async def get_programs_endpoint(
-    profile_id: str = Query(..., description="User profile ID"),
     include_inactive: bool = Query(False, description="Include inactive programs"),
     current_user: str = Depends(get_current_user),
 ):
@@ -157,7 +153,7 @@ async def get_programs_endpoint(
     from backend.database import get_programs
     
     programs = get_programs(
-        profile_id=profile_id,
+        profile_id=current_user,
         include_inactive=include_inactive
     )
 
@@ -171,13 +167,12 @@ async def get_programs_endpoint(
 @router.get("/programs/{program_id}", response_model=GetProgramResponse)
 async def get_program_endpoint(
     program_id: str,
-    profile_id: str = Query(..., description="User profile ID"),
     current_user: str = Depends(get_current_user),
 ):
     """Get a single program with its members."""
     from backend.database import get_program
     
-    program = get_program(program_id, profile_id)
+    program = get_program(program_id, current_user)
 
     if program:
         return {
@@ -202,7 +197,7 @@ async def update_program_endpoint(
     
     result = update_program(
         program_id=program_id,
-        profile_id=request.profile_id,
+        profile_id=current_user,
         name=request.name,
         description=request.description,
         color=request.color,
@@ -227,13 +222,12 @@ async def update_program_endpoint(
 @router.delete("/programs/{program_id}", response_model=DeleteProgramResponse)
 async def delete_program_endpoint(
     program_id: str,
-    profile_id: str = Query(..., description="User profile ID"),
     current_user: str = Depends(get_current_user),
 ):
     """Delete a program."""
     from backend.database import delete_program
     
-    success = delete_program(program_id, profile_id)
+    success = delete_program(program_id, current_user)
 
     if success:
         return {
@@ -258,7 +252,7 @@ async def add_to_program_endpoint(
     
     result = add_workout_to_program(
         program_id=program_id,
-        profile_id=request.profile_id,
+        profile_id=current_user,
         workout_id=request.workout_id,
         follow_along_id=request.follow_along_id,
         day_order=request.day_order
@@ -281,13 +275,12 @@ async def add_to_program_endpoint(
 async def remove_from_program_endpoint(
     program_id: str,
     member_id: str,
-    profile_id: str = Query(..., description="User profile ID"),
     current_user: str = Depends(get_current_user),
 ):
     """Remove a workout from a program."""
     from backend.database import remove_workout_from_program
     
-    success = remove_workout_from_program(member_id, profile_id)
+    success = remove_workout_from_program(member_id, current_user)
 
     if success:
         return {
