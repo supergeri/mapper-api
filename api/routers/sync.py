@@ -214,7 +214,7 @@ def convert_exercise_to_interval(exercise: dict) -> dict:
 
 
 @router.post("/workouts/{workout_id}/push/ios-companion")
-def push_workout_to_ios_companion_endpoint(
+async def push_workout_to_ios_companion_endpoint(
     workout_id: str,
     request: PushWorkoutToIOSCompanionRequest,
     user_id: str = Depends(get_current_user)
@@ -426,7 +426,7 @@ def get_ios_companion_pending_endpoint(
 
 
 @router.post("/workouts/{workout_id}/push/android-companion")
-def push_workout_to_android_companion_endpoint(
+async def push_workout_to_android_companion_endpoint(
     workout_id: str,
     request: PushWorkoutToAndroidCompanionRequest,
     user_id: str = Depends(get_current_user)
@@ -638,7 +638,7 @@ def get_android_companion_pending_endpoint(
 
 
 @router.post("/workout/sync/garmin")
-def sync_workout_to_garmin(
+async def sync_workout_to_garmin(
     request: SyncToGarminRequest,
     user_id: str = Depends(get_current_user)
 ):
@@ -834,7 +834,7 @@ def sync_workout_to_garmin(
 
 
 @router.post("/workouts/{workout_id}/sync")
-def queue_workout_sync_endpoint(
+async def queue_workout_sync_endpoint(
     workout_id: str,
     request: QueueSyncRequest,
     user_id: str = Depends(get_current_user)
@@ -882,7 +882,7 @@ def queue_workout_sync_endpoint(
 
 
 @router.get("/sync/pending")
-def get_pending_syncs_endpoint(
+async def get_pending_syncs_endpoint(
     device_type: str = Query(..., description="Device type: ios, android, or garmin"),
     device_id: str = Query(None, description="Optional device identifier"),
     user_id: str = Depends(get_current_user)
@@ -961,7 +961,7 @@ def get_pending_syncs_endpoint(
 
 
 @router.post("/sync/confirm")
-def confirm_sync_endpoint(
+async def confirm_sync_endpoint(
     request: ConfirmSyncRequest,
     user_id: str = Depends(get_current_user)
 ):
@@ -999,7 +999,7 @@ def confirm_sync_endpoint(
 
 
 @router.post("/sync/failed")
-def report_sync_failed_endpoint(
+async def report_sync_failed_endpoint(
     request: ReportSyncFailedRequest,
     user_id: str = Depends(get_current_user)
 ):
@@ -1038,7 +1038,7 @@ def report_sync_failed_endpoint(
 
 
 @router.get("/workouts/{workout_id}/sync-status")
-def get_workout_sync_status_endpoint(
+async def get_workout_sync_status_endpoint(
     workout_id: str,
     user_id: str = Depends(get_current_user)
 ):
