@@ -100,6 +100,7 @@ def _include_routers(app: FastAPI) -> None:
     Part of AMA-378: Router wiring for modular API structure.
     Updated in AMA-591: Add bulk import router.
     Updated in AMA-593: Add programs router
+    Updated in AMA-597: Move debug/testing endpoints to health router
     """
     from api.routers import (
         health_router,
