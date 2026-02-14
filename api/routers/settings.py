@@ -13,7 +13,7 @@ from typing import Literal
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from backend.auth import get_current_user
 from backend.adapters.blocks_to_hyrox_yaml import load_user_defaults
@@ -140,6 +140,12 @@ def save_user_defaults(settings_dict: dict) -> None:
         raise OSError(f"Failed to write settings file: {e}") from e
 
 
+# NOTE: Settings are currently application-wide (not per-user) but protected by auth.
+# Authentication is required to prevent unauthorized access/modification.
+# Future: If per-user settings are needed, refactor to read/write user-specific files
+# and include user.id in the file path: shared/settings/{user.id}_defaults.yaml
+
+
 @router.get(
     "/defaults",
     response_model=UserSettingsResponse,
@@ -150,6 +156,11 @@ def get_defaults(current_user=Depends(get_current_user)) -> UserSettingsResponse
     """
     Get current user default settings.
 
+    Note: Authentication is required but settings are global (not per-user).
+    The current_user parameter gates access to this endpoint; actual settings
+    are stored at shared/settings/user_defaults.yaml for simplicity.
+    If per-user settings are needed in the future, update implementation.
+
     Returns:
         UserSettingsResponse: Current user's default settings
 
@@ -159,7 +170,7 @@ def get_defaults(current_user=Depends(get_current_user)) -> UserSettingsResponse
     try:
         settings = load_user_defaults()
         return UserSettingsResponse(**settings)
-    except Exception as e:
+    except (FileNotFoundError, yaml.YAMLError, KeyError, ValueError) as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to load user settings: {str(e)}"
@@ -181,6 +192,12 @@ def update_defaults(
     Update user default settings.
 
     Validates input and atomically writes settings to YAML file.
+
+    Note: Authentication is required but settings are global (not per-user).
+    The current_user parameter gates access to this endpoint; actual settings
+    are stored at shared/settings/user_defaults.yaml for simplicity.
+    The path used here (via get_settings_file_path()) must match the path
+    that load_user_defaults() reads from in the GET endpoint.
 
     Args:
         settings: New settings values
