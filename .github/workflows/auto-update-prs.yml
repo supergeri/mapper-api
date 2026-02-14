@@ -7,6 +7,9 @@ on:
 jobs:
   update-prs:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Update open PR branches
         uses: actions/github-script@v7
