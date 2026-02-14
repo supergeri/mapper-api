@@ -219,3 +219,9 @@ class BulkStatusResponse(BaseModel):
     error: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+
+class BulkCancelResponse(BaseModel):
+    """Response from cancel endpoint"""
+    success: bool
+    message: str

@@ -25,9 +25,10 @@ import base64
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile
 from fastapi import File as FastAPIFile
 
+from api.deps import get_current_user
 from api.schemas.bulk_import import (
     BulkDetectRequest,
     BulkDetectResponse,
@@ -40,6 +41,7 @@ from api.schemas.bulk_import import (
     BulkExecuteRequest,
     BulkExecuteResponse,
     BulkStatusResponse,
+    BulkCancelResponse,
     ColumnMapping,
 )
 from backend.bulk_import import bulk_import_service
@@ -63,7 +65,10 @@ router = APIRouter(
     summary="Detect workout items from sources",
     description="Step 1 of bulk import: Parse and detect workout items from files, URLs, or images",
 )
-async def bulk_import_detect(request: BulkDetectRequest):
+async def bulk_import_detect(
+    request: BulkDetectRequest,
+    current_user=Depends(get_current_user),
+):
     """
     Detect and parse workout items from sources.
 
@@ -92,6 +97,7 @@ async def bulk_import_detect(request: BulkDetectRequest):
 async def bulk_import_detect_file(
     file: UploadFile = FastAPIFile(...),
     profile_id: str = Form(..., description="User profile ID"),
+    current_user=Depends(get_current_user),
 ):
     """
     Detect and parse workout items from an uploaded file.
@@ -129,6 +135,7 @@ async def bulk_import_detect_file(
 async def bulk_import_detect_urls(
     profile_id: str = Form(..., description="User profile ID"),
     urls: str = Form(..., description="Newline or comma-separated URLs"),
+    current_user=Depends(get_current_user),
 ):
     """
     Detect and parse workout items from URLs.
@@ -153,14 +160,9 @@ async def bulk_import_detect_urls(
             url_list.append(url)
 
     if not url_list:
-        return BulkDetectResponse(
-            success=False,
-            job_id="",
-            items=[],
-            metadata={"error": "No URLs provided"},
-            total=0,
-            success_count=0,
-            error_count=0,
+        raise HTTPException(
+            status_code=400,
+            detail="No URLs provided"
         )
 
     return await bulk_import_service.detect_items(
@@ -179,6 +181,7 @@ async def bulk_import_detect_urls(
 async def bulk_import_detect_images(
     profile_id: str = Form(..., description="User profile ID"),
     files: list[UploadFile] = FastAPIFile(..., description="Image files to process"),
+    current_user=Depends(get_current_user),
 ):
     """
     Detect and parse workout items from images.
@@ -196,26 +199,16 @@ async def bulk_import_detect_images(
     (lower than URLs due to cost and rate limits).
     """
     if not files:
-        return BulkDetectResponse(
-            success=False,
-            job_id="",
-            items=[],
-            metadata={"error": "No images provided"},
-            total=0,
-            success_count=0,
-            error_count=0,
+        raise HTTPException(
+            status_code=400,
+            detail="No images provided"
         )
 
     # Limit to 20 images
     if len(files) > 20:
-        return BulkDetectResponse(
-            success=False,
-            job_id="",
-            items=[],
-            metadata={"error": f"Too many images ({len(files)}). Maximum is 20."},
-            total=0,
-            success_count=0,
-            error_count=0,
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many images ({len(files)}). Maximum is 20."
         )
 
     # Read files and convert to base64
@@ -246,7 +239,10 @@ async def bulk_import_detect_images(
     summary="Apply column mappings",
     description="Step 2 of bulk import: Map CSV/Excel columns to workout fields (files only)",
 )
-async def bulk_import_map(request: BulkMapRequest):
+async def bulk_import_map(
+    request: BulkMapRequest,
+    current_user=Depends(get_current_user),
+):
     """
     Apply column mappings to detected file data.
 
@@ -277,7 +273,10 @@ async def bulk_import_map(request: BulkMapRequest):
     summary="Match exercises to Garmin database",
     description="Step 3 of bulk import: Fuzzy-match exercise names to Garmin equivalents",
 )
-async def bulk_import_match(request: BulkMatchRequest):
+async def bulk_import_match(
+    request: BulkMatchRequest,
+    current_user=Depends(get_current_user),
+):
     """
     Match exercises to Garmin exercise database.
 
@@ -304,7 +303,10 @@ async def bulk_import_match(request: BulkMatchRequest):
     summary="Generate preview of workouts",
     description="Step 4 of bulk import: Preview final workouts and validation issues",
 )
-async def bulk_import_preview(request: BulkPreviewRequest):
+async def bulk_import_preview(
+    request: BulkPreviewRequest,
+    current_user=Depends(get_current_user),
+):
     """
     Generate preview of workouts to be imported.
 
@@ -331,7 +333,10 @@ async def bulk_import_preview(request: BulkPreviewRequest):
     summary="Execute bulk import",
     description="Step 5 of bulk import: Commit workouts to database (async by default)",
 )
-async def bulk_import_execute(request: BulkExecuteRequest):
+async def bulk_import_execute(
+    request: BulkExecuteRequest,
+    current_user=Depends(get_current_user),
+):
     """
     Execute the bulk import of workouts.
 
@@ -363,6 +368,7 @@ async def bulk_import_execute(request: BulkExecuteRequest):
 async def bulk_import_status(
     job_id: str,
     profile_id: str = Query(..., description="User profile ID"),
+    current_user=Depends(get_current_user),
 ):
     """
     Get status of a bulk import job.
@@ -378,12 +384,14 @@ async def bulk_import_status(
 
 @router.post(
     "/cancel/{job_id}",
+    response_model=BulkCancelResponse,
     summary="Cancel import job",
     description="Cancel a running bulk import job (completed jobs cannot be cancelled)",
 )
 async def bulk_import_cancel(
     job_id: str,
     profile_id: str = Query(..., description="User profile ID"),
+    current_user=Depends(get_current_user),
 ):
     """
     Cancel a running bulk import job.
