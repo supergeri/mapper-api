@@ -99,6 +99,7 @@ def _include_routers(app: FastAPI) -> None:
 
     Part of AMA-378: Router wiring for modular API structure.
     Updated in AMA-591: Add bulk import router.
+    Updated in AMA-593: Add programs router
     """
     from api.routers import (
         health_router,
@@ -130,7 +131,7 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(exercises_router)
     # Progression tracking (AMA-299 Phase 3)
     app.include_router(progression_router)
-    # Program periodization (AMA-567 Phase E)
+    # Workout programs (AMA-593)
     app.include_router(programs_router)
     # User settings (AMA-585)
     app.include_router(settings_router)
