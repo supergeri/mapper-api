@@ -23,6 +23,7 @@ Implements AMA-307 sync queue pattern for proper state tracking.
 import logging
 import json
 import os
+from enum import Enum
 from typing import Optional, Dict, Any, List
 
 import httpx
@@ -60,6 +61,18 @@ GARMIN_EXPORT_DEBUG = _settings.garmin_export_debug
 
 
 # =============================================================================
+# Enums
+# =============================================================================
+
+
+class DeviceType(str, Enum):
+    """Supported device types for workout sync."""
+    IOS = "ios"
+    ANDROID = "android"
+    GARMIN = "garmin"
+
+
+# =============================================================================
 # Request/Response Models
 # =============================================================================
 
@@ -74,23 +87,30 @@ class PushWorkoutToAndroidCompanionRequest(BaseModel):
     userId: str | None = None  # Deprecated: use auth instead
 
 
+class SyncToGarminRequest(BaseModel):
+    """Request to sync workout to Garmin Connect."""
+    blocks_json: dict
+    workout_title: str
+    schedule_date: Optional[str] = None
+
+
 class QueueSyncRequest(BaseModel):
     """Request to queue a workout for sync."""
-    device_type: str  # 'ios', 'android', 'garmin'
+    device_type: DeviceType
     device_id: str | None = None
 
 
 class ConfirmSyncRequest(BaseModel):
     """Request to confirm workout sync receipt."""
     workout_id: str
-    device_type: str
+    device_type: DeviceType
     device_id: str | None = None
 
 
 class ReportSyncFailedRequest(BaseModel):
     """Request to report sync failure."""
     workout_id: str
-    device_type: str
+    device_type: DeviceType
     error: str
     device_id: str | None = None
 
@@ -218,11 +238,7 @@ def push_workout_to_ios_companion_endpoint(
         # Get workout
         workout_record = get_workout(workout_id, user_id)
         if not workout_record:
-            return {
-                "success": False,
-                "status": "error",
-                "message": "Workout not found"
-            }
+            raise HTTPException(status_code=404, detail="Workout not found")
         
         workout_data = workout_record.get("workout_data", {})
         title = workout_record.get("title") or workout_data.get("title", "Workout")
@@ -323,9 +339,11 @@ def push_workout_to_ios_companion_endpoint(
             "iosCompanionWorkoutId": workout_id,
             "payload": payload
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to push iOS Companion workout {workout_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed")
 
 
 @router.get("/ios-companion/pending")
@@ -395,9 +413,11 @@ def get_ios_companion_pending_endpoint(
             "workouts": transformed,
             "count": len(transformed)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get iOS Companion pending workouts: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed")
 
 
 # =============================================================================
@@ -430,11 +450,7 @@ def push_workout_to_android_companion_endpoint(
         # Get workout
         workout_record = get_workout(workout_id, user_id)
         if not workout_record:
-            return {
-                "success": False,
-                "status": "error",
-                "message": "Workout not found"
-            }
+            raise HTTPException(status_code=404, detail="Workout not found")
 
         workout_data = workout_record.get("workout_data", {})
         title = workout_record.get("title") or workout_data.get("title", "Workout")
@@ -535,9 +551,11 @@ def push_workout_to_android_companion_endpoint(
             "androidCompanionWorkoutId": workout_id,
             "payload": payload
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to push Android Companion workout {workout_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed")
 
 
 @router.get("/android-companion/pending")
@@ -607,9 +625,11 @@ def get_android_companion_pending_endpoint(
             "workouts": transformed,
             "count": len(transformed)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get Android Companion pending workouts: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Operation failed")
 
 
 # =============================================================================
@@ -618,7 +638,10 @@ def get_android_companion_pending_endpoint(
 
 
 @router.post("/workout/sync/garmin")
-def sync_workout_to_garmin(request: dict):
+def sync_workout_to_garmin(
+    request: SyncToGarminRequest,
+    user_id: str = Depends(get_current_user)
+):
     """
     Sync a regular workout to Garmin Connect via garmin-sync-api.
     
@@ -630,44 +653,33 @@ def sync_workout_to_garmin(request: dict):
     Requires GARMIN_EMAIL and GARMIN_PASSWORD environment variables.
     
     Args:
-        request: Dictionary with:
+        request: SyncToGarminRequest with:
             - blocks_json: Workout structure with blocks and exercises
             - workout_title: Name for the Garmin workout
             - schedule_date: Optional date to schedule workout (YYYY-MM-DD)
+        user_id: Authenticated user ID from JWT
             
     Returns:
         Success/error response with Garmin workout ID if successful
     """
     # Backend guard for unofficial API
     if not GARMIN_UNOFFICIAL_SYNC_ENABLED:
-        return {
-            "success": False,
-            "status": "error",
-            "message": "Unofficial Garmin sync is disabled. Set GARMIN_UNOFFICIAL_SYNC_ENABLED=true to use this endpoint.",
-        }
+        raise HTTPException(status_code=503, detail="Unofficial Garmin sync is disabled")
 
     # Get workout data from request
-    blocks_json = request.get("blocks_json")
-    workout_title = request.get("workout_title", "Workout")
-    schedule_date = request.get("schedule_date")
+    blocks_json = request.blocks_json
+    workout_title = request.workout_title
+    schedule_date = request.schedule_date
 
     if not blocks_json:
-        return {
-            "success": False,
-            "status": "error",
-            "message": "Workout data is required",
-        }
+        raise HTTPException(status_code=400, detail="Workout data is required")
 
     # Get Garmin credentials from environment
     garmin_email = os.getenv("GARMIN_EMAIL")
     garmin_password = os.getenv("GARMIN_PASSWORD")
 
     if not garmin_email or not garmin_password:
-        return {
-            "success": False,
-            "status": "error",
-            "message": "Garmin credentials not configured. Set GARMIN_EMAIL and GARMIN_PASSWORD environment variables.",
-        }
+        raise HTTPException(status_code=500, detail="Garmin credentials not configured")
 
     steps: list[dict[str, str]] = []
 
@@ -765,11 +777,7 @@ def sync_workout_to_garmin(request: dict):
                     steps.append(step)
 
     if not steps:
-        return {
-            "success": False,
-            "status": "error",
-            "message": "No valid exercises found to sync",
-        }
+        raise HTTPException(status_code=400, detail="No valid exercises found to sync")
 
     # Final workouts payload for garmin-sync-api
     garmin_workouts = {workout_title: steps}
@@ -813,13 +821,11 @@ def sync_workout_to_garmin(request: dict):
             "message": "Workout synced to Garmin successfully",
             "garminWorkoutId": workout_title,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to sync workout to Garmin: {e}", exc_info=True)
-        return {
-            "success": False,
-            "status": "error",
-            "message": str(e),
-        }
+        raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
 
 
 # =============================================================================
@@ -849,8 +855,7 @@ def queue_workout_sync_endpoint(
     Returns:
         Success response with queue status and timestamp
     """
-    if request.device_type not in ['ios', 'android', 'garmin']:
-        raise HTTPException(status_code=400, detail="Invalid device_type. Must be ios, android, or garmin")
+    # Device type is validated by Pydantic (DeviceType enum)
 
     # Verify workout exists and belongs to user
     workout = get_workout(workout_id, user_id)
@@ -860,14 +865,14 @@ def queue_workout_sync_endpoint(
     result = queue_workout_sync(
         workout_id=workout_id,
         user_id=user_id,
-        device_type=request.device_type,
+        device_type=request.device_type.value,
         device_id=request.device_id or ""
     )
 
     if not result:
-        raise HTTPException(status_code=500, detail="Failed to queue workout for sync")
+        raise HTTPException(status_code=500, detail="Operation failed")
 
-    logger.info(f"Queued workout {workout_id} for {request.device_type} sync by user {user_id}")
+    logger.info(f"Queued workout {workout_id} for {request.device_type.value} sync by user {user_id}")
 
     return {
         "success": True,
