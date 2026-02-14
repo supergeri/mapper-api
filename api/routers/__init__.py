@@ -3,6 +3,7 @@ Router package for AmakaFlow Mapper API.
 
 Part of AMA-378: Create api/routers skeleton and wiring
 Updated in AMA-299: Add exercises router for exercise matching
+Updated in AMA-591: Add bulk import router
 
 This package contains all API routers organized by domain:
 - health: Health check endpoints
@@ -12,6 +13,7 @@ This package contains all API routers organized by domain:
 - pairing: Mobile device pairing and authentication
 - completions: Workout completion tracking
 - exercises: Canonical exercise lookup and matching (AMA-299)
+- bulk_import: Bulk import workflow (AMA-591)
 """
 
 from api.routers.health import router as health_router
@@ -26,6 +28,7 @@ from api.routers.programs import router as programs_router
 from api.routers.settings import router as settings_router
 from api.routers.follow_along import router as follow_along_router
 from api.routers.sync import router as sync_router
+from api.routers.bulk_import import router as bulk_import_router
 
 __all__ = [
     "health_router",
@@ -40,4 +43,5 @@ __all__ = [
     "settings_router",
     "follow_along_router",
     "sync_router",
+    "bulk_import_router",
 ]
