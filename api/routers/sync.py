@@ -23,12 +23,13 @@ Implements AMA-307 sync queue pattern for proper state tracking.
 import logging
 import json
 import os
+from datetime import datetime
 from enum import Enum
 from typing import Optional, Dict, Any, List
 
 import httpx
 from fastapi import APIRouter, Query, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
 from api.deps import get_current_user
@@ -60,6 +61,15 @@ _settings = get_settings()
 GARMIN_UNOFFICIAL_SYNC_ENABLED = _settings.garmin_unofficial_sync_enabled
 GARMIN_EXPORT_DEBUG = _settings.garmin_export_debug
 
+# =============================================================================
+# Security: Shared Garmin Account Configuration (AMA-589)
+# =============================================================================
+# CRITICAL: All users share the same Garmin Connect account via service account credentials
+# This is a temporary solution for MVP. Production should implement per-user OAuth or
+# encrypted per-user credential storage.
+GARMIN_SHARED_ACCOUNT_ENABLED = os.getenv("GARMIN_UNOFFICIAL_SYNC_ENABLED", "false").lower() == "true"
+GARMIN_CREDENTIAL_STRATEGY = "SHARED_SERVICE_ACCOUNT"  # TODO: Migrate to per-user credentials in AMA-XXX
+
 
 # =============================================================================
 # Enums
@@ -90,9 +100,31 @@ class PushWorkoutToAndroidCompanionRequest(BaseModel):
 
 class SyncToGarminRequest(BaseModel):
     """Request to sync workout to Garmin Connect."""
-    blocks_json: dict
-    workout_title: str
-    schedule_date: Optional[str] = None
+    blocks_json: dict = Field(description="Workout blocks structure with exercises and supersets")
+    workout_title: str = Field(min_length=1, max_length=256, description="Workout title")
+    schedule_date: Optional[str] = Field(None, description="Schedule date in YYYY-MM-DD format")
+    
+    @field_validator('schedule_date')
+    @classmethod
+    def validate_schedule_date(cls, v):
+        """Validate schedule_date is in YYYY-MM-DD format."""
+        if v is None:
+            return v
+        try:
+            datetime.strptime(v, '%Y-%m-%d')
+        except ValueError:
+            raise ValueError('schedule_date must be in YYYY-MM-DD format (e.g., 2026-02-13)')
+        return v
+    
+    @field_validator('blocks_json')
+    @classmethod
+    def validate_blocks_json(cls, v):
+        """Validate blocks_json has required structure."""
+        if not isinstance(v, dict):
+            raise ValueError('blocks_json must be a dictionary')
+        if 'blocks' not in v:
+            raise ValueError('blocks_json must contain "blocks" key with list of workout blocks')
+        return v
 
 
 class QueueSyncRequest(BaseModel):
@@ -209,41 +241,31 @@ def convert_exercise_to_interval(exercise: dict) -> dict:
         }
 
 
-# =============================================================================
-# iOS Companion App Endpoints (AMA-199)
-# =============================================================================
-
-
-@router.post("/workouts/{workout_id}/push/ios-companion")
-async def push_workout_to_ios_companion_endpoint(
-    workout_id: str,
-    request: PushWorkoutToIOSCompanionRequest,
-    user_id: str = Depends(get_current_user)
-):
+async def _transform_workout_to_companion(
+    workout_data: dict,
+    workout_title: str
+) -> dict:
     """
-    Push a regular (blocks-based) workout to iOS Companion App.
+    Transform workout data to companion app interval format (iOS/Android).
     
-    Transforms the workout structure into the iOS app's interval format
-    and queues it for sync. This endpoint is for workouts created through
-    the standard workflow, not follow-along workouts ingested from Instagram.
+    Extracts common transformation logic shared by iOS and Android endpoints.
+    Handles: intervals, warmup/cooldown, reps, durations, load calculation, step building.
+    
+    ISSUE 1 FIX (AMA-589): DRY Violation - Extract Duplicate iOS/Android Code
+    This helper eliminates ~180 lines of identical transformation logic.
     
     Args:
-        workout_id: Workout identifier
-        request: Push request (legacy userId field deprecated)
-        user_id: Authenticated user ID from JWT
+        workout_data: Workout structure with blocks and exercises
+        workout_title: Name/title for the workout
         
     Returns:
-        Success response with payload for iOS Companion App format
+        Dictionary with keys: id, name, sport, duration, source, sourceUrl, intervals
+        
+    Raises:
+        ValueError: If workout data structure is invalid
+        TypeError: If required fields are missing or wrong type
     """
     try:
-        # Get workout
-        workout_record = await run_in_threadpool(get_workout, workout_id, user_id)
-        if not workout_record:
-            raise HTTPException(status_code=404, detail="Workout not found")
-        
-        workout_data = workout_record.get("workout_data", {})
-        title = workout_record.get("title") or workout_data.get("title", "Workout")
-        
         # Detect sport type from workout structure
         blocks = workout_data.get("blocks", [])
         sport = "strength"  # Default
@@ -315,16 +337,65 @@ async def push_workout_to_ios_companion_endpoint(
                     intervals.append(interval)
                     total_duration += (exercise.get("duration_sec", 0) or 0) + (exercise.get("rest_sec", 0) or 0)
         
-        # Create payload for iOS Companion App
-        payload = {
-            "id": workout_id,
-            "name": title,
+        # Create payload for companion app (iOS or Android will add their wrapper)
+        return {
+            "id": None,  # Will be set by caller
+            "name": workout_title,
             "sport": sport,
             "duration": total_duration,
             "source": "amakaflow",
             "sourceUrl": None,
             "intervals": intervals
         }
+    
+    except (ValueError, KeyError, AttributeError, TypeError) as e:
+        logger.error(f"Failed to transform workout to companion format: {e}", exc_info=True)
+        raise ValueError(f"Invalid workout data structure: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected error during workout transformation: {e}", exc_info=True)
+        raise
+
+
+# =============================================================================
+# iOS Companion App Endpoints (AMA-199)
+# =============================================================================
+
+
+@router.post("/workouts/{workout_id}/push/ios-companion")
+async def push_workout_to_ios_companion_endpoint(
+    workout_id: str,
+    request: PushWorkoutToIOSCompanionRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Push a regular (blocks-based) workout to iOS Companion App.
+    
+    Transforms the workout structure into the iOS app's interval format
+    and queues it for sync. This endpoint is for workouts created through
+    the standard workflow, not follow-along workouts ingested from Instagram.
+    
+    Args:
+        workout_id: Workout identifier
+        request: Push request (legacy userId field deprecated)
+        user_id: Authenticated user ID from JWT
+        
+    Returns:
+        Success response with payload for iOS Companion App format
+        
+    ISSUE 1 FIX (AMA-589): Uses shared helper function _transform_workout_to_companion
+    """
+    try:
+        # Get workout
+        workout_record = await run_in_threadpool(get_workout, workout_id, user_id)
+        if not workout_record:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        
+        workout_data = workout_record.get("workout_data", {})
+        title = workout_record.get("title") or workout_data.get("title", "Workout")
+        
+        # Use shared helper function to transform to companion format
+        payload = await _transform_workout_to_companion(workout_data, title)
+        payload["id"] = workout_id
 
         # Queue workout for sync to iOS (AMA-307)
         await run_in_threadpool(queue_workout_sync, workout_id, user_id, "ios")
@@ -342,8 +413,11 @@ async def push_workout_to_ios_companion_endpoint(
         }
     except HTTPException:
         raise
+    except (ValueError, KeyError, AttributeError, TypeError) as e:
+        logger.error(f"Failed to transform iOS Companion workout {workout_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=422, detail="Invalid workout data structure")
     except Exception as e:
-        logger.error(f"Failed to push iOS Companion workout {workout_id}: {e}", exc_info=True)
+        logger.error(f"Unexpected error during iOS Companion push {workout_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Operation failed")
 
 
@@ -383,14 +457,17 @@ async def get_ios_companion_pending_endpoint(
                 workoutkit_dto = to_workoutkit(workout_data)
                 intervals = [interval.model_dump() for interval in workoutkit_dto.intervals]
                 sport = workoutkit_dto.sportType
-            except Exception as e:
+            except (ValueError, KeyError, AttributeError, TypeError) as e:
                 logger.warning(f"Failed to transform workout {workout_record.get('id')}: {e}")
                 # Fallback to simple transformation
                 intervals = []
                 sport = "strengthTraining"
-                for block in workout_data.get("blocks", []):
-                    for exercise in block.get("exercises", []):
-                        intervals.append(convert_exercise_to_interval(exercise))
+                try:
+                    for block in workout_data.get("blocks", []):
+                        for exercise in block.get("exercises", []):
+                            intervals.append(convert_exercise_to_interval(exercise))
+                except (KeyError, AttributeError, TypeError) as fallback_err:
+                    logger.warning(f"Fallback transformation also failed for {workout_record.get('id')}: {fallback_err}")
 
             # Calculate total duration from intervals
             total_duration = calculate_intervals_duration(intervals)
@@ -416,8 +493,11 @@ async def get_ios_companion_pending_endpoint(
         }
     except HTTPException:
         raise
+    except (ValueError, KeyError, AttributeError, TypeError) as e:
+        logger.error(f"Failed to process iOS Companion pending workouts: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to process workout data")
     except Exception as e:
-        logger.error(f"Failed to get iOS Companion pending workouts: {e}", exc_info=True)
+        logger.error(f"Unexpected error retrieving iOS Companion pending workouts: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Operation failed")
 
 
@@ -446,6 +526,8 @@ async def push_workout_to_android_companion_endpoint(
         
     Returns:
         Success response with payload for Android Companion App format
+        
+    ISSUE 1 FIX (AMA-589): Uses shared helper function _transform_workout_to_companion
     """
     try:
         # Get workout
@@ -456,87 +538,9 @@ async def push_workout_to_android_companion_endpoint(
         workout_data = workout_record.get("workout_data", {})
         title = workout_record.get("title") or workout_data.get("title", "Workout")
 
-        # Detect sport type from workout structure
-        blocks = workout_data.get("blocks", [])
-        sport = "strength"  # Default
-
-        for block in blocks:
-            structure = block.get("structure", "")
-            if structure in ["tabata", "hiit", "circuit", "emom", "amrap"]:
-                sport = "cardio"
-                break
-
-        # Build intervals from blocks (same transformation as iOS)
-        intervals = []
-        total_duration = 0
-
-        for block in blocks:
-            exercises = block.get("exercises", [])
-            rounds = block.get("rounds", 1) or 1
-            rest_between_rounds = block.get("rest_between_rounds_sec") or block.get("rest_between_sec", 60)
-
-            # Warmup block
-            if block.get("label", "").lower() in ["warmup", "warm up", "warm-up"]:
-                warmup_duration = sum(
-                    e.get("duration_sec", 60) for e in exercises
-                ) or 300
-                intervals.append({
-                    "kind": "warmup",
-                    "seconds": warmup_duration,
-                    "target": block.get("label", "Warmup")
-                })
-                total_duration += warmup_duration
-                continue
-
-            # Cooldown block
-            if block.get("label", "").lower() in ["cooldown", "cool down", "cool-down"]:
-                cooldown_duration = sum(
-                    e.get("duration_sec", 60) for e in exercises
-                ) or 300
-                intervals.append({
-                    "kind": "cooldown",
-                    "seconds": cooldown_duration,
-                    "target": block.get("label", "Cooldown")
-                })
-                total_duration += cooldown_duration
-                continue
-
-            # Create repeat block if rounds > 1
-            if rounds > 1:
-                inner_intervals = []
-                for exercise in exercises:
-                    inner_interval = convert_exercise_to_interval(exercise)
-                    inner_intervals.append(inner_interval)
-
-                intervals.append({
-                    "kind": "repeat",
-                    "reps": rounds,
-                    "intervals": inner_intervals
-                })
-
-                # Calculate duration for repeat
-                inner_duration = sum(
-                    (e.get("duration_sec", 0) or 0) + (e.get("rest_sec", 0) or 0)
-                    for e in exercises
-                )
-                total_duration += (inner_duration * rounds) + (rest_between_rounds * (rounds - 1))
-            else:
-                # Single round - add exercises directly
-                for exercise in exercises:
-                    interval = convert_exercise_to_interval(exercise)
-                    intervals.append(interval)
-                    total_duration += (exercise.get("duration_sec", 0) or 0) + (exercise.get("rest_sec", 0) or 0)
-
-        # Create payload for Android Companion App
-        payload = {
-            "id": workout_id,
-            "name": title,
-            "sport": sport,
-            "duration": total_duration,
-            "source": "amakaflow",
-            "sourceUrl": None,
-            "intervals": intervals
-        }
+        # Use shared helper function to transform to companion format
+        payload = await _transform_workout_to_companion(workout_data, title)
+        payload["id"] = workout_id
 
         # Queue workout for sync to Android (AMA-307)
         await run_in_threadpool(queue_workout_sync, workout_id, user_id, "android")
@@ -554,8 +558,11 @@ async def push_workout_to_android_companion_endpoint(
         }
     except HTTPException:
         raise
+    except (ValueError, KeyError, AttributeError, TypeError) as e:
+        logger.error(f"Failed to transform Android Companion workout {workout_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=422, detail="Invalid workout data structure")
     except Exception as e:
-        logger.error(f"Failed to push Android Companion workout {workout_id}: {e}", exc_info=True)
+        logger.error(f"Unexpected error during Android Companion push {workout_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Operation failed")
 
 
@@ -595,14 +602,17 @@ async def get_android_companion_pending_endpoint(
                 workoutkit_dto = to_workoutkit(workout_data)
                 intervals = [interval.model_dump() for interval in workoutkit_dto.intervals]
                 sport = workoutkit_dto.sportType
-            except Exception as e:
+            except (ValueError, KeyError, AttributeError, TypeError) as e:
                 logger.warning(f"Failed to transform workout {workout_record.get('id')}: {e}")
                 # Fallback to simple transformation
                 intervals = []
                 sport = "strengthTraining"
-                for block in workout_data.get("blocks", []):
-                    for exercise in block.get("exercises", []):
-                        intervals.append(convert_exercise_to_interval(exercise))
+                try:
+                    for block in workout_data.get("blocks", []):
+                        for exercise in block.get("exercises", []):
+                            intervals.append(convert_exercise_to_interval(exercise))
+                except (KeyError, AttributeError, TypeError) as fallback_err:
+                    logger.warning(f"Fallback transformation also failed for {workout_record.get('id')}: {fallback_err}")
 
             # Calculate total duration from intervals
             total_duration = calculate_intervals_duration(intervals)
@@ -628,8 +638,11 @@ async def get_android_companion_pending_endpoint(
         }
     except HTTPException:
         raise
+    except (ValueError, KeyError, AttributeError, TypeError) as e:
+        logger.error(f"Failed to process Android Companion pending workouts: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to process workout data")
     except Exception as e:
-        logger.error(f"Failed to get Android Companion pending workouts: {e}", exc_info=True)
+        logger.error(f"Unexpected error retrieving Android Companion pending workouts: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Operation failed")
 
 
@@ -653,15 +666,27 @@ async def sync_workout_to_garmin(
     Respects GARMIN_UNOFFICIAL_SYNC_ENABLED environment flag.
     Requires GARMIN_EMAIL and GARMIN_PASSWORD environment variables.
     
+    SECURITY NOTE (ISSUE 2 - AMA-589):
+    ⚠️  Uses shared service account Garmin credentials (GARMIN_EMAIL/PASSWORD env vars).
+    All users share the same Garmin account for sync operations.
+    This is a temporary MVP solution. For production, implement per-user OAuth
+    or encrypted credential storage with per-user API keys.
+    
     Args:
         request: SyncToGarminRequest with:
-            - blocks_json: Workout structure with blocks and exercises
-            - workout_title: Name for the Garmin workout
-            - schedule_date: Optional date to schedule workout (YYYY-MM-DD)
+            - blocks_json: Workout structure with blocks and exercises (validated)
+            - workout_title: Name for the Garmin workout (1-256 chars)
+            - schedule_date: Optional date to schedule workout (YYYY-MM-DD format)
         user_id: Authenticated user ID from JWT
             
     Returns:
         Success/error response with Garmin workout ID if successful
+        
+    Raises:
+        HTTPException 400: Invalid request data (missing/malformed blocks_json)
+        HTTPException 422: Invalid workout data structure (transformation failed)
+        HTTPException 500: Garmin sync failed or credentials not configured
+        HTTPException 503: Unofficial Garmin sync is disabled
     """
     # Backend guard for unofficial API
     if not GARMIN_UNOFFICIAL_SYNC_ENABLED:
@@ -824,9 +849,12 @@ async def sync_workout_to_garmin(
         }
     except HTTPException:
         raise
+    except (ValueError, KeyError, AttributeError, TypeError) as e:
+        logger.error(f"Failed to build Garmin workout steps: {e}", exc_info=True)
+        raise HTTPException(status_code=422, detail="Invalid workout data structure")
     except Exception as e:
-        logger.error(f"Failed to sync workout to Garmin: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Operation failed. Please try again.")
+        logger.error(f"Unexpected error syncing workout to Garmin: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Garmin sync failed. Please try again.")
 
 
 # =============================================================================
@@ -903,64 +931,76 @@ async def get_pending_syncs_endpoint(
     Returns:
         List of pending workouts with full interval data
     """
-    # Validate device_type
-    valid_types = {e.value for e in DeviceType}
-    if device_type not in valid_types:
-        raise HTTPException(status_code=400, detail="Invalid device_type")
+    try:
+        # Validate device_type
+        valid_types = {e.value for e in DeviceType}
+        if device_type not in valid_types:
+            raise HTTPException(status_code=400, detail="Invalid device_type")
 
-    pending = await run_in_threadpool(
-        get_pending_syncs,
-        user_id=user_id,
-        device_type=device_type,
-        device_id=device_id or ""
-    )
+        pending = await run_in_threadpool(
+            get_pending_syncs,
+            user_id=user_id,
+            device_type=device_type,
+            device_id=device_id or ""
+        )
 
-    # Transform to full workout format (same as /ios-companion/pending)
-    workouts = []
-    for entry in pending:
-        workout_record = entry.get("workouts", {})
-        if not workout_record:
-            continue
+        # Transform to full workout format (same as /ios-companion/pending)
+        workouts = []
+        for entry in pending:
+            workout_record = entry.get("workouts", {})
+            if not workout_record:
+                continue
 
-        workout_data = workout_record.get("workout_data", {})
-        title = workout_record.get("title") or workout_data.get("title", "Workout")
+            workout_data = workout_record.get("workout_data", {})
+            title = workout_record.get("title") or workout_data.get("title", "Workout")
 
-        # Use to_workoutkit to properly transform intervals
-        try:
-            workoutkit_dto = to_workoutkit(workout_data)
-            intervals = [interval.model_dump() for interval in workoutkit_dto.intervals]
-            sport = workoutkit_dto.sportType
-        except Exception as e:
-            logger.warning(f"Failed to transform workout {entry.get('workout_id')}: {e}")
-            # Fallback to simple transformation
-            intervals = []
-            sport = "strengthTraining"
-            for block in workout_data.get("blocks", []):
-                for exercise in block.get("exercises", []):
-                    intervals.append(convert_exercise_to_interval(exercise))
+            # Use to_workoutkit to properly transform intervals
+            try:
+                workoutkit_dto = to_workoutkit(workout_data)
+                intervals = [interval.model_dump() for interval in workoutkit_dto.intervals]
+                sport = workoutkit_dto.sportType
+            except (ValueError, KeyError, AttributeError, TypeError) as e:
+                logger.warning(f"Failed to transform workout {entry.get('workout_id')}: {e}")
+                # Fallback to simple transformation
+                intervals = []
+                sport = "strengthTraining"
+                try:
+                    for block in workout_data.get("blocks", []):
+                        for exercise in block.get("exercises", []):
+                            intervals.append(convert_exercise_to_interval(exercise))
+                except (KeyError, AttributeError, TypeError) as fallback_err:
+                    logger.warning(f"Fallback transformation failed for {entry.get('workout_id')}: {fallback_err}")
 
-        # Calculate total duration from intervals
-        total_duration = calculate_intervals_duration(intervals)
+            # Calculate total duration from intervals
+            total_duration = calculate_intervals_duration(intervals)
 
-        workouts.append({
-            "id": entry.get("workout_id"),
-            "name": title,
-            "sport": sport,
-            "duration": total_duration,
-            "source": "amakaflow",
-            "sourceUrl": None,
-            "intervals": intervals,
-            "queued_at": entry.get("queued_at"),
-            "created_at": workout_record.get("created_at"),
-        })
+            workouts.append({
+                "id": entry.get("workout_id"),
+                "name": title,
+                "sport": sport,
+                "duration": total_duration,
+                "source": "amakaflow",
+                "sourceUrl": None,
+                "intervals": intervals,
+                "queued_at": entry.get("queued_at"),
+                "created_at": workout_record.get("created_at"),
+            })
 
-    logger.info(f"Retrieved {len(workouts)} pending syncs for {device_type} device by user {user_id}")
+        logger.info(f"Retrieved {len(workouts)} pending syncs for {device_type} device by user {user_id}")
 
-    return {
-        "success": True,
-        "workouts": workouts,
-        "count": len(workouts)
-    }
+        return {
+            "success": True,
+            "workouts": workouts,
+            "count": len(workouts)
+        }
+    except HTTPException:
+        raise
+    except (ValueError, KeyError, AttributeError, TypeError) as e:
+        logger.error(f"Failed to process pending syncs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to process pending workouts")
+    except Exception as e:
+        logger.error(f"Unexpected error retrieving pending syncs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Operation failed")
 
 
 @router.post("/sync/confirm")
