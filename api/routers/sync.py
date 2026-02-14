@@ -29,6 +29,7 @@ from typing import Optional, Dict, Any, List
 import httpx
 from fastapi import APIRouter, Query, Depends, HTTPException
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from api.deps import get_current_user
 from backend.database import (
@@ -236,7 +237,7 @@ async def push_workout_to_ios_companion_endpoint(
     """
     try:
         # Get workout
-        workout_record = get_workout(workout_id, user_id)
+        workout_record = await run_in_threadpool(get_workout, workout_id, user_id)
         if not workout_record:
             raise HTTPException(status_code=404, detail="Workout not found")
         
@@ -326,10 +327,10 @@ async def push_workout_to_ios_companion_endpoint(
         }
 
         # Queue workout for sync to iOS (AMA-307)
-        queue_workout_sync(workout_id, user_id, device_type="ios")
+        await run_in_threadpool(queue_workout_sync, workout_id, user_id, "ios")
 
         # Also update legacy column for backward compatibility
-        update_workout_ios_companion_sync(workout_id, user_id)
+        await run_in_threadpool(update_workout_ios_companion_sync, workout_id, user_id)
 
         logger.info(f"Pushed iOS Companion workout {workout_id} for user {user_id}")
 
@@ -368,7 +369,7 @@ async def get_ios_companion_pending_endpoint(
         List of pending iOS Companion workouts with interval data
     """
     try:
-        workouts = get_ios_companion_pending_workouts(user_id, limit=limit, exclude_completed=exclude_completed)
+        workouts = await run_in_threadpool(get_ios_companion_pending_workouts, user_id, limit=limit, exclude_completed=exclude_completed)
 
         # Transform each workout to iOS companion format
         transformed = []
@@ -448,7 +449,7 @@ async def push_workout_to_android_companion_endpoint(
     """
     try:
         # Get workout
-        workout_record = get_workout(workout_id, user_id)
+        workout_record = await run_in_threadpool(get_workout, workout_id, user_id)
         if not workout_record:
             raise HTTPException(status_code=404, detail="Workout not found")
 
@@ -538,10 +539,10 @@ async def push_workout_to_android_companion_endpoint(
         }
 
         # Queue workout for sync to Android (AMA-307)
-        queue_workout_sync(workout_id, user_id, device_type="android")
+        await run_in_threadpool(queue_workout_sync, workout_id, user_id, "android")
 
         # Also update legacy column for backward compatibility
-        update_workout_android_companion_sync(workout_id, user_id)
+        await run_in_threadpool(update_workout_android_companion_sync, workout_id, user_id)
 
         logger.info(f"Pushed Android Companion workout {workout_id} for user {user_id}")
 
@@ -581,7 +582,7 @@ async def get_android_companion_pending_endpoint(
         List of pending Android Companion workouts with interval data
     """
     try:
-        workouts = get_android_companion_pending_workouts(user_id, limit=limit, exclude_completed=exclude_completed)
+        workouts = await run_in_threadpool(get_android_companion_pending_workouts, user_id, limit=limit, exclude_completed=exclude_completed)
 
         # Transform each workout to companion format
         transformed = []
@@ -792,10 +793,10 @@ async def sync_workout_to_garmin(
     }
 
     try:
-        with httpx.Client(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             # Import workout
             logger.info("GARMIN_SYNC_IMPORT payload=%s", json.dumps(garmin_payload, indent=2))
-            response = client.post(f"{garmin_url}/workouts/import", json=garmin_payload)
+            response = await client.post(f"{garmin_url}/workouts/import", json=garmin_payload)
             response.raise_for_status()
 
             # Optionally schedule the workout
@@ -807,7 +808,7 @@ async def sync_workout_to_garmin(
                     "workouts": [workout_title],
                 }
                 logger.info("GARMIN_SYNC_SCHEDULE payload=%s", json.dumps(schedule_payload, indent=2))
-                schedule_response = client.post(
+                schedule_response = await client.post(
                     f"{garmin_url}/workouts/schedule",
                     json=schedule_payload,
                 )
@@ -858,11 +859,12 @@ async def queue_workout_sync_endpoint(
     # Device type is validated by Pydantic (DeviceType enum)
 
     # Verify workout exists and belongs to user
-    workout = get_workout(workout_id, user_id)
+    workout = await run_in_threadpool(get_workout, workout_id, user_id)
     if not workout:
         raise HTTPException(status_code=404, detail="Workout not found")
 
-    result = queue_workout_sync(
+    result = await run_in_threadpool(
+        queue_workout_sync,
         workout_id=workout_id,
         user_id=user_id,
         device_type=request.device_type.value,
@@ -906,7 +908,8 @@ async def get_pending_syncs_endpoint(
     if device_type not in valid_types:
         raise HTTPException(status_code=400, detail="Invalid device_type")
 
-    pending = get_pending_syncs(
+    pending = await run_in_threadpool(
+        get_pending_syncs,
         user_id=user_id,
         device_type=device_type,
         device_id=device_id or ""
@@ -979,7 +982,8 @@ async def confirm_sync_endpoint(
         Success response with sync status and timestamp
     """
     # Device type is validated by Pydantic (DeviceType enum)
-    result = confirm_sync(
+    result = await run_in_threadpool(
+        confirm_sync,
         workout_id=request.workout_id,
         user_id=user_id,
         device_type=request.device_type.value,
@@ -1017,7 +1021,8 @@ async def report_sync_failed_endpoint(
         Success response with failed sync status and timestamp
     """
     # Device type is validated by Pydantic (DeviceType enum)
-    result = report_sync_failed(
+    result = await run_in_threadpool(
+        report_sync_failed,
         workout_id=request.workout_id,
         user_id=user_id,
         device_type=request.device_type.value,
@@ -1055,11 +1060,11 @@ async def get_workout_sync_status_endpoint(
         Sync status across all device types
     """
     # Verify workout exists and belongs to user
-    workout = get_workout(workout_id, user_id)
+    workout = await run_in_threadpool(get_workout, workout_id, user_id)
     if not workout:
         raise HTTPException(status_code=404, detail="Workout not found")
 
-    sync_status = get_workout_sync_status(workout_id, user_id)
+    sync_status = await run_in_threadpool(get_workout_sync_status, workout_id, user_id)
 
     logger.info(f"Retrieved sync status for workout {workout_id} by user {user_id}")
 
