@@ -9,7 +9,7 @@ Part of AMA-585: Extract settings router from monolithic app.py
 import os
 import pathlib
 import tempfile
-from typing import Literal
+from typing import Literal, Optional
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -21,6 +21,7 @@ from backend.adapters.blocks_to_hyrox_yaml import load_user_defaults
 # Type aliases for valid setting values
 DISTANCE_HANDLING_OPTIONS = Literal["percentage", "distance_unit"]
 DEFAULT_EXERCISE_VALUE_OPTIONS = Literal["rep_range", "percentage", "time"]
+THEME_OPTIONS = Literal["light", "dark", "system"]
 
 router = APIRouter(
     prefix="/settings",
@@ -40,13 +41,18 @@ class UserSettingsRequest(BaseModel):
         default=False,
         description="Whether to ignore distance in workout calculations"
     )
+    theme: Optional[THEME_OPTIONS] = Field(
+        default="system",
+        description="UI theme preference: light, dark, or system"
+    )
 
     class Config:
         json_schema_extra = {
             "example": {
                 "distance_handling": "percentage",
                 "default_exercise_value": "rep_range",
-                "ignore_distance": False
+                "ignore_distance": False,
+                "theme": "system"
             }
         }
 
@@ -56,13 +62,15 @@ class UserSettingsResponse(BaseModel):
     distance_handling: DISTANCE_HANDLING_OPTIONS
     default_exercise_value: DEFAULT_EXERCISE_VALUE_OPTIONS
     ignore_distance: bool
+    theme: THEME_OPTIONS
 
     class Config:
         json_schema_extra = {
             "example": {
                 "distance_handling": "percentage",
                 "default_exercise_value": "rep_range",
-                "ignore_distance": False
+                "ignore_distance": False,
+                "theme": "system"
             }
         }
 
@@ -102,7 +110,7 @@ def save_user_defaults(settings_dict: dict) -> None:
 
     Args:
         settings_dict: Dictionary containing distance_handling,
-                      default_exercise_value, ignore_distance
+                      default_exercise_value, ignore_distance, theme
 
     Raises:
         FileNotFoundError: If settings directory cannot be created
@@ -181,6 +189,9 @@ def get_defaults(current_user=Depends(get_current_user)) -> UserSettingsResponse
     """
     try:
         settings = load_user_defaults()
+        # Backward compatibility: add default theme if not present
+        if "theme" not in settings:
+            settings["theme"] = "system"
         return UserSettingsResponse(**settings)
     except (FileNotFoundError, yaml.YAMLError, KeyError, ValueError) as e:
         raise HTTPException(
@@ -228,6 +239,7 @@ def update_defaults(
             "distance_handling": settings.distance_handling,
             "default_exercise_value": settings.default_exercise_value,
             "ignore_distance": settings.ignore_distance,
+            "theme": settings.theme or "system",
         }
 
         save_user_defaults(settings_dict)
@@ -246,4 +258,103 @@ def update_defaults(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to save user settings: {str(e)}",
+        ) from e
+
+
+class ThemeResponse(BaseModel):
+    """Response model for theme setting."""
+    theme: THEME_OPTIONS
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "theme": "dark"
+            }
+        }
+
+
+class ThemeUpdateRequest(BaseModel):
+    """Request model for updating theme."""
+    theme: THEME_OPTIONS = Field(
+        description="UI theme preference: light, dark, or system"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "theme": "dark"
+            }
+        }
+
+
+@router.get(
+    "/theme",
+    response_model=ThemeResponse,
+    summary="Get user theme preference",
+    description="Retrieve the current user's UI theme preference (light, dark, or system)",
+)
+def get_theme(current_user=Depends(get_current_user)) -> ThemeResponse:
+    """
+    Get current user's theme preference.
+
+    Returns the theme setting which controls the UI appearance:
+    - "light": Always use light mode
+    - "dark": Always use dark mode
+    - "system": Follow system preference
+
+    Args:
+        current_user: Current authenticated user (from dependency)
+
+    Returns:
+        ThemeResponse: Current theme preference
+
+    Raises:
+        HTTPException: If settings cannot be loaded (500 error)
+    """
+    try:
+        settings = load_user_defaults()
+        theme = settings.get("theme", "system")
+        return ThemeResponse(theme=theme)
+    except (FileNotFoundError, yaml.YAMLError, KeyError, ValueError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load theme setting: {str(e)}"
+        ) from e
+
+
+@router.put(
+    "/theme",
+    response_model=ThemeResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update user theme preference",
+    description="Update the current user's UI theme preference",
+)
+def update_theme(
+    theme_update: ThemeUpdateRequest,
+    current_user=Depends(get_current_user)
+) -> ThemeResponse:
+    """
+    Update user's theme preference.
+
+    Sets the UI theme to light, dark, or system.
+
+    Args:
+        theme_update: New theme value
+        current_user: Current authenticated user (from dependency)
+
+    Returns:
+        ThemeResponse: Updated theme preference
+
+    Raises:
+        HTTPException: If theme cannot be saved (500 error)
+    """
+    try:
+        settings = load_user_defaults()
+        settings["theme"] = theme_update.theme
+        save_user_defaults(settings)
+        return ThemeResponse(theme=theme_update.theme)
+    except (FileNotFoundError, yaml.YAMLError, OSError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save theme setting: {str(e)}"
         ) from e

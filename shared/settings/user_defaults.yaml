@@ -12,4 +12,8 @@ defaults:
   
   # Whether to use distance values or convert to "lap"
   ignore_distance: true
+  
+  # UI theme preference
+  # Options: "light", "dark", "system"
+  theme: "system"
 

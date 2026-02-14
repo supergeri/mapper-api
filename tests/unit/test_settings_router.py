@@ -70,6 +70,7 @@ class TestGetDefaults:
             "distance_handling": "percentage",
             "default_exercise_value": "rep_range",
             "ignore_distance": False,
+            "theme": "dark",
         }
         with patch("api.routers.settings.load_user_defaults", return_value=stored):
             resp = settings_client.get("/settings/defaults")
@@ -78,6 +79,7 @@ class TestGetDefaults:
             assert data["distance_handling"] == "percentage"
             assert data["default_exercise_value"] == "rep_range"
             assert data["ignore_distance"] is False
+            assert data["theme"] == "dark"
 
     def test_get_defaults_with_distance_unit(self, settings_client):
         """Should return distance_unit setting correctly."""
@@ -85,6 +87,7 @@ class TestGetDefaults:
             "distance_handling": "distance_unit",
             "default_exercise_value": "time",
             "ignore_distance": True,
+            "theme": "light",
         }
         with patch("api.routers.settings.load_user_defaults", return_value=stored):
             resp = settings_client.get("/settings/defaults")
@@ -93,6 +96,7 @@ class TestGetDefaults:
             assert data["distance_handling"] == "distance_unit"
             assert data["default_exercise_value"] == "time"
             assert data["ignore_distance"] is True
+            assert data["theme"] == "light"
 
     def test_get_defaults_returns_500_on_file_not_found(self, settings_client):
         """Should return 500 when settings file is missing."""
@@ -131,6 +135,19 @@ class TestGetDefaults:
             resp = settings_client.get("/settings/defaults")
             assert resp.status_code == 500
 
+    def test_get_defaults_backward_compatible_no_theme(self, settings_client):
+        """Should default to 'system' theme when theme is missing from stored settings."""
+        stored = {
+            "distance_handling": "percentage",
+            "default_exercise_value": "rep_range",
+            "ignore_distance": False,
+        }
+        with patch("api.routers.settings.load_user_defaults", return_value=stored):
+            resp = settings_client.get("/settings/defaults")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["theme"] == "system"
+
 
 # ---------------------------------------------------------------------------
 # PUT /settings/defaults
@@ -147,6 +164,7 @@ class TestUpdateDefaults:
             "distance_handling": "distance_unit",
             "default_exercise_value": "time",
             "ignore_distance": True,
+            "theme": "dark",
         }
         with patch("api.routers.settings.save_user_defaults") as mock_save:
             resp = settings_client.put("/settings/defaults", json=payload)
@@ -156,11 +174,13 @@ class TestUpdateDefaults:
             assert data["settings"]["distance_handling"] == "distance_unit"
             assert data["settings"]["default_exercise_value"] == "time"
             assert data["settings"]["ignore_distance"] is True
+            assert data["settings"]["theme"] == "dark"
             mock_save.assert_called_once_with(
                 {
                     "distance_handling": "distance_unit",
                     "default_exercise_value": "time",
                     "ignore_distance": True,
+                    "theme": "dark",
                 }
             )
 
@@ -170,6 +190,7 @@ class TestUpdateDefaults:
             "distance_handling": "percentage",
             "default_exercise_value": "rep_range",
             "ignore_distance": False,
+            "theme": "system",
         }
         with patch("api.routers.settings.save_user_defaults"):
             resp = settings_client.put("/settings/defaults", json=payload)
@@ -177,6 +198,7 @@ class TestUpdateDefaults:
             data = resp.json()
             assert data["settings"]["distance_handling"] == "percentage"
             assert data["settings"]["default_exercise_value"] == "rep_range"
+            assert data["settings"]["theme"] == "system"
 
     def test_put_defaults_percentage_as_exercise_value(self, settings_client):
         """Should accept percentage as default_exercise_value."""
@@ -184,6 +206,7 @@ class TestUpdateDefaults:
             "distance_handling": "percentage",
             "default_exercise_value": "percentage",
             "ignore_distance": False,
+            "theme": "light",
         }
         with patch("api.routers.settings.save_user_defaults"):
             resp = settings_client.put("/settings/defaults", json=payload)
@@ -195,11 +218,13 @@ class TestUpdateDefaults:
         payload = {
             "distance_handling": "percentage",
             "default_exercise_value": "rep_range",
+            "theme": "dark",
         }
         with patch("api.routers.settings.save_user_defaults"):
             resp = settings_client.put("/settings/defaults", json=payload)
             assert resp.status_code == 200
             assert resp.json()["settings"]["ignore_distance"] is False
+            assert resp.json()["settings"]["theme"] == "dark"
 
     def test_put_defaults_validates_invalid_distance_handling(self, settings_client):
         """Should reject invalid distance_handling value with 422."""
@@ -207,6 +232,7 @@ class TestUpdateDefaults:
             "distance_handling": "invalid_option",
             "default_exercise_value": "rep_range",
             "ignore_distance": False,
+            "theme": "system",
         }
         resp = settings_client.put("/settings/defaults", json=payload)
         assert resp.status_code == 422
@@ -217,6 +243,7 @@ class TestUpdateDefaults:
             "distance_handling": "percentage",
             "default_exercise_value": "invalid",
             "ignore_distance": False,
+            "theme": "system",
         }
         resp = settings_client.put("/settings/defaults", json=payload)
         assert resp.status_code == 422
@@ -238,6 +265,7 @@ class TestUpdateDefaults:
             "distance_handling": "percentage",
             "default_exercise_value": "rep_range",
             "ignore_distance": False,
+            "theme": "system",
         }
         with patch(
             "api.routers.settings.save_user_defaults",
@@ -253,6 +281,7 @@ class TestUpdateDefaults:
             "distance_handling": "percentage",
             "default_exercise_value": "rep_range",
             "ignore_distance": False,
+            "theme": "system",
         }
         with patch(
             "api.routers.settings.save_user_defaults",
@@ -268,6 +297,7 @@ class TestUpdateDefaults:
             "distance_handling": "percentage",
             "default_exercise_value": "rep_range",
             "ignore_distance": False,
+            "theme": "system",
         }
         with patch(
             "api.routers.settings.save_user_defaults",
@@ -293,10 +323,12 @@ class TestPydanticModels:
             distance_handling="percentage",
             default_exercise_value="rep_range",
             ignore_distance=False,
+            theme="dark",
         )
         assert req.distance_handling == "percentage"
         assert req.default_exercise_value == "rep_range"
         assert req.ignore_distance is False
+        assert req.theme == "dark"
 
     def test_user_settings_request_all_exercise_values(self):
         """Should accept all valid default_exercise_value options."""
@@ -305,6 +337,7 @@ class TestPydanticModels:
                 distance_handling="percentage",
                 default_exercise_value=val,
                 ignore_distance=False,
+                theme="system",
             )
             assert req.default_exercise_value == val
 
@@ -315,6 +348,7 @@ class TestPydanticModels:
                 distance_handling=val,
                 default_exercise_value="rep_range",
                 ignore_distance=False,
+                theme="light",
             )
             assert req.distance_handling == val
 
@@ -323,8 +357,27 @@ class TestPydanticModels:
         req = UserSettingsRequest(
             distance_handling="percentage",
             default_exercise_value="rep_range",
+            theme="dark",
         )
         assert req.ignore_distance is False
+
+    def test_user_settings_request_theme_default(self):
+        """theme should default to 'system'."""
+        req = UserSettingsRequest(
+            distance_handling="percentage",
+            default_exercise_value="rep_range",
+        )
+        assert req.theme == "system"
+
+    def test_user_settings_request_all_theme_options(self):
+        """Should accept all valid theme options."""
+        for theme in ("light", "dark", "system"):
+            req = UserSettingsRequest(
+                distance_handling="percentage",
+                default_exercise_value="rep_range",
+                theme=theme,
+            )
+            assert req.theme == theme
 
     def test_user_settings_request_invalid_distance_handling(self):
         """Should raise ValidationError for invalid distance_handling."""
@@ -334,6 +387,7 @@ class TestPydanticModels:
             UserSettingsRequest(
                 distance_handling="bad_value",
                 default_exercise_value="rep_range",
+                theme="system",
             )
 
     def test_user_settings_request_invalid_exercise_value(self):
@@ -344,6 +398,18 @@ class TestPydanticModels:
             UserSettingsRequest(
                 distance_handling="percentage",
                 default_exercise_value="bad_value",
+                theme="system",
+            )
+
+    def test_user_settings_request_invalid_theme(self):
+        """Should raise ValidationError for invalid theme."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            UserSettingsRequest(
+                distance_handling="percentage",
+                default_exercise_value="rep_range",
+                theme="invalid_theme",
             )
 
     def test_user_settings_response_model(self):
@@ -352,12 +418,14 @@ class TestPydanticModels:
             distance_handling="percentage",
             default_exercise_value="rep_range",
             ignore_distance=True,
+            theme="dark",
         )
         data = resp.model_dump()
         assert data == {
             "distance_handling": "percentage",
             "default_exercise_value": "rep_range",
             "ignore_distance": True,
+            "theme": "dark",
         }
 
     def test_settings_update_response_model(self):
@@ -366,11 +434,13 @@ class TestPydanticModels:
             distance_handling="distance_unit",
             default_exercise_value="time",
             ignore_distance=False,
+            theme="light",
         )
         resp = SettingsUpdateResponse(message="ok", settings=inner)
         data = resp.model_dump()
         assert data["message"] == "ok"
         assert data["settings"]["distance_handling"] == "distance_unit"
+        assert data["settings"]["theme"] == "light"
 
 
 # ---------------------------------------------------------------------------
@@ -389,6 +459,7 @@ class TestSaveUserDefaults:
             "distance_handling": "percentage",
             "default_exercise_value": "rep_range",
             "ignore_distance": False,
+            "theme": "dark",
         }
         with patch(
             "api.routers.settings.get_settings_file_path",
@@ -401,6 +472,7 @@ class TestSaveUserDefaults:
         assert data["defaults"]["distance_handling"] == "percentage"
         assert data["defaults"]["default_exercise_value"] == "rep_range"
         assert data["defaults"]["ignore_distance"] is False
+        assert data["defaults"]["theme"] == "dark"
 
     def test_save_creates_parent_directories(self, tmp_path):
         """Should create parent directories if they don't exist."""
@@ -409,6 +481,7 @@ class TestSaveUserDefaults:
             "distance_handling": "distance_unit",
             "default_exercise_value": "time",
             "ignore_distance": True,
+            "theme": "system",
         }
         with patch(
             "api.routers.settings.get_settings_file_path",
@@ -429,6 +502,7 @@ class TestSaveUserDefaults:
             "distance_handling": "distance_unit",
             "default_exercise_value": "time",
             "ignore_distance": True,
+            "theme": "light",
         }
         with patch(
             "api.routers.settings.get_settings_file_path",
@@ -446,6 +520,7 @@ class TestSaveUserDefaults:
             "distance_handling": "percentage",
             "default_exercise_value": "rep_range",
             "ignore_distance": False,
+            "theme": "dark",
         }
         with (
             patch(
@@ -466,6 +541,7 @@ class TestSaveUserDefaults:
             "distance_handling": "percentage",
             "default_exercise_value": "rep_range",
             "ignore_distance": False,
+            "theme": "system",
         }
         with (
             patch(
@@ -489,6 +565,7 @@ class TestSaveUserDefaults:
             "distance_handling": "percentage",
             "default_exercise_value": "rep_range",
             "ignore_distance": False,
+            "theme": "system",
         }
         with (
             patch(
@@ -510,6 +587,7 @@ class TestSaveUserDefaults:
             "distance_handling": "percentage",
             "default_exercise_value": "rep_range",
             "ignore_distance": False,
+            "theme": "dark",
         }
         with patch(
             "api.routers.settings.get_settings_file_path",
@@ -523,6 +601,7 @@ class TestSaveUserDefaults:
             "distance_handling",
             "default_exercise_value",
             "ignore_distance",
+            "theme",
         }
 
     def test_save_no_temp_file_leak_on_replace_failure(self, tmp_path):
@@ -533,6 +612,7 @@ class TestSaveUserDefaults:
             "distance_handling": "percentage",
             "default_exercise_value": "rep_range",
             "ignore_distance": False,
+            "theme": "system",
         }
         with (
             patch(
@@ -572,3 +652,111 @@ class TestGetSettingsFilePath:
         assert result.name == "user_defaults.yaml"
         assert result.parent.name == "settings"
         assert result.parent.parent.name == "shared"
+
+
+# ---------------------------------------------------------------------------
+# Theme endpoints tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestGetTheme:
+    """Tests for GET /settings/theme endpoint."""
+
+    def test_get_theme_returns_current_theme(self, settings_client):
+        """Should return current theme setting."""
+        stored = {
+            "distance_handling": "percentage",
+            "default_exercise_value": "rep_range",
+            "ignore_distance": False,
+            "theme": "dark",
+        }
+        with patch("api.routers.settings.load_user_defaults", return_value=stored):
+            resp = settings_client.get("/settings/theme")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["theme"] == "dark"
+
+    def test_get_theme_defaults_to_system(self, settings_client):
+        """Should default to 'system' when theme not in stored settings."""
+        stored = {
+            "distance_handling": "percentage",
+            "default_exercise_value": "rep_range",
+            "ignore_distance": False,
+        }
+        with patch("api.routers.settings.load_user_defaults", return_value=stored):
+            resp = settings_client.get("/settings/theme")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["theme"] == "system"
+
+    def test_get_theme_returns_500_on_error(self, settings_client):
+        """Should return 500 when settings cannot be loaded."""
+        with patch(
+            "api.routers.settings.load_user_defaults",
+            side_effect=FileNotFoundError("no file"),
+        ):
+            resp = settings_client.get("/settings/theme")
+            assert resp.status_code == 500
+            assert "Failed to load theme setting" in resp.json()["detail"]
+
+
+@pytest.mark.unit
+class TestUpdateTheme:
+    """Tests for PUT /settings/theme endpoint."""
+
+    def test_update_theme_saves_and_returns(self, settings_client):
+        """Should save theme and return success response."""
+        stored = {
+            "distance_handling": "percentage",
+            "default_exercise_value": "rep_range",
+            "ignore_distance": False,
+            "theme": "light",
+        }
+        with patch("api.routers.settings.load_user_defaults", return_value=stored):
+            with patch("api.routers.settings.save_user_defaults") as mock_save:
+                resp = settings_client.put("/settings/theme", json={"theme": "dark"})
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["theme"] == "dark"
+                # Verify save was called with updated theme
+                mock_save.assert_called_once()
+                saved_settings = mock_save.call_args[0][0]
+                assert saved_settings["theme"] == "dark"
+
+    def test_update_theme_all_valid_options(self, settings_client):
+        """Should accept all valid theme options."""
+        stored = {
+            "distance_handling": "percentage",
+            "default_exercise_value": "rep_range",
+            "ignore_distance": False,
+            "theme": "system",
+        }
+        for theme in ("light", "dark", "system"):
+            with patch("api.routers.settings.load_user_defaults", return_value=stored.copy()):
+                with patch("api.routers.settings.save_user_defaults"):
+                    resp = settings_client.put("/settings/theme", json={"theme": theme})
+                    assert resp.status_code == 200
+                    assert resp.json()["theme"] == theme
+
+    def test_update_theme_rejects_invalid_theme(self, settings_client):
+        """Should reject invalid theme value with 422."""
+        resp = settings_client.put("/settings/theme", json={"theme": "invalid_theme"})
+        assert resp.status_code == 422
+
+    def test_update_theme_returns_500_on_save_error(self, settings_client):
+        """Should return 500 when save fails."""
+        stored = {
+            "distance_handling": "percentage",
+            "default_exercise_value": "rep_range",
+            "ignore_distance": False,
+            "theme": "light",
+        }
+        with patch("api.routers.settings.load_user_defaults", return_value=stored):
+            with patch(
+                "api.routers.settings.save_user_defaults",
+                side_effect=OSError("disk full"),
+            ):
+                resp = settings_client.put("/settings/theme", json={"theme": "dark"})
+                assert resp.status_code == 500
+                assert "Failed to save theme setting" in resp.json()["detail"]
