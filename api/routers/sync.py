@@ -1,646 +1,1067 @@
 """
-Sync router for device synchronization and workout queuing.
+Sync router for device sync endpoints (iOS, Android, Garmin).
 
-Handles syncing workouts to various devices (Garmin, iOS, Android)
-and managing the sync queue for pending workouts.
+Part of AMA-378: Create api/routers skeleton and wiring
+Updated in AMA-589: Extract sync endpoints from app.py
 
-Endpoints:
-- POST /workout/sync/garmin — Sync workout to Garmin Connect
-- POST /workouts/{workout_id}/sync — Queue workout for device sync
-- GET /sync/pending — Get pending syncs for device
-- POST /sync/confirm — Confirm device received workout
-- POST /sync/failed — Mark sync as failed
-- GET /workouts/{workout_id}/sync-status — Get workout sync status
-- POST /workouts/{workout_id}/push/ios-companion — Push to iOS
-- GET /ios-companion/pending — Get pending iOS syncs
-- POST /workouts/{workout_id}/push/android-companion — Push to Android
-- GET /android-companion/pending — Get pending Android syncs
+This router contains endpoints for:
+- /workouts/{workout_id}/push/ios-companion - Push workout to iOS Companion App
+- /ios-companion/pending - Get pending iOS sync workouts
+- /workouts/{workout_id}/push/android-companion - Push workout to Android Companion App
+- /android-companion/pending - Get pending Android sync workouts
+- /workout/sync/garmin - Sync workout to Garmin Connect
+- /workouts/{workout_id}/sync - Queue workout for device sync (AMA-307)
+- /sync/pending - Get pending syncs for device
+- /sync/confirm - Confirm device received workout
+- /sync/failed - Mark sync as failed
+- /workouts/{workout_id}/sync-status - Get sync status for workout
 
-Part of AMA-589: Extract sync router from monolithic app.py
+Note: Endpoints support iOS, Android, and Garmin devices with proper authentication.
+Implements AMA-307 sync queue pattern for proper state tracking.
 """
-import httpx
-import json
-import logging
-import os
-from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+import logging
+import json
+import os
+from typing import Optional, Dict, Any, List
+
+import httpx
+from fastapi import APIRouter, Query, Depends, HTTPException
+from pydantic import BaseModel
 
 from api.deps import get_current_user
 from backend.database import (
     get_workout,
+    update_workout_ios_companion_sync,
+    update_workout_android_companion_sync,
+    get_ios_companion_pending_workouts,
+    get_android_companion_pending_workouts,
     queue_workout_sync,
     get_pending_syncs,
-    confirm_workout_sync,
-    mark_sync_failed,
+    confirm_sync,
+    report_sync_failed,
     get_workout_sync_status,
 )
+from backend.adapters.blocks_to_workoutkit import to_workoutkit
+from backend.adapters.blocks_to_hyrox_yaml import map_exercise_to_garmin
+from backend.core.exercise_categories import add_category_to_exercise_name
 from backend.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="",  # Mixed prefixes: /workout, /workouts, /sync, /ios-companion, /android-companion
-    tags=["sync"],
+    tags=["Device Sync"],
 )
 
-# Get settings for feature flags
+# Feature flags
 _settings = get_settings()
 GARMIN_UNOFFICIAL_SYNC_ENABLED = _settings.garmin_unofficial_sync_enabled
+GARMIN_EXPORT_DEBUG = _settings.garmin_export_debug
 
 
-# Request Models
-class SyncWorkoutToGarminRequest(BaseModel):
-    """Request to sync a workout to Garmin Connect."""
-    blocks_json: Dict[str, Any] = Field(description="Workout blocks/structure")
-    workout_title: str = Field(default="Workout", description="Workout title")
-    schedule_date: Optional[str] = Field(None, description="Schedule date (YYYY-MM-DD)")
+# =============================================================================
+# Request/Response Models
+# =============================================================================
+
+
+class PushWorkoutToIOSCompanionRequest(BaseModel):
+    """Request to push workout to iOS Companion App."""
+    userId: str | None = None  # Deprecated: use auth instead
+
+
+class PushWorkoutToAndroidCompanionRequest(BaseModel):
+    """Request to push workout to Android Companion App."""
+    userId: str | None = None  # Deprecated: use auth instead
 
 
 class QueueSyncRequest(BaseModel):
-    """Request to queue a workout for device sync."""
-    device_type: str = Field(description="Device type (ios, android, garmin)")
-    device_id: Optional[str] = Field(None, description="Optional device identifier")
+    """Request to queue a workout for sync."""
+    device_type: str  # 'ios', 'android', 'garmin'
+    device_id: str | None = None
 
 
 class ConfirmSyncRequest(BaseModel):
-    """Request to confirm device sync."""
-    workout_id: str = Field(description="Workout ID")
-    device_type: str = Field(description="Device type (ios, android, garmin)")
-    device_id: Optional[str] = Field(None, description="Optional device identifier")
+    """Request to confirm workout sync receipt."""
+    workout_id: str
+    device_type: str
+    device_id: str | None = None
 
 
-class FailedSyncRequest(BaseModel):
-    """Request to mark sync as failed."""
-    workout_id: str = Field(description="Workout ID")
-    device_type: str = Field(description="Device type (ios, android, garmin)")
-    reason: Optional[str] = Field(None, description="Failure reason")
+class ReportSyncFailedRequest(BaseModel):
+    """Request to report sync failure."""
+    workout_id: str
+    device_type: str
+    error: str
+    device_id: str | None = None
 
 
-class PushToCompanionRequest(BaseModel):
-    """Request to push workout to companion app."""
-    pass
+# =============================================================================
+# Helper Functions
+# =============================================================================
 
 
-# Response Models
-class SyncResponse(BaseModel):
-    """Response for sync operations."""
-    success: bool
-    status: str
-    message: Optional[str] = None
-
-
-class PendingSyncResponse(BaseModel):
-    """Response containing pending syncs."""
-    success: bool
-    pending_workouts: list[Dict[str, Any]]
-
-
-class SyncStatusResponse(BaseModel):
-    """Response containing sync status."""
-    success: bool
-    sync_status: Dict[str, Any]
-
-
-@router.post(
-    "/workout/sync/garmin",
-    response_model=SyncResponse,
-    summary="Sync workout to Garmin",
-    description="Sync a regular workout to Garmin Connect via garmin-sync-api",
-)
-def sync_workout_to_garmin(
-    request: SyncWorkoutToGarminRequest,
-) -> SyncResponse:
+def calculate_intervals_duration(intervals: list) -> int:
     """
-    Sync a regular workout to Garmin Connect.
-
-    - Respects GARMIN_UNOFFICIAL_SYNC_ENABLED feature flag
-    - Uses exercise mapping pipeline for valid Garmin names
-    - Requires GARMIN_EMAIL and GARMIN_PASSWORD environment variables
-
+    Calculate total duration in seconds from intervals list.
+    
+    Recursively processes nested intervals (repeat blocks) and handles
+    different interval types (time, reps, warmup, cooldown, distance).
+    
     Args:
-        request: Workout data and Garmin sync configuration
-
+        intervals: List of interval dictionaries
+        
     Returns:
-        SyncResponse: Sync result and status
+        Total duration in seconds
+    """
+    total = 0
+    for interval in intervals:
+        kind = interval.get("kind")
+        if kind == "time" or kind == "warmup" or kind == "cooldown":
+            total += interval.get("seconds", 0)
+        elif kind == "reps":
+            # Estimate ~3 seconds per rep for rep-based exercises
+            total += interval.get("reps", 0) * 3
+            total += interval.get("restSec", 0) or 0
+        elif kind == "repeat":
+            # Recursive calculation for repeat intervals
+            reps = interval.get("reps", 1)
+            inner_duration = calculate_intervals_duration(interval.get("intervals", []))
+            total += inner_duration * reps
+        elif kind == "distance":
+            # Estimate ~6 min/km for distance-based
+            meters = interval.get("meters", 0)
+            total += int(meters * 0.36)  # 6 min/km = 360s/1000m
+    return total
+
+
+def convert_exercise_to_interval(exercise: dict) -> dict:
+    """
+    Convert a workout exercise to iOS/Android companion interval format.
+    
+    Handles both rep-based and time-based exercises, including sets and rest times.
+    
+    Args:
+        exercise: Exercise data dictionary
+        
+    Returns:
+        Interval dictionary in companion app format
+    """
+    name = exercise.get("name", "Exercise")
+    reps = exercise.get("reps")
+    sets = exercise.get("sets", 1) or 1
+    duration_sec = exercise.get("duration_sec")
+    rest_sec = exercise.get("rest_sec", 60)
+    follow_along_url = exercise.get("followAlongUrl")
+    
+    # Determine load string
+    load_parts = []
+    if exercise.get("load"):
+        load_parts.append(exercise.get("load"))
+    if sets and sets > 1:
+        load_parts.append(f"{sets} sets")
+    load = ", ".join(load_parts) if load_parts else None
+    
+    if reps:
+        # Rep-based exercise
+        return {
+            "kind": "reps",
+            "reps": reps * (sets or 1),  # Total reps if multiple sets
+            "name": name,
+            "load": load,
+            "restSec": rest_sec,
+            "followAlongUrl": follow_along_url,
+            "carouselPosition": None
+        }
+    elif duration_sec:
+        # Time-based exercise
+        return {
+            "kind": "time",
+            "seconds": duration_sec,
+            "target": name
+        }
+    else:
+        # Default to time-based with 60 seconds
+        return {
+            "kind": "time",
+            "seconds": 60,
+            "target": name
+        }
+
+
+# =============================================================================
+# iOS Companion App Endpoints (AMA-199)
+# =============================================================================
+
+
+@router.post("/workouts/{workout_id}/push/ios-companion")
+def push_workout_to_ios_companion_endpoint(
+    workout_id: str,
+    request: PushWorkoutToIOSCompanionRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Push a regular (blocks-based) workout to iOS Companion App.
+    
+    Transforms the workout structure into the iOS app's interval format
+    and queues it for sync. This endpoint is for workouts created through
+    the standard workflow, not follow-along workouts ingested from Instagram.
+    
+    Args:
+        workout_id: Workout identifier
+        request: Push request (legacy userId field deprecated)
+        user_id: Authenticated user ID from JWT
+        
+    Returns:
+        Success response with payload for iOS Companion App format
     """
     try:
-        # Backend guard for unofficial API
-        if not GARMIN_UNOFFICIAL_SYNC_ENABLED:
-            return SyncResponse(
-                success=False,
-                status="error",
-                message="Unofficial Garmin sync is disabled. Set GARMIN_UNOFFICIAL_SYNC_ENABLED=true",
-            )
+        # Get workout
+        workout_record = get_workout(workout_id, user_id)
+        if not workout_record:
+            return {
+                "success": False,
+                "status": "error",
+                "message": "Workout not found"
+            }
+        
+        workout_data = workout_record.get("workout_data", {})
+        title = workout_record.get("title") or workout_data.get("title", "Workout")
+        
+        # Detect sport type from workout structure
+        blocks = workout_data.get("blocks", [])
+        sport = "strength"  # Default
+        
+        for block in blocks:
+            structure = block.get("structure", "")
+            if structure in ["tabata", "hiit", "circuit", "emom", "amrap"]:
+                sport = "cardio"
+                break
+        
+        # Build intervals from blocks
+        intervals = []
+        total_duration = 0
+        
+        for block in blocks:
+            exercises = block.get("exercises", [])
+            rounds = block.get("rounds", 1) or 1
+            rest_between_rounds = block.get("rest_between_rounds_sec") or block.get("rest_between_sec", 60)
+            
+            # Warmup block
+            if block.get("label", "").lower() in ["warmup", "warm up", "warm-up"]:
+                warmup_duration = sum(
+                    e.get("duration_sec", 60) for e in exercises
+                ) or 300
+                intervals.append({
+                    "kind": "warmup",
+                    "seconds": warmup_duration,
+                    "target": block.get("label", "Warmup")
+                })
+                total_duration += warmup_duration
+                continue
+            
+            # Cooldown block
+            if block.get("label", "").lower() in ["cooldown", "cool down", "cool-down"]:
+                cooldown_duration = sum(
+                    e.get("duration_sec", 60) for e in exercises
+                ) or 300
+                intervals.append({
+                    "kind": "cooldown",
+                    "seconds": cooldown_duration,
+                    "target": block.get("label", "Cooldown")
+                })
+                total_duration += cooldown_duration
+                continue
+            
+            # Create repeat block if rounds > 1
+            if rounds > 1:
+                inner_intervals = []
+                for exercise in exercises:
+                    inner_interval = convert_exercise_to_interval(exercise)
+                    inner_intervals.append(inner_interval)
+                
+                intervals.append({
+                    "kind": "repeat",
+                    "reps": rounds,
+                    "intervals": inner_intervals
+                })
+                
+                # Calculate duration for repeat
+                inner_duration = sum(
+                    (e.get("duration_sec", 0) or 0) + (e.get("rest_sec", 0) or 0)
+                    for e in exercises
+                )
+                total_duration += (inner_duration * rounds) + (rest_between_rounds * (rounds - 1))
+            else:
+                # Single round - add exercises directly
+                for exercise in exercises:
+                    interval = convert_exercise_to_interval(exercise)
+                    intervals.append(interval)
+                    total_duration += (exercise.get("duration_sec", 0) or 0) + (exercise.get("rest_sec", 0) or 0)
+        
+        # Create payload for iOS Companion App
+        payload = {
+            "id": workout_id,
+            "name": title,
+            "sport": sport,
+            "duration": total_duration,
+            "source": "amakaflow",
+            "sourceUrl": None,
+            "intervals": intervals
+        }
 
-        # Validate workout data
-        if not request.blocks_json:
-            return SyncResponse(
-                success=False,
-                status="error",
-                message="Workout data (blocks_json) is required",
-            )
+        # Queue workout for sync to iOS (AMA-307)
+        queue_workout_sync(workout_id, user_id, device_type="ios")
 
-        # Get Garmin credentials from environment
-        garmin_email = os.getenv("GARMIN_EMAIL")
-        garmin_password = os.getenv("GARMIN_PASSWORD")
-        garmin_service_url = os.getenv("GARMIN_SERVICE_URL", "http://garmin-sync-api:8002")
+        # Also update legacy column for backward compatibility
+        update_workout_ios_companion_sync(workout_id, user_id)
 
-        if not garmin_email or not garmin_password:
-            return SyncResponse(
-                success=False,
-                status="error",
-                message="Garmin credentials not configured",
-            )
+        logger.info(f"Pushed iOS Companion workout {workout_id} for user {user_id}")
 
-        # TODO: Implement full Garmin sync logic with exercise mapping
-        # For now, queue the sync request to be handled asynchronously
-        logger.info(f"Queuing Garmin sync for workout: {request.workout_title}")
+        return {
+            "success": True,
+            "status": "success",
+            "iosCompanionWorkoutId": workout_id,
+            "payload": payload
+        }
+    except Exception as e:
+        logger.error(f"Failed to push iOS Companion workout {workout_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
-        return SyncResponse(
-            success=True,
-            status="queued",
-            message="Workout queued for Garmin sync",
+
+@router.get("/ios-companion/pending")
+def get_ios_companion_pending_endpoint(
+    user_id: str = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts"),
+    exclude_completed: bool = Query(True, description="Exclude workouts that have been completed")
+):
+    """
+    Get workouts pending sync to iOS Companion App.
+    
+    Called by the iOS Companion App to discover workouts ready for sync to Apple Watch.
+    Returns workouts where ios_companion_synced_at is set, ordered by most recently pushed.
+    By default excludes completed workouts.
+    
+    Args:
+        user_id: Authenticated user ID from JWT
+        limit: Maximum number of workouts to return (1-100)
+        exclude_completed: Whether to exclude completed workouts
+        
+    Returns:
+        List of pending iOS Companion workouts with interval data
+    """
+    try:
+        workouts = get_ios_companion_pending_workouts(user_id, limit=limit, exclude_completed=exclude_completed)
+
+        # Transform each workout to iOS companion format
+        transformed = []
+        for workout_record in workouts:
+            workout_data = workout_record.get("workout_data", {})
+            title = workout_record.get("title") or workout_data.get("title", "Workout")
+
+            # Use to_workoutkit to properly transform intervals
+            # This handles warmup, sets as RepeatInterval, and default rest
+            try:
+                workoutkit_dto = to_workoutkit(workout_data)
+                intervals = [interval.model_dump() for interval in workoutkit_dto.intervals]
+                sport = workoutkit_dto.sportType
+            except Exception as e:
+                logger.warning(f"Failed to transform workout {workout_record.get('id')}: {e}")
+                # Fallback to simple transformation
+                intervals = []
+                sport = "strengthTraining"
+                for block in workout_data.get("blocks", []):
+                    for exercise in block.get("exercises", []):
+                        intervals.append(convert_exercise_to_interval(exercise))
+
+            # Calculate total duration from intervals
+            total_duration = calculate_intervals_duration(intervals)
+
+            transformed.append({
+                "id": workout_record.get("id"),
+                "name": title,
+                "sport": sport,
+                "duration": total_duration,
+                "source": "amakaflow",
+                "sourceUrl": None,
+                "intervals": intervals,
+                "pushedAt": workout_record.get("ios_companion_synced_at"),
+                "createdAt": workout_record.get("created_at"),
+            })
+
+        logger.info(f"Retrieved {len(transformed)} pending iOS Companion workouts for user {user_id}")
+
+        return {
+            "success": True,
+            "workouts": transformed,
+            "count": len(transformed)
+        }
+    except Exception as e:
+        logger.error(f"Failed to get iOS Companion pending workouts: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Android Companion App Endpoints (AMA-246)
+# =============================================================================
+
+
+@router.post("/workouts/{workout_id}/push/android-companion")
+def push_workout_to_android_companion_endpoint(
+    workout_id: str,
+    request: PushWorkoutToAndroidCompanionRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """
+    Push a regular (blocks-based) workout to Android Companion App.
+    
+    Transforms the workout structure into the Android app's interval format
+    and queues it for sync. This endpoint is for workouts created through
+    the standard workflow, not follow-along workouts.
+    
+    Args:
+        workout_id: Workout identifier
+        request: Push request (legacy userId field deprecated)
+        user_id: Authenticated user ID from JWT
+        
+    Returns:
+        Success response with payload for Android Companion App format
+    """
+    try:
+        # Get workout
+        workout_record = get_workout(workout_id, user_id)
+        if not workout_record:
+            return {
+                "success": False,
+                "status": "error",
+                "message": "Workout not found"
+            }
+
+        workout_data = workout_record.get("workout_data", {})
+        title = workout_record.get("title") or workout_data.get("title", "Workout")
+
+        # Detect sport type from workout structure
+        blocks = workout_data.get("blocks", [])
+        sport = "strength"  # Default
+
+        for block in blocks:
+            structure = block.get("structure", "")
+            if structure in ["tabata", "hiit", "circuit", "emom", "amrap"]:
+                sport = "cardio"
+                break
+
+        # Build intervals from blocks (same transformation as iOS)
+        intervals = []
+        total_duration = 0
+
+        for block in blocks:
+            exercises = block.get("exercises", [])
+            rounds = block.get("rounds", 1) or 1
+            rest_between_rounds = block.get("rest_between_rounds_sec") or block.get("rest_between_sec", 60)
+
+            # Warmup block
+            if block.get("label", "").lower() in ["warmup", "warm up", "warm-up"]:
+                warmup_duration = sum(
+                    e.get("duration_sec", 60) for e in exercises
+                ) or 300
+                intervals.append({
+                    "kind": "warmup",
+                    "seconds": warmup_duration,
+                    "target": block.get("label", "Warmup")
+                })
+                total_duration += warmup_duration
+                continue
+
+            # Cooldown block
+            if block.get("label", "").lower() in ["cooldown", "cool down", "cool-down"]:
+                cooldown_duration = sum(
+                    e.get("duration_sec", 60) for e in exercises
+                ) or 300
+                intervals.append({
+                    "kind": "cooldown",
+                    "seconds": cooldown_duration,
+                    "target": block.get("label", "Cooldown")
+                })
+                total_duration += cooldown_duration
+                continue
+
+            # Create repeat block if rounds > 1
+            if rounds > 1:
+                inner_intervals = []
+                for exercise in exercises:
+                    inner_interval = convert_exercise_to_interval(exercise)
+                    inner_intervals.append(inner_interval)
+
+                intervals.append({
+                    "kind": "repeat",
+                    "reps": rounds,
+                    "intervals": inner_intervals
+                })
+
+                # Calculate duration for repeat
+                inner_duration = sum(
+                    (e.get("duration_sec", 0) or 0) + (e.get("rest_sec", 0) or 0)
+                    for e in exercises
+                )
+                total_duration += (inner_duration * rounds) + (rest_between_rounds * (rounds - 1))
+            else:
+                # Single round - add exercises directly
+                for exercise in exercises:
+                    interval = convert_exercise_to_interval(exercise)
+                    intervals.append(interval)
+                    total_duration += (exercise.get("duration_sec", 0) or 0) + (exercise.get("rest_sec", 0) or 0)
+
+        # Create payload for Android Companion App
+        payload = {
+            "id": workout_id,
+            "name": title,
+            "sport": sport,
+            "duration": total_duration,
+            "source": "amakaflow",
+            "sourceUrl": None,
+            "intervals": intervals
+        }
+
+        # Queue workout for sync to Android (AMA-307)
+        queue_workout_sync(workout_id, user_id, device_type="android")
+
+        # Also update legacy column for backward compatibility
+        update_workout_android_companion_sync(workout_id, user_id)
+
+        logger.info(f"Pushed Android Companion workout {workout_id} for user {user_id}")
+
+        return {
+            "success": True,
+            "status": "success",
+            "androidCompanionWorkoutId": workout_id,
+            "payload": payload
+        }
+    except Exception as e:
+        logger.error(f"Failed to push Android Companion workout {workout_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/android-companion/pending")
+def get_android_companion_pending_endpoint(
+    user_id: str = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts"),
+    exclude_completed: bool = Query(True, description="Exclude workouts that have been completed")
+):
+    """
+    Get workouts pending sync to Android Companion App.
+    
+    Called by the Android Companion App to discover workouts ready for sync
+    to Wear OS/Health Connect watches. Returns workouts where
+    android_companion_synced_at is set, ordered by most recently pushed.
+    By default excludes completed workouts.
+    
+    Args:
+        user_id: Authenticated user ID from JWT
+        limit: Maximum number of workouts to return (1-100)
+        exclude_completed: Whether to exclude completed workouts
+        
+    Returns:
+        List of pending Android Companion workouts with interval data
+    """
+    try:
+        workouts = get_android_companion_pending_workouts(user_id, limit=limit, exclude_completed=exclude_completed)
+
+        # Transform each workout to companion format
+        transformed = []
+        for workout_record in workouts:
+            workout_data = workout_record.get("workout_data", {})
+            title = workout_record.get("title") or workout_data.get("title", "Workout")
+
+            # Use to_workoutkit to properly transform intervals
+            try:
+                workoutkit_dto = to_workoutkit(workout_data)
+                intervals = [interval.model_dump() for interval in workoutkit_dto.intervals]
+                sport = workoutkit_dto.sportType
+            except Exception as e:
+                logger.warning(f"Failed to transform workout {workout_record.get('id')}: {e}")
+                # Fallback to simple transformation
+                intervals = []
+                sport = "strengthTraining"
+                for block in workout_data.get("blocks", []):
+                    for exercise in block.get("exercises", []):
+                        intervals.append(convert_exercise_to_interval(exercise))
+
+            # Calculate total duration from intervals
+            total_duration = calculate_intervals_duration(intervals)
+
+            transformed.append({
+                "id": workout_record.get("id"),
+                "name": title,
+                "sport": sport,
+                "duration": total_duration,
+                "source": "amakaflow",
+                "sourceUrl": None,
+                "intervals": intervals,
+                "pushedAt": workout_record.get("android_companion_synced_at"),
+                "createdAt": workout_record.get("created_at"),
+            })
+
+        logger.info(f"Retrieved {len(transformed)} pending Android Companion workouts for user {user_id}")
+
+        return {
+            "success": True,
+            "workouts": transformed,
+            "count": len(transformed)
+        }
+    except Exception as e:
+        logger.error(f"Failed to get Android Companion pending workouts: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Garmin Sync Endpoint (AMA-280: Unofficial Garmin Sync via garmin-sync-api)
+# =============================================================================
+
+
+@router.post("/workout/sync/garmin")
+def sync_workout_to_garmin(request: dict):
+    """
+    Sync a regular workout to Garmin Connect via garmin-sync-api.
+    
+    Uses the same exercise mapping pipeline as the YAML export
+    (map_exercise_to_garmin + add_category_to_exercise_name), so
+    Garmin receives valid exercise names instead of generic steps.
+    
+    Respects GARMIN_UNOFFICIAL_SYNC_ENABLED environment flag.
+    Requires GARMIN_EMAIL and GARMIN_PASSWORD environment variables.
+    
+    Args:
+        request: Dictionary with:
+            - blocks_json: Workout structure with blocks and exercises
+            - workout_title: Name for the Garmin workout
+            - schedule_date: Optional date to schedule workout (YYYY-MM-DD)
+            
+    Returns:
+        Success/error response with Garmin workout ID if successful
+    """
+    # Backend guard for unofficial API
+    if not GARMIN_UNOFFICIAL_SYNC_ENABLED:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "Unofficial Garmin sync is disabled. Set GARMIN_UNOFFICIAL_SYNC_ENABLED=true to use this endpoint.",
+        }
+
+    # Get workout data from request
+    blocks_json = request.get("blocks_json")
+    workout_title = request.get("workout_title", "Workout")
+    schedule_date = request.get("schedule_date")
+
+    if not blocks_json:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "Workout data is required",
+        }
+
+    # Get Garmin credentials from environment
+    garmin_email = os.getenv("GARMIN_EMAIL")
+    garmin_password = os.getenv("GARMIN_PASSWORD")
+
+    if not garmin_email or not garmin_password:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "Garmin credentials not configured. Set GARMIN_EMAIL and GARMIN_PASSWORD environment variables.",
+        }
+
+    steps: list[dict[str, str]] = []
+
+    def build_step_from_exercise(exercise: dict):
+        """
+        Build a single Garmin step (garmin_name_with_category -> '10 reps | note').
+
+        We keep the existing target encoding but ALSO append a clean note
+        derived from:
+          - exercise["note"] (if present)
+          - exercise["description"] (if present)
+          - the description returned by map_exercise_to_garmin
+
+        This note is what Garmin shows in the Notes field and can later be
+        reused for an iPhone follow-along view.
+        """
+        ex_name = exercise.get("name", "") or ""
+        if not ex_name:
+            return None
+
+        reps = exercise.get("reps")
+        reps_range = exercise.get("reps_range")
+        duration = exercise.get("duration_sec")
+        distance_m = exercise.get("distance_m")
+
+        # Use validated mapped_name if available
+        mapped_name = exercise.get("mapped_name") or exercise.get("mapped_to")
+        candidate_names: list[str] = []
+        if mapped_name:
+            candidate_names.append(mapped_name)
+        candidate_names.append(ex_name)
+
+        # Reuse the same mapping pipeline as blocks_to_hyrox_yaml
+        exercise_name_to_map = mapped_name if mapped_name else ex_name
+        garmin_name, description, mapping_info = map_exercise_to_garmin(
+            exercise_name_to_map,
+            ex_reps=reps,
+            ex_distance_m=distance_m,
         )
 
+        garmin_name_with_category = add_category_to_exercise_name(garmin_name)
+
+        # Base target text
+        if reps:
+            base_detail = f"{reps} reps"
+        elif reps_range:
+            base_detail = f"{reps_range} reps"
+        elif duration:
+            base_detail = f"{duration}s"
+        elif distance_m:
+            base_detail = f"{distance_m}m"
+        else:
+            base_detail = "10 reps"
+
+        # Clean note text
+        note = (
+            (exercise.get("note") or "").strip()
+            or (exercise.get("description") or "").strip()
+            or (description or "").strip()
+        )
+
+        if note:
+            step_detail = f"{base_detail} | {note}"
+        else:
+            step_detail = base_detail
+
+        step = {garmin_name_with_category: step_detail}
+
+        logger.info(
+            "GARMIN_SYNC_STEP original=%r mapped_name=%r garmin=%r detail=%r source=%s conf=%s note=%r",
+            ex_name,
+            mapped_name,
+            garmin_name_with_category,
+            step_detail,
+            mapping_info.get("source"),
+            mapping_info.get("confidence"),
+            note,
+        )
+
+        return step
+
+    # Walk through blocks / exercises / supersets and build steps list
+    for block in blocks_json.get("blocks", []):
+        # Standalone exercises
+        for exercise in block.get("exercises", []):
+            step = build_step_from_exercise(exercise)
+            if step:
+                steps.append(step)
+
+        # Supersets
+        for superset in block.get("supersets", []):
+            for exercise in superset.get("exercises", []):
+                step = build_step_from_exercise(exercise)
+                if step:
+                    steps.append(step)
+
+    if not steps:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "No valid exercises found to sync",
+        }
+
+    # Final workouts payload for garmin-sync-api
+    garmin_workouts = {workout_title: steps}
+
+    garmin_url = os.getenv("GARMIN_SERVICE_URL", "http://garmin-sync-api:8002")
+
+    garmin_payload = {
+        "email": garmin_email,
+        "password": garmin_password,
+        "workouts": garmin_workouts,
+        "delete_same_name": False,
+    }
+
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            # Import workout
+            logger.info("GARMIN_SYNC_IMPORT payload=%s", json.dumps(garmin_payload, indent=2))
+            response = client.post(f"{garmin_url}/workouts/import", json=garmin_payload)
+            response.raise_for_status()
+
+            # Optionally schedule the workout
+            if schedule_date:
+                schedule_payload = {
+                    "email": garmin_email,
+                    "password": garmin_password,
+                    "start_from": schedule_date,
+                    "workouts": [workout_title],
+                }
+                logger.info("GARMIN_SYNC_SCHEDULE payload=%s", json.dumps(schedule_payload, indent=2))
+                schedule_response = client.post(
+                    f"{garmin_url}/workouts/schedule",
+                    json=schedule_payload,
+                )
+                schedule_response.raise_for_status()
+
+        logger.info(f"Synced workout to Garmin: {workout_title}")
+        
+        return {
+            "success": True,
+            "status": "success",
+            "message": "Workout synced to Garmin successfully",
+            "garminWorkoutId": workout_title,
+        }
     except Exception as e:
-        logger.error(f"Error syncing to Garmin: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to sync to Garmin: {str(e)}",
-        ) from e
+        logger.error(f"Failed to sync workout to Garmin: {e}", exc_info=True)
+        return {
+            "success": False,
+            "status": "error",
+            "message": str(e),
+        }
 
 
-@router.post(
-    "/workouts/{workout_id}/sync",
-    response_model=SyncResponse,
-    summary="Queue workout for device sync",
-    description="Queue a workout for sync to a device",
-)
+# =============================================================================
+# Sync Queue Endpoints (AMA-307: Proper Sync State Tracking)
+# =============================================================================
+
+
+@router.post("/workouts/{workout_id}/sync")
 def queue_workout_sync_endpoint(
     workout_id: str,
     request: QueueSyncRequest,
-    user_id: str = Depends(get_current_user),
-) -> SyncResponse:
+    user_id: str = Depends(get_current_user)
+):
     """
-    Queue a workout for sync to a device.
+    Queue a workout for sync to a device (AMA-307).
 
     Creates a 'pending' entry in the sync queue. The device will fetch
     pending workouts and confirm download to mark as 'synced'.
 
+    This replaces the immediate 'synced' status from the old push endpoints.
+    
     Args:
-        workout_id: ID of workout to sync
-        request: Sync queue request with device type
-        user_id: Current authenticated user ID
-
+        workout_id: Workout identifier
+        request: Queue sync request with device type and optional device ID
+        user_id: Authenticated user ID from JWT
+        
     Returns:
-        SyncResponse: Queue result and status
+        Success response with queue status and timestamp
     """
-    try:
-        # Validate device type
-        if request.device_type not in ["ios", "android", "garmin"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid device_type. Must be ios, android, or garmin",
-            )
+    if request.device_type not in ['ios', 'android', 'garmin']:
+        raise HTTPException(status_code=400, detail="Invalid device_type. Must be ios, android, or garmin")
 
-        # Verify workout exists and belongs to user
-        workout = get_workout(workout_id, user_id)
-        if not workout:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Workout not found",
-            )
+    # Verify workout exists and belongs to user
+    workout = get_workout(workout_id, user_id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
 
-        # Queue the sync
-        result = queue_workout_sync(
-            workout_id=workout_id,
-            user_id=user_id,
-            device_type=request.device_type,
-            device_id=request.device_id or "",
-        )
+    result = queue_workout_sync(
+        workout_id=workout_id,
+        user_id=user_id,
+        device_type=request.device_type,
+        device_id=request.device_id or ""
+    )
 
-        if not result:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to queue workout for sync",
-            )
+    if not result:
+        raise HTTPException(status_code=500, detail="Failed to queue workout for sync")
 
-        logger.info(f"Queued workout {workout_id} for {request.device_type} sync")
+    logger.info(f"Queued workout {workout_id} for {request.device_type} sync by user {user_id}")
 
-        return SyncResponse(
-            success=True,
-            status=result.get("status", "pending"),
-            message=f"Workout queued for {request.device_type} sync",
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error queuing workout sync: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to queue workout for sync: {str(e)}",
-        ) from e
+    return {
+        "success": True,
+        "status": result.get("status"),
+        "queued_at": result.get("queued_at")
+    }
 
 
-@router.get(
-    "/sync/pending",
-    response_model=PendingSyncResponse,
-    summary="Get pending syncs",
-    description="Get pending workouts for a device",
-)
+@router.get("/sync/pending")
 def get_pending_syncs_endpoint(
-    device_type: str = Query(..., description="Device type (ios, android, garmin)"),
-    device_id: Optional[str] = Query(None, description="Optional device identifier"),
-    user_id: str = Depends(get_current_user),
-) -> PendingSyncResponse:
+    device_type: str = Query(..., description="Device type: ios, android, or garmin"),
+    device_id: str = Query(None, description="Optional device identifier"),
+    user_id: str = Depends(get_current_user)
+):
     """
-    Get pending syncs for a device.
+    Get workouts pending sync for a device (AMA-307).
 
-    Retrieves all pending workouts that the device should download.
-
+    Called by mobile apps to discover workouts queued for download.
+    Returns full workout data including intervals, in the order they were queued.
+    
     Args:
-        device_type: Device type (ios, android, or garmin)
-        device_id: Optional device identifier
-        user_id: Current authenticated user ID
-
+        device_type: Type of device (ios, android, or garmin)
+        device_id: Optional device identifier for multi-device support
+        user_id: Authenticated user ID from JWT
+        
     Returns:
-        PendingSyncResponse: List of pending workouts
+        List of pending workouts with full interval data
     """
-    try:
-        # Validate device type
-        if device_type not in ["ios", "android", "garmin"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid device_type",
-            )
+    if device_type not in ['ios', 'android', 'garmin']:
+        raise HTTPException(status_code=400, detail="Invalid device_type")
 
-        # Get pending syncs
-        pending = get_pending_syncs(
-            device_type=device_type,
-            device_id=device_id or "",
-            user_id=user_id,
-        )
+    pending = get_pending_syncs(
+        user_id=user_id,
+        device_type=device_type,
+        device_id=device_id or ""
+    )
 
-        logger.info(f"Retrieved {len(pending) if pending else 0} pending syncs for {device_type}")
+    # Transform to full workout format (same as /ios-companion/pending)
+    workouts = []
+    for entry in pending:
+        workout_record = entry.get("workouts", {})
+        if not workout_record:
+            continue
 
-        return PendingSyncResponse(
-            success=True,
-            pending_workouts=pending or [],
-        )
+        workout_data = workout_record.get("workout_data", {})
+        title = workout_record.get("title") or workout_data.get("title", "Workout")
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting pending syncs: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get pending syncs: {str(e)}",
-        ) from e
+        # Use to_workoutkit to properly transform intervals
+        try:
+            workoutkit_dto = to_workoutkit(workout_data)
+            intervals = [interval.model_dump() for interval in workoutkit_dto.intervals]
+            sport = workoutkit_dto.sportType
+        except Exception as e:
+            logger.warning(f"Failed to transform workout {entry.get('workout_id')}: {e}")
+            # Fallback to simple transformation
+            intervals = []
+            sport = "strengthTraining"
+            for block in workout_data.get("blocks", []):
+                for exercise in block.get("exercises", []):
+                    intervals.append(convert_exercise_to_interval(exercise))
+
+        # Calculate total duration from intervals
+        total_duration = calculate_intervals_duration(intervals)
+
+        workouts.append({
+            "id": entry.get("workout_id"),
+            "name": title,
+            "sport": sport,
+            "duration": total_duration,
+            "source": "amakaflow",
+            "sourceUrl": None,
+            "intervals": intervals,
+            "queued_at": entry.get("queued_at"),
+            "created_at": workout_record.get("created_at"),
+        })
+
+    logger.info(f"Retrieved {len(workouts)} pending syncs for {device_type} device by user {user_id}")
+
+    return {
+        "success": True,
+        "workouts": workouts,
+        "count": len(workouts)
+    }
 
 
-@router.post(
-    "/sync/confirm",
-    response_model=SyncResponse,
-    summary="Confirm device sync",
-    description="Confirm that a device received a workout",
-)
-def confirm_workout_sync_endpoint(
+@router.post("/sync/confirm")
+def confirm_sync_endpoint(
     request: ConfirmSyncRequest,
-    user_id: str = Depends(get_current_user),
-) -> SyncResponse:
+    user_id: str = Depends(get_current_user)
+):
     """
-    Confirm that a device received a workout.
+    Confirm that a workout was successfully downloaded (AMA-307).
 
-    Marks the sync as 'synced' in the database.
-
+    Called by mobile apps after successfully downloading a workout.
+    Updates the sync status from 'pending' to 'synced'.
+    
     Args:
         request: Confirm sync request with workout and device info
-        user_id: Current authenticated user ID
-
+        user_id: Authenticated user ID from JWT
+        
     Returns:
-        SyncResponse: Confirmation result
+        Success response with sync status and timestamp
     """
-    try:
-        # Confirm the sync
-        result = confirm_workout_sync(
-            workout_id=request.workout_id,
-            user_id=user_id,
-            device_type=request.device_type,
-            device_id=request.device_id or "",
-        )
+    if request.device_type not in ['ios', 'android', 'garmin']:
+        raise HTTPException(status_code=400, detail="Invalid device_type")
 
-        if not result:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to confirm sync",
-            )
+    result = confirm_sync(
+        workout_id=request.workout_id,
+        user_id=user_id,
+        device_type=request.device_type,
+        device_id=request.device_id or ""
+    )
 
-        logger.info(f"Confirmed sync for workout {request.workout_id} on {request.device_type}")
+    if not result:
+        raise HTTPException(status_code=404, detail="No pending sync found for this workout")
 
-        return SyncResponse(
-            success=True,
-            status="synced",
-            message="Sync confirmed",
-        )
+    logger.info(f"Confirmed sync for workout {request.workout_id} on {request.device_type} device by user {user_id}")
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error confirming sync: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to confirm sync: {str(e)}",
-        ) from e
+    return {
+        "success": True,
+        "status": result.get("status"),
+        "synced_at": result.get("synced_at")
+    }
 
 
-@router.post(
-    "/sync/failed",
-    response_model=SyncResponse,
-    summary="Mark sync as failed",
-    description="Mark a device sync as failed",
-)
-def mark_sync_failed_endpoint(
-    request: FailedSyncRequest,
-    user_id: str = Depends(get_current_user),
-) -> SyncResponse:
+@router.post("/sync/failed")
+def report_sync_failed_endpoint(
+    request: ReportSyncFailedRequest,
+    user_id: str = Depends(get_current_user)
+):
     """
-    Mark a device sync as failed.
+    Report that a workout sync failed (AMA-307).
 
-    Records the failure and reason in the sync queue.
-
+    Called by mobile apps when download fails.
+    Updates the sync status from 'pending' to 'failed' with error message.
+    
     Args:
-        request: Failed sync request with reason
-        user_id: Current authenticated user ID
-
+        request: Failed sync report with workout, device, and error info
+        user_id: Authenticated user ID from JWT
+        
     Returns:
-        SyncResponse: Failure acknowledgment
+        Success response with failed sync status and timestamp
     """
-    try:
-        # Mark sync as failed
-        result = mark_sync_failed(
-            workout_id=request.workout_id,
-            user_id=user_id,
-            device_type=request.device_type,
-            reason=request.reason,
-        )
+    if request.device_type not in ['ios', 'android', 'garmin']:
+        raise HTTPException(status_code=400, detail="Invalid device_type")
 
-        if not result:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to mark sync as failed",
-            )
+    result = report_sync_failed(
+        workout_id=request.workout_id,
+        user_id=user_id,
+        device_type=request.device_type,
+        error_message=request.error,
+        device_id=request.device_id or ""
+    )
 
-        logger.warning(f"Sync failed for workout {request.workout_id}: {request.reason}")
+    if not result:
+        raise HTTPException(status_code=404, detail="No pending sync found for this workout")
 
-        return SyncResponse(
-            success=True,
-            status="failed",
-            message=f"Sync marked as failed: {request.reason}",
-        )
+    logger.error(f"Sync failed for workout {request.workout_id} on {request.device_type}: {request.error}")
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error marking sync as failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to mark sync as failed: {str(e)}",
-        ) from e
+    return {
+        "success": True,
+        "status": result.get("status"),
+        "failed_at": result.get("failed_at")
+    }
 
 
-@router.get(
-    "/workouts/{workout_id}/sync-status",
-    response_model=SyncStatusResponse,
-    summary="Get workout sync status",
-    description="Get the sync status of a workout across all devices",
-)
+@router.get("/workouts/{workout_id}/sync-status")
 def get_workout_sync_status_endpoint(
     workout_id: str,
-    user_id: str = Depends(get_current_user),
-) -> SyncStatusResponse:
+    user_id: str = Depends(get_current_user)
+):
     """
-    Get the sync status of a workout.
+    Get sync status for a workout across all device types (AMA-307).
 
-    Shows sync status across all devices (iOS, Android, Garmin).
-
+    Returns the current sync status (pending/synced/failed) for iOS, Android, and Garmin.
+    
     Args:
-        workout_id: ID of the workout
-        user_id: Current authenticated user ID
-
+        workout_id: Workout identifier
+        user_id: Authenticated user ID from JWT
+        
     Returns:
-        SyncStatusResponse: Sync status for all devices
+        Sync status across all device types
     """
-    try:
-        # Verify workout exists and belongs to user
-        workout = get_workout(workout_id, user_id)
-        if not workout:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Workout not found",
-            )
+    # Verify workout exists and belongs to user
+    workout = get_workout(workout_id, user_id)
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
 
-        # Get sync status
-        sync_status = get_workout_sync_status(workout_id, user_id)
+    sync_status = get_workout_sync_status(workout_id, user_id)
 
-        logger.info(f"Retrieved sync status for workout {workout_id}")
+    logger.info(f"Retrieved sync status for workout {workout_id} by user {user_id}")
 
-        return SyncStatusResponse(
-            success=True,
-            sync_status=sync_status or {},
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting sync status: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get sync status: {str(e)}",
-        ) from e
-
-
-@router.post(
-    "/workouts/{workout_id}/push/ios-companion",
-    response_model=SyncResponse,
-    summary="Push workout to iOS Companion",
-    description="Push a workout to iOS Companion app",
-)
-def push_to_ios_companion(
-    workout_id: str,
-    request: PushToCompanionRequest,
-    user_id: str = Depends(get_current_user),
-) -> SyncResponse:
-    """
-    Push a workout to iOS Companion app.
-
-    Args:
-        workout_id: ID of workout to push
-        request: Push request
-        user_id: Current authenticated user ID
-
-    Returns:
-        SyncResponse: Push result
-    """
-    try:
-        # Verify workout exists and belongs to user
-        workout = get_workout(workout_id, user_id)
-        if not workout:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Workout not found",
-            )
-
-        # TODO: Implement iOS push logic
-        logger.info(f"Pushed workout {workout_id} to iOS Companion")
-
-        return SyncResponse(
-            success=True,
-            status="pushed",
-            message="Workout pushed to iOS Companion",
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error pushing to iOS: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to push to iOS: {str(e)}",
-        ) from e
-
-
-@router.get(
-    "/ios-companion/pending",
-    response_model=PendingSyncResponse,
-    summary="Get pending iOS syncs",
-    description="Get pending workouts for iOS Companion",
-)
-def get_ios_pending_syncs(
-    device_id: Optional[str] = Query(None),
-    user_id: str = Depends(get_current_user),
-) -> PendingSyncResponse:
-    """
-    Get pending syncs for iOS Companion.
-
-    Args:
-        device_id: Optional iOS device identifier
-        user_id: Current authenticated user ID
-
-    Returns:
-        PendingSyncResponse: List of pending workouts
-    """
-    try:
-        pending = get_pending_syncs(
-            device_type="ios",
-            device_id=device_id or "",
-            user_id=user_id,
-        )
-
-        logger.info(f"Retrieved {len(pending) if pending else 0} pending iOS syncs")
-
-        return PendingSyncResponse(
-            success=True,
-            pending_workouts=pending or [],
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting iOS pending syncs: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get pending iOS syncs: {str(e)}",
-        ) from e
-
-
-@router.post(
-    "/workouts/{workout_id}/push/android-companion",
-    response_model=SyncResponse,
-    summary="Push workout to Android Companion",
-    description="Push a workout to Android Companion app",
-)
-def push_to_android_companion(
-    workout_id: str,
-    request: PushToCompanionRequest,
-    user_id: str = Depends(get_current_user),
-) -> SyncResponse:
-    """
-    Push a workout to Android Companion app.
-
-    Args:
-        workout_id: ID of workout to push
-        request: Push request
-        user_id: Current authenticated user ID
-
-    Returns:
-        SyncResponse: Push result
-    """
-    try:
-        # Verify workout exists and belongs to user
-        workout = get_workout(workout_id, user_id)
-        if not workout:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Workout not found",
-            )
-
-        # TODO: Implement Android push logic
-        logger.info(f"Pushed workout {workout_id} to Android Companion")
-
-        return SyncResponse(
-            success=True,
-            status="pushed",
-            message="Workout pushed to Android Companion",
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error pushing to Android: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to push to Android: {str(e)}",
-        ) from e
-
-
-@router.get(
-    "/android-companion/pending",
-    response_model=PendingSyncResponse,
-    summary="Get pending Android syncs",
-    description="Get pending workouts for Android Companion",
-)
-def get_android_pending_syncs(
-    device_id: Optional[str] = Query(None),
-    user_id: str = Depends(get_current_user),
-) -> PendingSyncResponse:
-    """
-    Get pending syncs for Android Companion.
-
-    Args:
-        device_id: Optional Android device identifier
-        user_id: Current authenticated user ID
-
-    Returns:
-        PendingSyncResponse: List of pending workouts
-    """
-    try:
-        pending = get_pending_syncs(
-            device_type="android",
-            device_id=device_id or "",
-            user_id=user_id,
-        )
-
-        logger.info(f"Retrieved {len(pending) if pending else 0} pending Android syncs")
-
-        return PendingSyncResponse(
-            success=True,
-            pending_workouts=pending or [],
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting Android pending syncs: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get pending Android syncs: {str(e)}",
-        ) from e
+    return {
+        "success": True,
+        "workout_id": workout_id,
+        "sync_status": sync_status
+    }
