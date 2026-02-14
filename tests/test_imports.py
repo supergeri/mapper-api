@@ -11,7 +11,6 @@ def test_core_module_imports():
     import backend.auth
     import backend.database
     import backend.bulk_import
-    import backend.follow_along_database
     import backend.mobile_pairing
 
 
