@@ -1,0 +1,42 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+jobs:
+  code-review:
+    # Only run for PRs by openclawjoshua
+    if: github.event.pull_request.user.login == 'openclawjoshua' && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: claude-sonnet-4-5-20250929
+          prompt: |
+            You are a senior code reviewer for a FastAPI Python backend (mapper-api).
+            Review this PR thoroughly for:
+
+            1. **Critical issues**: Runtime errors, crashes, incorrect function signatures, data loss
+            2. **Security**: Auth gaps, injection, input validation, secrets exposure
+            3. **Error handling**: Consistent use of HTTPException, specific exception types
+            4. **API design**: REST conventions, response models, OpenAPI docs
+            5. **FastAPI best practices**: async/sync correctness, Depends usage, Pydantic models
+            6. **Code quality**: DRY violations, unused code, type safety
+
+            Format your review with severity levels:
+            - **Critical** — must fix before merge (crashes, security, data loss)
+            - **Important** — should fix or track (design issues, missing validation)
+            - **Minor** — nice to have (naming, style, small improvements)
+            - **Nitpick** — optional (formatting, conventions)
+
+            End with a verdict: **Approve**, **Approve with comments**, or **Request changes**.
