@@ -110,6 +110,7 @@ def _include_routers(app: FastAPI) -> None:
         progression_router,
         programs_router,
         settings_router,
+        sync_router,
     )
 
     # Health router (no prefix - /health at root)
@@ -131,6 +132,8 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(programs_router)
     # User settings (AMA-585)
     app.include_router(settings_router)
+    # Device sync (iOS, Android, Garmin) (AMA-589)
+    app.include_router(sync_router)
 
 
 def _log_feature_flags(settings: Settings) -> None:
