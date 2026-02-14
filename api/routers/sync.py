@@ -347,7 +347,7 @@ async def push_workout_to_ios_companion_endpoint(
 
 
 @router.get("/ios-companion/pending")
-def get_ios_companion_pending_endpoint(
+async def get_ios_companion_pending_endpoint(
     user_id: str = Depends(get_current_user),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts"),
     exclude_completed: bool = Query(True, description="Exclude workouts that have been completed")
@@ -559,7 +559,7 @@ async def push_workout_to_android_companion_endpoint(
 
 
 @router.get("/android-companion/pending")
-def get_android_companion_pending_endpoint(
+async def get_android_companion_pending_endpoint(
     user_id: str = Depends(get_current_user),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts"),
     exclude_completed: bool = Query(True, description="Exclude workouts that have been completed")
