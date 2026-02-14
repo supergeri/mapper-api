@@ -901,7 +901,9 @@ def get_pending_syncs_endpoint(
     Returns:
         List of pending workouts with full interval data
     """
-    if device_type not in ['ios', 'android', 'garmin']:
+    # Validate device_type
+    valid_types = {e.value for e in DeviceType}
+    if device_type not in valid_types:
         raise HTTPException(status_code=400, detail="Invalid device_type")
 
     pending = get_pending_syncs(
@@ -976,13 +978,11 @@ def confirm_sync_endpoint(
     Returns:
         Success response with sync status and timestamp
     """
-    if request.device_type not in ['ios', 'android', 'garmin']:
-        raise HTTPException(status_code=400, detail="Invalid device_type")
-
+    # Device type is validated by Pydantic (DeviceType enum)
     result = confirm_sync(
         workout_id=request.workout_id,
         user_id=user_id,
-        device_type=request.device_type,
+        device_type=request.device_type.value,
         device_id=request.device_id or ""
     )
 
@@ -1016,13 +1016,11 @@ def report_sync_failed_endpoint(
     Returns:
         Success response with failed sync status and timestamp
     """
-    if request.device_type not in ['ios', 'android', 'garmin']:
-        raise HTTPException(status_code=400, detail="Invalid device_type")
-
+    # Device type is validated by Pydantic (DeviceType enum)
     result = report_sync_failed(
         workout_id=request.workout_id,
         user_id=user_id,
-        device_type=request.device_type,
+        device_type=request.device_type.value,
         error_message=request.error,
         device_id=request.device_id or ""
     )
