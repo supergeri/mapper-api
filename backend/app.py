@@ -20,6 +20,7 @@ from backend.adapters.cir_to_garmin_yaml import to_garmin_yaml
 
 from backend.adapters.blocks_to_hyrox_yaml import (
     to_hyrox_yaml,
+    load_user_defaults,
     map_exercise_to_garmin,
 )
 from backend.adapters.blocks_to_hiit_garmin_yaml import to_hiit_garmin_yaml, is_hiit_workout
@@ -46,23 +47,22 @@ from backend.core.global_mappings import (
 )
 
 from backend.database import (
-    # Note: save_workout, get_workouts, update_workout_export_status, delete_workout,
-    # toggle_workout_favorite, track_workout_usage, update_workout_tags, get_incoming_workouts
-    # removed — now served by api/routers/workouts.py (AMA-584)
+    save_workout,
+    get_workouts,
     get_workout,
-    create_program,
-    get_programs,
-    get_program,
-    update_program,
-    delete_program,
-    add_workout_to_program,
-    remove_workout_from_program,
+    update_workout_export_status,
+    delete_workout,
+    # AMA-122: Workout Library Enhancements
+    toggle_workout_favorite,
+    track_workout_usage,
+    update_workout_tags,
     get_user_tags,
     create_user_tag,
     delete_user_tag,
     # AMA-199: iOS Companion App Sync
     update_workout_ios_companion_sync,
     get_ios_companion_pending_workouts,
+    get_incoming_workouts,
     # AMA-200: Account Deletion
     get_account_deletion_preview,
     # AMA-268: Mobile Profile
@@ -74,7 +74,7 @@ from backend.database import (
     report_sync_failed,
     get_workout_sync_status,
 )
-from backend.database import (
+from backend.follow_along_database import (
     save_follow_along_workout,
     get_follow_along_workouts,
     get_follow_along_workout,
@@ -169,14 +169,274 @@ def test_garmin_debug():
 # Note: /exercise/*, /mappings/* moved to api/routers/mapping.py (AMA-379)
 
 
-# Settings endpoints moved to api/routers/settings.py (AMA-585)
+class UserDefaultsRequest(BaseModel):
+
+    distance_handling: str = "lap"  # "lap" or "distance"
+    default_exercise_value: str = "lap"  # "lap" or "button"
+    ignore_distance: bool = True
+
+
+@app.get("/settings/defaults")
+
+def get_defaults():
+
+    """Get current user default settings."""
+    return load_user_defaults()
+
+
+@app.put("/settings/defaults")
+
+def update_defaults(p: UserDefaultsRequest):
+
+    """Update user default settings."""
+    import yaml
+    import pathlib
+    
+    ROOT = pathlib.Path(__file__).resolve().parents[2]
+    USER_DEFAULTS_FILE = ROOT / "shared/settings/user_defaults.yaml"
+    
+    # Create directory if needed
+    USER_DEFAULTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Save settings
+    data = {
+        "defaults": {
+            "distance_handling": p.distance_handling,
+            "default_exercise_value": p.default_exercise_value,
+            "ignore_distance": p.ignore_distance
+        }
+    }
+    
+    with open(USER_DEFAULTS_FILE, 'w') as f:
+        yaml.safe_dump(data, f, sort_keys=False, default_flow_style=False)
+    
+    return {
+        "message": "Settings updated successfully",
+        "settings": data["defaults"]
+    }
 
 
 # ============================================================================
-# Workout CRUD Endpoints — MOVED TO api/routers/workouts.py (AMA-381/AMA-584)
-# Removed: /workouts/save, /workouts, /workouts/incoming,
-#          /workouts/{id}, /workouts/{id}/export-status, DELETE /workouts/{id}
+# Workout Storage Endpoints
 # ============================================================================
+
+class SaveWorkoutRequest(BaseModel):
+    profile_id: str | None = None  # Deprecated: use auth instead
+    workout_data: dict
+    sources: list[str] = []
+    device: str
+    exports: dict | None = None
+    validation: dict | None = None
+    title: str | None = None
+    description: str | None = None
+    workout_id: str | None = None  # Optional: for explicit updates to existing workouts
+
+
+class UpdateWorkoutExportRequest(BaseModel):
+    profile_id: str | None = None  # Deprecated: use auth instead
+    is_exported: bool = True
+    exported_to_device: str | None = None
+
+
+@app.post("/workouts/save")
+def save_workout_endpoint(
+    request: SaveWorkoutRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Save a workout to Supabase before syncing to device.
+
+    With deduplication: if a workout with the same profile_id, title, and device
+    already exists, it will be updated instead of creating a duplicate.
+    """
+    result = save_workout(
+        profile_id=user_id,
+        workout_data=request.workout_data,
+        sources=request.sources,
+        device=request.device,
+        exports=request.exports,
+        validation=request.validation,
+        title=request.title,
+        description=request.description,
+        workout_id=request.workout_id
+    )
+
+    if result:
+        return {
+            "success": True,
+            "workout_id": result.get("id"),
+            "message": "Workout saved successfully"
+        }
+    else:
+        return {
+            "success": False,
+            "message": "Failed to save workout. Check server logs."
+        }
+
+
+@app.get("/workouts")
+def get_workouts_endpoint(
+    user_id: str = Depends(get_current_user),
+    device: str = Query(None, description="Filter by device"),
+    is_exported: bool = Query(None, description="Filter by export status"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts")
+):
+    """Get workouts for the authenticated user, optionally filtered by device and export status."""
+    workouts = get_workouts(
+        profile_id=user_id,
+        device=device,
+        is_exported=is_exported,
+        limit=limit
+    )
+
+    # Include sync status for each workout (AMA-307)
+    for workout in workouts:
+        workout_id = workout.get("id")
+        if workout_id:
+            workout["sync_status"] = get_workout_sync_status(workout_id, user_id)
+
+    return {
+        "success": True,
+        "workouts": workouts,
+        "count": len(workouts)
+    }
+
+
+@app.get("/workouts/incoming")
+def get_incoming_workouts_endpoint(
+    user_id: str = Depends(get_current_user),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts")
+):
+    """
+    Get incoming workouts that haven't been completed yet (AMA-236).
+
+    This endpoint returns workouts that have been pushed to iOS Companion App
+    but have not yet been recorded as completed in workout_completions.
+
+    Use this instead of /workouts to get a filtered list of workouts
+    that still need to be done.
+
+    Args:
+        user_id: Authenticated user ID (from Clerk JWT)
+        limit: Maximum number of workouts to return
+
+    Returns:
+        List of pending workouts in iOS Companion format
+    """
+    workouts = get_incoming_workouts(user_id, limit=limit)
+
+    # Transform each workout to iOS companion format (same as /ios-companion/pending)
+    transformed = []
+    for workout_record in workouts:
+        workout_data = workout_record.get("workout_data", {})
+        title = workout_record.get("title") or workout_data.get("title", "Workout")
+
+        # Use to_workoutkit to properly transform intervals
+        try:
+            workoutkit_dto = to_workoutkit(workout_data)
+            intervals = [interval.model_dump() for interval in workoutkit_dto.intervals]
+            sport = workoutkit_dto.sportType
+        except Exception as e:
+            logger.warning(f"Failed to transform workout {workout_record.get('id')}: {e}")
+            intervals = []
+            sport = "strengthTraining"
+            for block in workout_data.get("blocks", []):
+                for exercise in block.get("exercises", []):
+                    intervals.append(convert_exercise_to_interval(exercise))
+
+        # Calculate total duration from intervals
+        total_duration = calculate_intervals_duration(intervals)
+
+        transformed.append({
+            "id": workout_record.get("id"),
+            "name": title,
+            "sport": sport,
+            "duration": total_duration,
+            "source": "amakaflow",
+            "sourceUrl": None,
+            "intervals": intervals,
+            "pushedAt": workout_record.get("ios_companion_synced_at"),
+            "createdAt": workout_record.get("created_at"),
+        })
+
+    return {
+        "success": True,
+        "workouts": transformed,
+        "count": len(transformed)
+    }
+
+
+# ============================================================================
+# Workout Completion Endpoints - MOVED TO api/routers/workouts.py (AMA-381)
+# ============================================================================
+
+
+@app.get("/workouts/{workout_id}")
+def get_workout_endpoint(
+    workout_id: str,
+    user_id: str = Depends(get_current_user)
+):
+    """Get a single workout by ID."""
+    workout = get_workout(workout_id, user_id)
+
+    if workout:
+        # Include sync status in response (AMA-307)
+        sync_status = get_workout_sync_status(workout_id, user_id)
+        workout["sync_status"] = sync_status
+        return {
+            "success": True,
+            "workout": workout
+        }
+    else:
+        return {
+            "success": False,
+            "message": "Workout not found"
+        }
+
+
+@app.put("/workouts/{workout_id}/export-status")
+def update_workout_export_endpoint(
+    workout_id: str,
+    request: UpdateWorkoutExportRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Update workout export status after syncing to device."""
+    success = update_workout_export_status(
+        workout_id=workout_id,
+        profile_id=user_id,
+        is_exported=request.is_exported,
+        exported_to_device=request.exported_to_device
+    )
+    
+    if success:
+        return {
+            "success": True,
+            "message": "Export status updated successfully"
+        }
+    else:
+        return {
+            "success": False,
+            "message": "Failed to update export status"
+        }
+
+
+@app.delete("/workouts/{workout_id}")
+def delete_workout_endpoint(
+    workout_id: str,
+    user_id: str = Depends(get_current_user)
+):
+    """Delete a workout."""
+    success = delete_workout(workout_id, user_id)
+    
+    if success:
+        return {
+            "success": True,
+            "message": "Workout deleted successfully"
+        }
+    else:
+        return {
+            "success": False,
+            "message": "Failed to delete workout"
+        }
 
 
 class PushWorkoutToIOSCompanionRequest(BaseModel):
@@ -1009,10 +1269,10 @@ def create_follow_along_from_workout(
 @app.get("/follow-along/{workout_id}")
 def get_follow_along_endpoint(
     workout_id: str,
-    user_id: str = Depends(get_current_user)
+    userId: str = Query(..., description="User ID")
 ):
     """Get a single follow-along workout by ID."""
-    workout = get_follow_along_workout(workout_id, user_id)
+    workout = get_follow_along_workout(workout_id, userId)
     
     if workout:
         return {
@@ -1029,12 +1289,12 @@ def get_follow_along_endpoint(
 @app.delete("/follow-along/{workout_id}")
 def delete_follow_along_endpoint(
     workout_id: str,
-    user_id: str = Depends(get_current_user)
+    userId: str = Query(..., description="User ID")
 ):
     """Delete a follow-along workout."""
-    from backend.database import delete_follow_along_workout
-
-    success = delete_follow_along_workout(workout_id, user_id)
+    from backend.follow_along_database import delete_follow_along_workout
+    
+    success = delete_follow_along_workout(workout_id, userId)
     
     if success:
         return {
@@ -1941,39 +2201,319 @@ async def delete_account(
 # Note: /map/to-fit, /map/fit-metadata, /map/preview-steps moved to api/routers/mapping.py (AMA-379)
 
 
-# Bulk import endpoints moved to api/routers/bulk_import.py (AMA-591)
+# ============================================================================
+# Bulk Import Endpoints (AMA-100: Bulk Import Controller)
+# ============================================================================
+
+from fastapi import UploadFile, File as FastAPIFile, Form
+
+from backend.bulk_import import (
+    bulk_import_service,
+    BulkDetectRequest,
+    BulkDetectResponse,
+    BulkMapRequest,
+    BulkMapResponse,
+    BulkMatchRequest,
+    BulkMatchResponse,
+    BulkPreviewRequest,
+    BulkPreviewResponse,
+    BulkExecuteRequest,
+    BulkExecuteResponse,
+    BulkStatusResponse,
+    ColumnMapping,
+)
+
+
+@app.post("/import/detect", response_model=BulkDetectResponse)
+async def bulk_import_detect(request: BulkDetectRequest):
+    """
+    Detect and parse workout items from sources.
+
+    Step 1 of the bulk import workflow.
+
+    Accepts:
+    - file: Base64-encoded file content (Excel, CSV, JSON, Text)
+    - urls: List of URLs (YouTube, Instagram, TikTok)
+    - images: Base64-encoded image data for OCR
+
+    Returns detected items with confidence scores and any parsing errors.
+    """
+    return await bulk_import_service.detect_items(
+        profile_id=request.profile_id,
+        source_type=request.source_type,
+        sources=request.sources,
+    )
+
+
+@app.post("/import/detect/file", response_model=BulkDetectResponse)
+async def bulk_import_detect_file(
+    file: UploadFile = FastAPIFile(...),
+    profile_id: str = Form(..., description="User profile ID"),
+):
+    """
+    Detect and parse workout items from an uploaded file.
+
+    Step 1 of the bulk import workflow (file upload variant).
+
+    Accepts file uploads via multipart/form-data:
+    - Excel (.xlsx, .xls)
+    - CSV (.csv)
+    - JSON (.json)
+    - Text (.txt)
+
+    Returns detected items with confidence scores and any parsing errors.
+    """
+    import base64
+
+    # Read file content
+    content = await file.read()
+    filename = file.filename or "upload.txt"
+
+    # Encode as base64 with filename prefix for the parser
+    base64_content = f"{filename}:{base64.b64encode(content).decode('utf-8')}"
+
+    return await bulk_import_service.detect_items(
+        profile_id=profile_id,
+        source_type="file",
+        sources=[base64_content],
+    )
+
+
+@app.post("/import/detect/urls", response_model=BulkDetectResponse)
+async def bulk_import_detect_urls(
+    profile_id: str = Form(..., description="User profile ID"),
+    urls: str = Form(..., description="Newline or comma-separated URLs"),
+):
+    """
+    Detect and parse workout items from URLs.
+
+    Step 1 of the bulk import workflow (URL variant).
+
+    Accepts URLs via form data (newline or comma-separated):
+    - YouTube (youtube.com, youtu.be)
+    - Instagram (instagram.com/p/, /reel/, /tv/)
+    - TikTok (tiktok.com, vm.tiktok.com)
+
+    Fetches metadata using oEmbed APIs for quick preview.
+    Full workout extraction happens during the import step.
+
+    Processing uses batch requests with max 5 concurrent connections.
+    """
+    # Parse URLs from form input (newline or comma-separated)
+    url_list = []
+    for line in urls.replace(",", "\n").split("\n"):
+        url = line.strip()
+        if url:
+            url_list.append(url)
+
+    if not url_list:
+        return BulkDetectResponse(
+            success=False,
+            job_id="",
+            items=[],
+            metadata={"error": "No URLs provided"},
+            total=0,
+            success_count=0,
+            error_count=0,
+        )
+
+    return await bulk_import_service.detect_items(
+        profile_id=profile_id,
+        source_type="urls",
+        sources=url_list,
+    )
+
+
+@app.post("/import/detect/images", response_model=BulkDetectResponse)
+async def bulk_import_detect_images(
+    profile_id: str = Form(..., description="User profile ID"),
+    files: list[UploadFile] = FastAPIFile(..., description="Image files to process"),
+):
+    """
+    Detect and parse workout items from images.
+
+    Step 1 of the bulk import workflow (Image variant).
+
+    Accepts image uploads:
+    - PNG, JPG, JPEG, WebP, HEIC, GIF
+    - Max 20 images per request
+
+    Uses Vision AI (GPT-4o-mini by default) to extract workout data.
+    Returns structured workout data with confidence scores.
+
+    Processing uses batch requests with max 3 concurrent connections
+    (lower than URLs due to cost and rate limits).
+    """
+    import base64
+
+    if not files:
+        return BulkDetectResponse(
+            success=False,
+            job_id="",
+            items=[],
+            metadata={"error": "No images provided"},
+            total=0,
+            success_count=0,
+            error_count=0,
+        )
+
+    # Limit to 20 images
+    if len(files) > 20:
+        return BulkDetectResponse(
+            success=False,
+            job_id="",
+            items=[],
+            metadata={"error": f"Too many images ({len(files)}). Maximum is 20."},
+            total=0,
+            success_count=0,
+            error_count=0,
+        )
+
+    # Read files and convert to base64
+    image_sources = []
+    for file in files:
+        content = await file.read()
+        b64_data = base64.b64encode(content).decode("utf-8")
+        image_sources.append({
+            "data": b64_data,
+            "filename": file.filename or "image.jpg",
+        })
+
+    return await bulk_import_service.detect_items(
+        profile_id=profile_id,
+        source_type="images",
+        sources=image_sources,
+    )
+
+
+@app.post("/import/map", response_model=BulkMapResponse)
+async def bulk_import_map(request: BulkMapRequest):
+    """
+    Apply column mappings to detected file data.
+
+    Step 2 of the bulk import workflow (only for file imports).
+
+    Transforms raw CSV/Excel data into structured workout data
+    based on user-provided column mappings.
+    """
+    column_mappings = [ColumnMapping(**m) if isinstance(m, dict) else m for m in request.column_mappings]
+    return await bulk_import_service.apply_column_mappings(
+        job_id=request.job_id,
+        profile_id=request.profile_id,
+        column_mappings=column_mappings,
+    )
+
+
+@app.post("/import/match", response_model=BulkMatchResponse)
+async def bulk_import_match(request: BulkMatchRequest):
+    """
+    Match exercises to Garmin exercise database.
+
+    Step 3 of the bulk import workflow.
+
+    Uses fuzzy matching to find Garmin equivalents for exercise names.
+    Returns confidence scores and suggestions for ambiguous matches.
+    """
+    return await bulk_import_service.match_exercises(
+        job_id=request.job_id,
+        profile_id=request.profile_id,
+        user_mappings=request.user_mappings,
+    )
+
+
+@app.post("/import/preview", response_model=BulkPreviewResponse)
+async def bulk_import_preview(request: BulkPreviewRequest):
+    """
+    Generate preview of workouts to be imported.
+
+    Step 4 of the bulk import workflow.
+
+    Shows final workout structures, validation issues,
+    and statistics before committing the import.
+    """
+    return await bulk_import_service.generate_preview(
+        job_id=request.job_id,
+        profile_id=request.profile_id,
+        selected_ids=request.selected_ids,
+    )
+
+
+@app.post("/import/execute", response_model=BulkExecuteResponse)
+async def bulk_import_execute(request: BulkExecuteRequest):
+    """
+    Execute the bulk import of workouts.
+
+    Step 5 of the bulk import workflow.
+
+    In async_mode (default), starts a background job and returns immediately.
+    Use GET /import/status/{job_id} to track progress.
+    """
+    return await bulk_import_service.execute_import(
+        job_id=request.job_id,
+        profile_id=request.profile_id,
+        workout_ids=request.workout_ids,
+        device=request.device,
+        async_mode=request.async_mode,
+    )
+
+
+@app.get("/import/status/{job_id}", response_model=BulkStatusResponse)
+async def bulk_import_status(
+    job_id: str,
+    profile_id: str = Query(..., description="User profile ID")
+):
+    """
+    Get status of a bulk import job.
+
+    Returns progress percentage, current item being processed,
+    and results for completed items.
+    """
+    return await bulk_import_service.get_import_status(
+        job_id=job_id,
+        profile_id=profile_id,
+    )
+
+
+@app.post("/import/cancel/{job_id}")
+async def bulk_import_cancel(
+    job_id: str,
+    profile_id: str = Query(..., description="User profile ID")
+):
+    """
+    Cancel a running bulk import job.
+
+    Only works for jobs with status 'running'.
+    Completed imports cannot be cancelled.
+    """
+    success = await bulk_import_service.cancel_import(
+        job_id=job_id,
+        profile_id=profile_id,
+    )
+    return {
+        "success": success,
+        "message": "Import cancelled" if success else "Failed to cancel import",
+    }
+
+
 # Note: ExerciseMatch models and /exercises/match moved to api/routers/mapping.py (AMA-379)
 
 
 # ============================================================================
-# Workout Library: favorite/used/tags — MOVED TO api/routers/workouts.py (AMA-584)
-# Removed: PATCH /workouts/{id}/favorite, /used, /tags
+# Workout Library Enhancements (AMA-122)
 # ============================================================================
 
-
-class CreateProgramRequest(BaseModel):
+class ToggleFavoriteRequest(BaseModel):
     profile_id: str
-    name: str
-    description: Optional[str] = None
-    color: Optional[str] = None
-    icon: Optional[str] = None
+    is_favorite: bool
 
 
-class UpdateProgramRequest(BaseModel):
+class TrackUsageRequest(BaseModel):
     profile_id: str
-    name: Optional[str] = None
-    description: Optional[str] = None
-    color: Optional[str] = None
-    icon: Optional[str] = None
-    is_active: Optional[bool] = None
-    current_day_index: Optional[int] = None
 
 
-class AddToProgramRequest(BaseModel):
+class UpdateTagsRequest(BaseModel):
     profile_id: str
-    workout_id: Optional[str] = None
-    follow_along_id: Optional[str] = None
-    day_order: Optional[int] = None
+    tags: List[str]
 
 
 class CreateTagRequest(BaseModel):
@@ -1982,161 +2522,68 @@ class CreateTagRequest(BaseModel):
     color: Optional[str] = None
 
 
-# ============================================================================
-# Program Endpoints (AMA-122)
-# ============================================================================
-
-@app.post("/programs")
-def create_program_endpoint(request: CreateProgramRequest):
-    """Create a new workout program."""
-    result = create_program(
+@app.patch("/workouts/{workout_id}/favorite")
+def toggle_workout_favorite_endpoint(workout_id: str, request: ToggleFavoriteRequest):
+    """Toggle favorite status for a workout."""
+    result = toggle_workout_favorite(
+        workout_id=workout_id,
         profile_id=request.profile_id,
-        name=request.name,
-        description=request.description,
-        color=request.color,
-        icon=request.icon
+        is_favorite=request.is_favorite
     )
 
     if result:
         return {
             "success": True,
-            "program": result,
-            "message": "Program created"
+            "workout": result,
+            "message": "Favorite status updated"
         }
     else:
         return {
             "success": False,
-            "message": "Failed to create program"
+            "message": "Failed to update favorite status"
         }
 
 
-@app.get("/programs")
-def get_programs_endpoint(
-    profile_id: str = Query(..., description="User profile ID"),
-    include_inactive: bool = Query(False, description="Include inactive programs")
-):
-    """Get all programs for a user."""
-    programs = get_programs(
-        profile_id=profile_id,
-        include_inactive=include_inactive
-    )
-
-    return {
-        "success": True,
-        "programs": programs,
-        "count": len(programs)
-    }
-
-
-@app.get("/programs/{program_id}")
-def get_program_endpoint(
-    program_id: str,
-    profile_id: str = Query(..., description="User profile ID")
-):
-    """Get a single program with its members."""
-    program = get_program(program_id, profile_id)
-
-    if program:
-        return {
-            "success": True,
-            "program": program
-        }
-    else:
-        return {
-            "success": False,
-            "message": "Program not found"
-        }
-
-
-@app.patch("/programs/{program_id}")
-def update_program_endpoint(program_id: str, request: UpdateProgramRequest):
-    """Update a program."""
-    result = update_program(
-        program_id=program_id,
-        profile_id=request.profile_id,
-        name=request.name,
-        description=request.description,
-        color=request.color,
-        icon=request.icon,
-        is_active=request.is_active,
-        current_day_index=request.current_day_index
+@app.patch("/workouts/{workout_id}/used")
+def track_workout_usage_endpoint(workout_id: str, request: TrackUsageRequest):
+    """Track that a workout was used (update last_used_at and increment times_completed)."""
+    result = track_workout_usage(
+        workout_id=workout_id,
+        profile_id=request.profile_id
     )
 
     if result:
         return {
             "success": True,
-            "program": result,
-            "message": "Program updated"
+            "workout": result,
+            "message": "Usage tracked"
         }
     else:
         return {
             "success": False,
-            "message": "Failed to update program"
+            "message": "Failed to track usage"
         }
 
 
-@app.delete("/programs/{program_id}")
-def delete_program_endpoint(
-    program_id: str,
-    profile_id: str = Query(..., description="User profile ID")
-):
-    """Delete a program."""
-    success = delete_program(program_id, profile_id)
-
-    if success:
-        return {
-            "success": True,
-            "message": "Program deleted"
-        }
-    else:
-        return {
-            "success": False,
-            "message": "Failed to delete program"
-        }
-
-
-@app.post("/programs/{program_id}/members")
-def add_to_program_endpoint(program_id: str, request: AddToProgramRequest):
-    """Add a workout or follow-along to a program."""
-    result = add_workout_to_program(
-        program_id=program_id,
+@app.patch("/workouts/{workout_id}/tags")
+def update_workout_tags_endpoint(workout_id: str, request: UpdateTagsRequest):
+    """Update tags for a workout."""
+    result = update_workout_tags(
+        workout_id=workout_id,
         profile_id=request.profile_id,
-        workout_id=request.workout_id,
-        follow_along_id=request.follow_along_id,
-        day_order=request.day_order
+        tags=request.tags
     )
 
     if result:
         return {
             "success": True,
-            "member": result,
-            "message": "Added to program"
+            "workout": result,
+            "message": "Tags updated"
         }
     else:
         return {
             "success": False,
-            "message": "Failed to add to program"
-        }
-
-
-@app.delete("/programs/{program_id}/members/{member_id}")
-def remove_from_program_endpoint(
-    program_id: str,
-    member_id: str,
-    profile_id: str = Query(..., description="User profile ID")
-):
-    """Remove a workout from a program."""
-    success = remove_workout_from_program(member_id, profile_id)
-
-    if success:
-        return {
-            "success": True,
-            "message": "Removed from program"
-        }
-    else:
-        return {
-            "success": False,
-            "message": "Failed to remove from program"
+            "message": "Failed to update tags"
         }
 
 
