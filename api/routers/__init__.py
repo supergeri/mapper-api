@@ -23,6 +23,7 @@ from api.routers.completions import router as completions_router
 from api.routers.exercises import router as exercises_router
 from api.routers.progression import router as progression_router
 from api.routers.programs import router as programs_router
+from api.routers.settings import router as settings_router
 
 __all__ = [
     "health_router",
@@ -34,4 +35,5 @@ __all__ = [
     "exercises_router",
     "progression_router",
     "programs_router",
+    "settings_router",
 ]
