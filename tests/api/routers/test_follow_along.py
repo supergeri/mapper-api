@@ -22,7 +22,7 @@ from datetime import datetime
 from unittest.mock import patch, MagicMock
 
 from fastapi.testclient import TestClient
-from fastapi import status
+from fastapi import status, HTTPException
 
 from backend.main import create_app
 from backend.settings import Settings
@@ -252,6 +252,15 @@ class TestCreateFollowAlong:
         assert data["followAlongWorkout"] is not None
         assert data["followAlongWorkout"]["title"] == "Test Follow-Along Workout"
         mock_save.assert_called_once()
+        
+        # Validate step transformation
+        steps = data["followAlongWorkout"].get("steps", [])
+        if steps:
+            for step in steps:
+                assert "id" in step, "Step must have an id"
+                assert "type" in step, "Step must have a type"
+                assert "title" in step, "Step must have a title"
+                assert "duration" in step, "Step must have a duration"
 
     @pytest.mark.integration
     @patch("api.routers.follow_along.save_follow_along_workout")
@@ -1040,7 +1049,7 @@ class TestAuthenticationAndAuthorization:
         app = client.app
         
         async def mock_no_auth():
-            raise Exception("Unauthorized")
+            raise HTTPException(status_code=401, detail="Unauthorized")
         
         app.dependency_overrides[get_current_user] = mock_no_auth
 
@@ -1052,8 +1061,8 @@ class TestAuthenticationAndAuthorization:
 
         response = client.post("/follow-along/create", json=request_data)
 
-        # Should get an error (either 401 or 500 depending on implementation)
-        assert response.status_code in [status.HTTP_401_UNAUTHORIZED, status.HTTP_500_INTERNAL_SERVER_ERROR]
+        # Expect 401 Unauthorized
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @pytest.mark.integration
     @patch("api.routers.follow_along.get_follow_along_workout")

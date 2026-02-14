@@ -539,7 +539,6 @@ def push_to_ios_companion(
         update_follow_along_ios_companion_sync(
             workout_id=workout_id,
             user_id=user_id,
-            ios_companion_workout_id=request.iosCompanionWorkoutId,
         )
 
         logger.info(f"Pushed follow-along workout {workout_id} to iOS Companion for user {user_id}")
