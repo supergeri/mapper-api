@@ -6,8 +6,8 @@ on:
 
 jobs:
   code-review:
-    # Only run for PRs by openclawjoshua
-    if: github.event.pull_request.user.login == 'openclawjoshua' && !github.event.pull_request.draft
+    # Only run for PRs by openclawjoshua-eng
+    if: github.event.pull_request.user.login == 'openclawjoshua-eng' && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     permissions:
       contents: read
