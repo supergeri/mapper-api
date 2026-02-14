@@ -122,7 +122,6 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(health_router)
 
     # Domain routers (with prefixes defined in each router)
-    app.include_router(account_router)
     app.include_router(mapping_router)
     app.include_router(exports_router)
     # IMPORTANT: completions_router MUST come before workouts_router
@@ -138,12 +137,12 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(programs_router)
     # User settings (AMA-585)
     app.include_router(settings_router)
+    # Account management (AMA-596)
+    app.include_router(account_router)
     # Device sync (iOS, Android, Garmin) (AMA-589)
     app.include_router(sync_router)
     # Bulk import workflow (AMA-591)
     app.include_router(bulk_import_router)
-    # Account management (AMA-596)
-    app.include_router(account_router)
 
 
 def _log_feature_flags(settings: Settings) -> None:
