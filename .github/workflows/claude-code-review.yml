@@ -22,6 +22,7 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: |
             You are a senior code reviewer for a FastAPI Python backend (mapper-api).
             Review this PR thoroughly for:
