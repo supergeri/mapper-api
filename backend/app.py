@@ -74,7 +74,7 @@ from backend.database import (
     report_sync_failed,
     get_workout_sync_status,
 )
-from backend.follow_along_database import (
+from backend.database import (
     save_follow_along_workout,
     get_follow_along_workouts,
     get_follow_along_workout,
@@ -1032,7 +1032,7 @@ def delete_follow_along_endpoint(
     user_id: str = Depends(get_current_user)
 ):
     """Delete a follow-along workout."""
-    from backend.follow_along_database import delete_follow_along_workout
+    from backend.database import delete_follow_along_workout
 
     success = delete_follow_along_workout(workout_id, user_id)
     
