@@ -122,7 +122,7 @@ async def create_program_endpoint(
 ):
     """Create a new workout program."""
     from backend.database import create_program
-    
+
     result = create_program(
         profile_id=current_user,
         name=request.name,
@@ -151,7 +151,7 @@ async def get_programs_endpoint(
 ):
     """Get all programs for a user."""
     from backend.database import get_programs
-    
+
     programs = get_programs(
         profile_id=current_user,
         include_inactive=include_inactive
@@ -171,7 +171,7 @@ async def get_program_endpoint(
 ):
     """Get a single program with its members."""
     from backend.database import get_program
-    
+
     program = get_program(program_id, current_user)
 
     if program:
@@ -194,7 +194,7 @@ async def update_program_endpoint(
 ):
     """Update a program."""
     from backend.database import update_program
-    
+
     result = update_program(
         program_id=program_id,
         profile_id=current_user,
@@ -226,7 +226,7 @@ async def delete_program_endpoint(
 ):
     """Delete a program."""
     from backend.database import delete_program
-    
+
     success = delete_program(program_id, current_user)
 
     if success:
@@ -249,7 +249,7 @@ async def add_to_program_endpoint(
 ):
     """Add a workout or follow-along to a program."""
     from backend.database import add_workout_to_program
-    
+
     result = add_workout_to_program(
         program_id=program_id,
         profile_id=current_user,
@@ -279,7 +279,7 @@ async def remove_from_program_endpoint(
 ):
     """Remove a workout from a program."""
     from backend.database import remove_workout_from_program
-    
+
     success = remove_workout_from_program(member_id, current_user)
 
     if success:
