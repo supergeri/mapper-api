@@ -138,6 +138,12 @@ class PatchWorkoutRequest(BaseModel):
     )
 
 
+class ImportFromURLRequest(BaseModel):
+    """Request body for the URL import endpoint."""
+
+    url: str
+
+
 class PatchWorkoutResponse(BaseModel):
     """Response for patch workout endpoint."""
     success: bool = True
