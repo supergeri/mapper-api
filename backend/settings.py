@@ -150,6 +150,11 @@ class Settings(BaseSettings):
         description="Public URL for mapper API (used in pairing QR codes)",
     )
 
+    @property
+    def mapper_api_url(self) -> str:
+        """Alias for mapper_api_public_url (AMA-608)."""
+        return self.mapper_api_public_url
+
     # -------------------------------------------------------------------------
     # External Services - OpenAI (AMA-432: Semantic Search)
     # -------------------------------------------------------------------------
