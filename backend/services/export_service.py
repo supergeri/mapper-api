@@ -2,7 +2,6 @@
 Export Service for Format Conversion.
 
 Part of AMA-610: Wire ExportService into exports router
-Phase 2 - Dependency Injection
 
 This module provides business logic for converting workout formats:
 - Ingest format to Garmin YAML

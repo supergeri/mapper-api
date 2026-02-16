@@ -114,6 +114,12 @@ class TrackUsageRequest(BaseModel):
     profile_id: str
 
 
+class GenerateWorkoutRequest(BaseModel):
+    """Request body for the workout generation endpoint."""
+
+    description: str = Field(..., min_length=1, max_length=5000)
+
+
 class UpdateTagsRequest(BaseModel):
     """Request for updating workout tags."""
     profile_id: str
@@ -136,6 +142,12 @@ class PatchWorkoutRequest(BaseModel):
             ]
         },
     )
+
+
+class ImportFromURLRequest(BaseModel):
+    """Request body for the URL import endpoint."""
+
+    url: str
 
 
 class PatchWorkoutResponse(BaseModel):
