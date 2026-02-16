@@ -32,7 +32,8 @@ from fastapi import APIRouter, Query, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
-from api.deps import get_current_user
+from api.deps import get_current_user, get_export_queue
+from backend.services.export_queue import ExportQueue
 from backend.database import (
     get_workout,
     update_workout_ios_companion_sync,
@@ -365,7 +366,8 @@ async def _transform_workout_to_companion(
 async def push_workout_to_ios_companion_endpoint(
     workout_id: str,
     request: PushWorkoutToIOSCompanionRequest,
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user),
+    export_queue: ExportQueue = Depends(get_export_queue)
 ):
     """
     Push a regular (blocks-based) workout to iOS Companion App.
@@ -378,9 +380,10 @@ async def push_workout_to_ios_companion_endpoint(
         workout_id: Workout identifier
         request: Push request (legacy userId field deprecated)
         user_id: Authenticated user ID from JWT
+        export_queue: ExportQueue for managing background export jobs (AMA-612)
         
     Returns:
-        Success response with payload for iOS Companion App format
+        Success response with task_id and queued status
         
     ISSUE 1 FIX (AMA-589): Uses shared helper function _transform_workout_to_companion
     """
@@ -403,13 +406,15 @@ async def push_workout_to_ios_companion_endpoint(
         # Also update legacy column for backward compatibility
         await run_in_threadpool(update_workout_ios_companion_sync, workout_id, user_id)
 
+        # Enqueue export job using ExportQueue (AMA-612)
+        task_id = export_queue.enqueue(job_id=workout_id)
+
         logger.info(f"Pushed iOS Companion workout {workout_id} for user {user_id}")
 
         return {
             "success": True,
-            "status": "success",
-            "iosCompanionWorkoutId": workout_id,
-            "payload": payload
+            "task_id": task_id,
+            "status": "queued"
         }
     except HTTPException:
         raise
@@ -510,7 +515,8 @@ async def get_ios_companion_pending_endpoint(
 async def push_workout_to_android_companion_endpoint(
     workout_id: str,
     request: PushWorkoutToAndroidCompanionRequest,
-    user_id: str = Depends(get_current_user)
+    user_id: str = Depends(get_current_user),
+    export_queue: ExportQueue = Depends(get_export_queue)
 ):
     """
     Push a regular (blocks-based) workout to Android Companion App.
@@ -523,9 +529,10 @@ async def push_workout_to_android_companion_endpoint(
         workout_id: Workout identifier
         request: Push request (legacy userId field deprecated)
         user_id: Authenticated user ID from JWT
+        export_queue: ExportQueue for managing background export jobs (AMA-612)
         
     Returns:
-        Success response with payload for Android Companion App format
+        Success response with task_id and queued status
         
     ISSUE 1 FIX (AMA-589): Uses shared helper function _transform_workout_to_companion
     """
@@ -548,13 +555,15 @@ async def push_workout_to_android_companion_endpoint(
         # Also update legacy column for backward compatibility
         await run_in_threadpool(update_workout_android_companion_sync, workout_id, user_id)
 
+        # Enqueue export job using ExportQueue (AMA-612)
+        task_id = export_queue.enqueue(job_id=workout_id)
+
         logger.info(f"Pushed Android Companion workout {workout_id} for user {user_id}")
 
         return {
             "success": True,
-            "status": "success",
-            "androidCompanionWorkoutId": workout_id,
-            "payload": payload
+            "task_id": task_id,
+            "status": "queued"
         }
     except HTTPException:
         raise

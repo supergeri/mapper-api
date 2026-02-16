@@ -36,6 +36,7 @@ from api.deps import (
     get_patch_workout_use_case,
     get_search_repo,
     get_embedding_service,
+    get_export_queue,
 )
 from application.ports import WorkoutRepository, SearchRepository, EmbeddingService
 from application.use_cases import SaveWorkoutUseCase
@@ -44,6 +45,7 @@ from domain.models.patch_operation import PatchOperation
 from backend.adapters.blocks_to_workoutkit import to_workoutkit
 from domain.converters.blocks_to_workout import blocks_to_workout
 from domain.models import WorkoutMetadata, WorkoutSource
+from backend.services.export_queue import ExportQueue
 
 logger = logging.getLogger(__name__)
 
@@ -255,13 +257,14 @@ def save_workout_endpoint(
     request: SaveWorkoutRequest,
     user_id: str = Depends(get_current_user),
     save_workout_use_case: SaveWorkoutUseCase = Depends(get_save_workout_use_case),
+    export_queue: ExportQueue = Depends(get_export_queue),
 ):
     """Save a workout to database before syncing to device.
 
     With deduplication: if a workout with the same profile_id, title, and device
     already exists, it will be updated instead of creating a duplicate.
 
-    Delegates business logic to SaveWorkoutUseCase.
+    Delegates business logic to SaveWorkoutUseCase and queues for export.
     """
     try:
         # Step 1: Convert HTTP request to domain model
@@ -299,7 +302,16 @@ def save_workout_endpoint(
             device=request.device,
         )
 
-        # Step 3: Convert use case result to HTTP response
+        # Step 3: Queue workout for export if save was successful
+        if result.success and result.workout_id:
+            export_queue.enqueue(
+                workout_id=result.workout_id,
+                user_id=user_id,
+                device=request.device,
+                export_formats=request.exports or {},
+            )
+
+        # Step 4: Convert use case result to HTTP response
         if result.success:
             return {
                 "success": True,
@@ -586,6 +598,7 @@ def update_workout_export_endpoint(
     request: UpdateWorkoutExportRequest,
     user_id: str = Depends(get_current_user),
     workout_repo: WorkoutRepository = Depends(get_workout_repo),
+    export_queue: ExportQueue = Depends(get_export_queue),
 ):
     """Update workout export status after syncing to device."""
     success = workout_repo.update_export_status(
@@ -594,6 +607,14 @@ def update_workout_export_endpoint(
         is_exported=request.is_exported,
         exported_to_device=request.exported_to_device
     )
+
+    # Queue export job if marking as exported
+    if success and request.is_exported:
+        export_queue.enqueue(
+            workout_id=workout_id,
+            user_id=user_id,
+            device=request.exported_to_device or "unknown",
+        )
 
     if success:
         return {
