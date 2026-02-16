@@ -71,6 +71,9 @@ from backend.core.exercise_matcher import ExerciseMatchingService
 # Progression service (AMA-299 Phase 3)
 from backend.core.progression_service import ProgressionService
 
+# Export service (AMA-609)
+from backend.services.export_service import ExportService
+
 # Settings from Phase 0
 from backend.settings import Settings, get_settings as _get_settings
 
@@ -431,6 +434,27 @@ def get_embedding_service() -> Optional[EmbeddingService]:
 
 
 # =============================================================================
+# Export Service Provider (AMA-609)
+# =============================================================================
+
+
+@lru_cache
+def get_export_service() -> ExportService:
+    """Get cached export service for format conversions.
+
+    Returns a cached ExportService instance configured from application settings.
+    The instance is cached for the lifetime of the process.
+
+    Part of AMA-609: Add ExportService DI provider
+
+    Returns:
+        ExportService: Service for workout format conversions
+    """
+    settings = _get_settings()
+    return ExportService(settings)
+
+
+# =============================================================================
 # Use Case Providers
 # =============================================================================
 
@@ -601,6 +625,8 @@ __all__ = [
     "get_progression_service",
     # Search (AMA-432)
     "get_embedding_service",
+    # Export (AMA-609)
+    "get_export_service",
     # Use Cases
     "get_save_workout_use_case",
     "get_export_workout_use_case",
