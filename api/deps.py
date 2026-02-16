@@ -74,6 +74,9 @@ from backend.core.progression_service import ProgressionService
 # Export service (AMA-610)
 from backend.services.export_service import ExportService
 
+# Export queue (AMA-612)
+from backend.services.export_queue import ExportQueue
+
 # Settings from Phase 0
 from backend.settings import Settings, get_settings as _get_settings
 
@@ -400,6 +403,24 @@ def get_export_service() -> ExportService:
     return ExportService()
 
 
+@lru_cache
+def get_export_queue() -> ExportQueue:
+    """
+    Get ExportQueue for managing background export jobs.
+
+    Provides async job queue for export operations:
+    - Enqueue export jobs
+    - Track job status
+    - Process queued jobs
+
+    Part of AMA-612: Wire ExportQueue into workouts router push endpoints
+
+    Returns:
+        ExportQueue: Queue for managing export jobs
+    """
+    return ExportQueue()
+
+
 # =============================================================================
 # Search Providers (AMA-432)
 # =============================================================================
@@ -621,6 +642,8 @@ __all__ = [
     "get_progression_service",
     # Export Service (AMA-610)
     "get_export_service",
+    # Export Queue (AMA-612)
+    "get_export_queue",
     # Search (AMA-432)
     "get_embedding_service",
     # Use Cases
