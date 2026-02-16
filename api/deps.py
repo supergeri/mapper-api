@@ -71,7 +71,7 @@ from backend.core.exercise_matcher import ExerciseMatchingService
 # Progression service (AMA-299 Phase 3)
 from backend.core.progression_service import ProgressionService
 
-# Export service (AMA-609)
+# Export service (AMA-610)
 from backend.services.export_service import ExportService
 
 # Settings from Phase 0
@@ -383,6 +383,23 @@ def get_progression_service(
     )
 
 
+@lru_cache
+def get_export_service() -> ExportService:
+    """
+    Get ExportService for format conversion.
+
+    Provides methods for converting workouts to various export formats:
+    - Ingest to Garmin YAML
+    - Blocks to Garmin, Hyrox, HIIT, WorkoutKit, ZWO, FIT formats
+
+    Part of AMA-610: Wire ExportService into exports router
+
+    Returns:
+        ExportService: Service for format conversion
+    """
+    return ExportService()
+
+
 # =============================================================================
 # Search Providers (AMA-432)
 # =============================================================================
@@ -431,27 +448,6 @@ def get_embedding_service() -> Optional[EmbeddingService]:
         api_key=settings.openai_api_key,
         model=settings.embedding_model,
     )
-
-
-# =============================================================================
-# Export Service Provider (AMA-609)
-# =============================================================================
-
-
-@lru_cache
-def get_export_service() -> ExportService:
-    """Get cached export service for format conversions.
-
-    Returns a cached ExportService instance configured from application settings.
-    The instance is cached for the lifetime of the process.
-
-    Part of AMA-609: Add ExportService DI provider
-
-    Returns:
-        ExportService: Service for workout format conversions
-    """
-    settings = _get_settings()
-    return ExportService(settings)
 
 
 # =============================================================================
@@ -623,10 +619,10 @@ __all__ = [
     # Services (AMA-299)
     "get_exercise_matcher",
     "get_progression_service",
+    # Export Service (AMA-610)
+    "get_export_service",
     # Search (AMA-432)
     "get_embedding_service",
-    # Export (AMA-609)
-    "get_export_service",
     # Use Cases
     "get_save_workout_use_case",
     "get_export_workout_use_case",
