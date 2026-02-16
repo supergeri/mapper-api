@@ -383,6 +383,7 @@ def get_progression_service(
     )
 
 
+@lru_cache
 def get_export_service() -> ExportService:
     """
     Get ExportService for format conversion.

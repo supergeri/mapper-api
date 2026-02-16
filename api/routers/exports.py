@@ -11,7 +11,7 @@ This router contains endpoints for:
 """
 
 import logging
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from api.deps import get_current_user, get_export_workout_use_case, get_export_service
