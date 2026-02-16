@@ -71,6 +71,9 @@ from backend.core.exercise_matcher import ExerciseMatchingService
 # Progression service (AMA-299 Phase 3)
 from backend.core.progression_service import ProgressionService
 
+# Export service (AMA-610)
+from backend.services.export_service import ExportService
+
 # Settings from Phase 0
 from backend.settings import Settings, get_settings as _get_settings
 
@@ -380,6 +383,22 @@ def get_progression_service(
     )
 
 
+def get_export_service() -> ExportService:
+    """
+    Get ExportService for format conversion.
+
+    Provides methods for converting workouts to various export formats:
+    - Ingest to Garmin YAML
+    - Blocks to Garmin, Hyrox, HIIT, WorkoutKit, ZWO, FIT formats
+
+    Part of AMA-610: Wire ExportService into exports router
+
+    Returns:
+        ExportService: Service for format conversion
+    """
+    return ExportService()
+
+
 # =============================================================================
 # Search Providers (AMA-432)
 # =============================================================================
@@ -599,6 +618,8 @@ __all__ = [
     # Services (AMA-299)
     "get_exercise_matcher",
     "get_progression_service",
+    # Export Service (AMA-610)
+    "get_export_service",
     # Search (AMA-432)
     "get_embedding_service",
     # Use Cases
