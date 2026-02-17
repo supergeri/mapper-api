@@ -360,3 +360,127 @@ class TestDetectSupersetGroups:
         assert result.workout.blocks[2].items[0].name == "Cooldown stretch"
 
 
+@pytest.mark.unit
+class TestDetectCircuitGroups:
+    """Tests for circuit detection in the flat exercise path (AMA-648)."""
+
+    def test_circuit_label_field(self):
+        """3+ exercises with circuit_label field produce a circuit block."""
+        ingest = {
+            "exercises": [
+                {"name": "Ski Erg", "sets": 5, "circuit_label": "A"},
+                {"name": "Sled Pull", "sets": 5, "circuit_label": "A"},
+                {"name": "Bike Erg", "sets": 5, "circuit_label": "A"},
+                {"name": "Wall Balls", "sets": 5, "circuit_label": "A"},
+            ]
+        }
+
+        result = to_cir(ingest)
+
+        assert len(result.workout.blocks) == 1
+        assert result.workout.blocks[0].type == "circuit"
+        assert result.workout.blocks[0].rounds == 5
+        assert len(result.workout.blocks[0].items) == 4
+        assert result.workout.blocks[0].items[0].name == "Ski Erg"
+        assert result.workout.blocks[0].items[3].name == "Wall Balls"
+
+    def test_parenthesized_circuit_labels(self):
+        """Exercises with '(circuit A)' in name produce circuit block."""
+        ingest = {
+            "exercises": [
+                {"name": "Burpees (circuit A)", "reps": 10, "sets": 3},
+                {"name": "Jump Squats (circuit A)", "reps": 15, "sets": 3},
+                {"name": "Push-ups (circuit A)", "reps": 20, "sets": 3},
+            ]
+        }
+
+        result = to_cir(ingest)
+
+        assert len(result.workout.blocks) == 1
+        assert result.workout.blocks[0].type == "circuit"
+        assert result.workout.blocks[0].rounds == 3
+        # Labels should be cleaned from names
+        assert result.workout.blocks[0].items[0].name == "Burpees"
+        assert result.workout.blocks[0].items[1].name == "Jump Squats"
+        assert result.workout.blocks[0].items[2].name == "Push-ups"
+
+    def test_letter_prefix_three_plus_is_circuit(self):
+        """3+ exercises with same letter prefix (A1:, A2:, A3:) = circuit, not superset."""
+        ingest = {
+            "exercises": [
+                {"name": "A1: Ski Erg", "sets": 4},
+                {"name": "A2: Sled Pull", "sets": 4},
+                {"name": "A3: Bike Erg", "sets": 4},
+            ]
+        }
+
+        result = to_cir(ingest)
+
+        assert len(result.workout.blocks) == 1
+        assert result.workout.blocks[0].type == "circuit"
+        assert result.workout.blocks[0].rounds == 4
+
+    def test_mixed_circuit_superset_standalone(self):
+        """Mixed circuit (3+) + superset (2) + standalone in one flat list."""
+        ingest = {
+            "exercises": [
+                # Circuit: 3 exercises with label A
+                {"name": "Burpees", "reps": 10, "sets": 3, "circuit_label": "A"},
+                {"name": "Jump Squats", "reps": 15, "sets": 3, "circuit_label": "A"},
+                {"name": "Push-ups", "reps": 20, "sets": 3, "circuit_label": "A"},
+                # Superset: 2 exercises with label B
+                {"name": "Pull-ups", "reps": 8, "sets": 4, "superset_label": "B"},
+                {"name": "Dips", "reps": 10, "sets": 4, "superset_label": "B"},
+                # Standalone
+                {"name": "Plank", "duration_seconds": 60},
+            ]
+        }
+
+        result = to_cir(ingest)
+
+        assert len(result.workout.blocks) == 3
+        assert result.workout.blocks[0].type == "circuit"
+        assert result.workout.blocks[0].rounds == 3
+        assert len(result.workout.blocks[0].items) == 3
+        assert result.workout.blocks[1].type == "superset"
+        assert result.workout.blocks[1].rounds == 4
+        assert len(result.workout.blocks[1].items) == 2
+        assert result.workout.blocks[2].type == "straight"
+        assert result.workout.blocks[2].items[0].name == "Plank"
+
+    def test_hyrox_style_circuit_with_rounds(self):
+        """HYROX-style circuit: 4 exercises, 5 rounds, rounds from exercise sets."""
+        ingest = {
+            "exercises": [
+                {"name": "Ski Erg", "sets": 5, "circuit_label": "A"},
+                {"name": "Sled Pull", "sets": 5, "circuit_label": "A"},
+                {"name": "Bike Erg", "sets": 5, "circuit_label": "A"},
+                {"name": "Wall Balls", "reps": 20, "sets": 5, "circuit_label": "A"},
+            ]
+        }
+
+        result = to_cir(ingest)
+
+        assert len(result.workout.blocks) == 1
+        block = result.workout.blocks[0]
+        assert block.type == "circuit"
+        assert block.rounds == 5
+        assert len(block.items) == 4
+
+    def test_two_exercises_with_circuit_label_become_superset(self):
+        """Only 2 exercises sharing a circuit_label fall back to superset (count < 3)."""
+        ingest = {
+            "exercises": [
+                {"name": "Pull-ups", "sets": 4, "circuit_label": "A"},
+                {"name": "Dips", "sets": 4, "circuit_label": "A"},
+            ]
+        }
+
+        result = to_cir(ingest)
+
+        assert len(result.workout.blocks) == 1
+        assert result.workout.blocks[0].type == "superset"
+        assert result.workout.blocks[0].rounds == 4
+        assert len(result.workout.blocks[0].items) == 2
+
+

@@ -211,7 +211,11 @@ def detect_superset_groups(exercises: List[dict]) -> List[Block]:
             current_superset_group = []
             current_superset_label = None
 
-    for circuit_label, superset_label, e in tagged:
+    for label, e in all_labels:
+        # Resolve which type this label belongs to
+        circuit_label = label if label in circuit_labels else None
+        superset_label = label if label in superset_candidate_labels else None
+
         # Handle circuit labels (3+ exercises)
         if circuit_label and circuit_label in circuit_labels:
             # Flush any pending superset first
