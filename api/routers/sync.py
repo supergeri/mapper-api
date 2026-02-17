@@ -20,6 +20,8 @@ Note: Endpoints support iOS, Android, and Garmin devices with proper authenticat
 Implements AMA-307 sync queue pattern for proper state tracking.
 """
 
+from __future__ import annotations
+
 import logging
 import json
 import os
@@ -50,6 +52,7 @@ from backend.adapters.blocks_to_workoutkit import to_workoutkit
 from backend.adapters.blocks_to_hyrox_yaml import map_exercise_to_garmin
 from backend.core.exercise_categories import add_category_to_exercise_name
 from backend.settings import get_settings
+from backend.utils.intervals import calculate_intervals_duration, convert_exercise_to_interval
 
 logger = logging.getLogger(__name__)
 
@@ -152,94 +155,6 @@ class ReportSyncFailedRequest(BaseModel):
 # =============================================================================
 # Helper Functions
 # =============================================================================
-
-
-def calculate_intervals_duration(intervals: list) -> int:
-    """
-    Calculate total duration in seconds from intervals list.
-    
-    Recursively processes nested intervals (repeat blocks) and handles
-    different interval types (time, reps, warmup, cooldown, distance).
-    
-    Args:
-        intervals: List of interval dictionaries
-        
-    Returns:
-        Total duration in seconds
-    """
-    total = 0
-    for interval in intervals:
-        kind = interval.get("kind")
-        if kind == "time" or kind == "warmup" or kind == "cooldown":
-            total += interval.get("seconds", 0)
-        elif kind == "reps":
-            # Estimate ~3 seconds per rep for rep-based exercises
-            total += interval.get("reps", 0) * 3
-            total += interval.get("restSec", 0) or 0
-        elif kind == "repeat":
-            # Recursive calculation for repeat intervals
-            reps = interval.get("reps", 1)
-            inner_duration = calculate_intervals_duration(interval.get("intervals", []))
-            total += inner_duration * reps
-        elif kind == "distance":
-            # Estimate ~6 min/km for distance-based
-            meters = interval.get("meters", 0)
-            total += int(meters * 0.36)  # 6 min/km = 360s/1000m
-    return total
-
-
-def convert_exercise_to_interval(exercise: dict) -> dict:
-    """
-    Convert a workout exercise to iOS/Android companion interval format.
-    
-    Handles both rep-based and time-based exercises, including sets and rest times.
-    
-    Args:
-        exercise: Exercise data dictionary
-        
-    Returns:
-        Interval dictionary in companion app format
-    """
-    name = exercise.get("name", "Exercise")
-    reps = exercise.get("reps")
-    sets = exercise.get("sets", 1) or 1
-    duration_sec = exercise.get("duration_sec")
-    rest_sec = exercise.get("rest_sec", 60)
-    follow_along_url = exercise.get("followAlongUrl")
-    
-    # Determine load string
-    load_parts = []
-    if exercise.get("load"):
-        load_parts.append(exercise.get("load"))
-    if sets and sets > 1:
-        load_parts.append(f"{sets} sets")
-    load = ", ".join(load_parts) if load_parts else None
-    
-    if reps:
-        # Rep-based exercise
-        return {
-            "kind": "reps",
-            "reps": reps * (sets or 1),  # Total reps if multiple sets
-            "name": name,
-            "load": load,
-            "restSec": rest_sec,
-            "followAlongUrl": follow_along_url,
-            "carouselPosition": None
-        }
-    elif duration_sec:
-        # Time-based exercise
-        return {
-            "kind": "time",
-            "seconds": duration_sec,
-            "target": name
-        }
-    else:
-        # Default to time-based with 60 seconds
-        return {
-            "kind": "time",
-            "seconds": 60,
-            "target": name
-        }
 
 
 async def _transform_workout_to_companion(

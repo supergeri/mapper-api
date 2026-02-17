@@ -17,6 +17,8 @@ Endpoints:
 
 Part of AMA-587: Extract follow-along router from monolithic app.py
 """
+from __future__ import annotations
+
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -40,6 +42,23 @@ router = APIRouter(
     prefix="/follow-along",
     tags=["follow-along"],
 )
+
+# AMA-599: Idempotency guard for Garmin syncs - prevents duplicate syncs
+# This is an in-memory cache that tracks recently synced workouts per user
+# For production, consider database-based deduplication
+FOLLOW_ALONG_GARMIN_SYNC_CACHE: Dict[str, str] = {}
+
+
+def _has_garmin_synced_before(workout_id: str, user_id: str) -> bool:
+    """Check if this workout+user combination has been synced to Garmin recently."""
+    cache_key = f"{user_id}:{workout_id}"
+    return cache_key in FOLLOW_ALONG_GARMIN_SYNC_CACHE
+
+
+def _mark_garmin_synced(workout_id: str, user_id: str, garmin_workout_id: str) -> None:
+    """Mark a workout as synced to Garmin for this user."""
+    cache_key = f"{user_id}:{workout_id}"
+    FOLLOW_ALONG_GARMIN_SYNC_CACHE[cache_key] = garmin_workout_id
 
 
 def _detect_source_platform(url: str) -> str:
@@ -448,6 +467,14 @@ def push_to_garmin(
     Returns:
         Success message
     """
+    # AMA-599: Idempotency guard - prevent duplicate Garmin syncs
+    if _has_garmin_synced_before(workout_id, user_id):
+        logger.warning(f"Duplicate Garmin sync attempt for workout {workout_id} user {user_id}")
+        return PushResponse(
+            success=True,
+            message=f"Follow-along workout {workout_id} already synced to Garmin",
+        )
+    
     try:
         # Update Garmin sync status
         update_follow_along_garmin_sync(
@@ -455,6 +482,9 @@ def push_to_garmin(
             user_id=user_id,
             garmin_workout_id=request.garminWorkoutId,
         )
+        
+        # Mark as synced to prevent future duplicates
+        _mark_garmin_synced(workout_id, user_id, request.garminWorkoutId)
 
         logger.info(f"Pushed follow-along workout {workout_id} to Garmin for user {user_id}")
         return PushResponse(
