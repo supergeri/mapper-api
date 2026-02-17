@@ -10,7 +10,10 @@ Usage:
     python -m replay save <name>       - Save current capture as named scenario
 """
 
+from __future__ import annotations
+
 import argparse
+import re
 import sys
 import json
 from pathlib import Path
@@ -19,6 +22,19 @@ from typing import Optional
 from replay.core import (
     Session, ReplayEngine, DiffEngine, IgnoreConfig, DiffItem
 )
+
+
+# Session name validation pattern: alphanumeric, underscore, dash only
+SESSION_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
+
+
+def validate_session_name(session_name: str) -> bool:
+    """Validate session name to prevent path traversal attacks."""
+    if not session_name:
+        return False
+    if '..' in session_name or '/' in session_name or '\\' in session_name:
+        return False
+    return SESSION_NAME_PATTERN.match(session_name) is not None
 
 
 # ANSI color codes
@@ -85,6 +101,11 @@ def format_diff_item(item: DiffItem, color: bool = True) -> str:
 
 def cmd_run(args):
     """Run/replay a session and show colored diff output."""
+    # Validate session name to prevent path traversal
+    if not validate_session_name(args.session):
+        print(f"Error: Invalid session name '{args.session}'. Use alphanumeric characters, underscores, or dashes only.", file=sys.stderr)
+        sys.exit(2)
+    
     sessions_dir = get_sessions_dir()
     engine = ReplayEngine(sessions_dir)
     ignore_config = get_ignore_config(args.session)
@@ -127,6 +148,14 @@ def cmd_run(args):
 
 def cmd_diff(args):
     """Compare two sessions side by side."""
+    # Validate session names to prevent path traversal
+    if not validate_session_name(args.session_a):
+        print(f"Error: Invalid session name '{args.session_a}'. Use alphanumeric characters, underscores, or dashes only.", file=sys.stderr)
+        sys.exit(2)
+    if not validate_session_name(args.session_b):
+        print(f"Error: Invalid session name '{args.session_b}'. Use alphanumeric characters, underscores, or dashes only.", file=sys.stderr)
+        sys.exit(2)
+    
     sessions_dir = get_sessions_dir()
     engine = ReplayEngine(sessions_dir)
     ignore_config = get_ignore_config()
@@ -188,6 +217,11 @@ def cmd_list(args):
 
 def cmd_validate(args):
     """Validate a session - check for missing hops and health."""
+    # Validate session name to prevent path traversal
+    if not validate_session_name(args.session):
+        print(f"Error: Invalid session name '{args.session}'. Use alphanumeric characters, underscores, or dashes only.", file=sys.stderr)
+        sys.exit(2)
+    
     sessions_dir = get_sessions_dir()
     engine = ReplayEngine(sessions_dir)
     
@@ -238,15 +272,28 @@ def cmd_tags(args):
 
 def cmd_save(args):
     """Save a live capture to a named scenario."""
+    # Validate session name to prevent path traversal
+    if not validate_session_name(args.name):
+        print(f"Error: Invalid session name '{args.name}'. Use alphanumeric characters, underscores, or dashes only.", file=sys.stderr)
+        sys.exit(2)
+    
     sessions_dir = get_sessions_dir()
     
-    # Read from stdin or file
+    # Read from stdin or file with error handling
     if args.file:
-        with open(args.file) as f:
-            data = json.load(f)
+        try:
+            with open(args.file) as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"Error: Invalid JSON in file: {e}", file=sys.stderr)
+            sys.exit(2)
     else:
-        # Read from stdin
-        data = json.load(sys.stdin)
+        # Read from stdin with error handling
+        try:
+            data = json.load(sys.stdin)
+        except json.JSONDecodeError as e:
+            print(f"Error: Invalid JSON from stdin: {e}", file=sys.stderr)
+            sys.exit(2)
     
     # Create session
     session = Session(

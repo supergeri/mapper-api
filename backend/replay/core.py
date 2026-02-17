@@ -7,12 +7,26 @@ This module provides functionality to:
 - Generate structured diffs
 """
 
+from __future__ import annotations
+
 import json
 import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 import fnmatch
+
+
+# Maximum session file size (10MB)
+MAX_SESSION_FILE_SIZE = 10 * 1024 * 1024
+
+
+def safe_str(value: Any) -> str:
+    """Safely convert a value to string, handling non-stringifiable objects."""
+    try:
+        return str(value)
+    except Exception:
+        return repr(value)
 
 
 @dataclass
@@ -28,6 +42,11 @@ class Session:
     @classmethod
     def from_file(cls, path: Path) -> 'Session':
         """Load a session from a JSON file."""
+        # Check file size to prevent loading arbitrarily large files
+        file_size = path.stat().st_size
+        if file_size > MAX_SESSION_FILE_SIZE:
+            raise ValueError(f"Session file too large: {file_size} bytes (max: {MAX_SESSION_FILE_SIZE})")
+        
         with open(path) as f:
             data = json.load(f)
         return cls(
@@ -189,8 +208,8 @@ class DiffEngine:
                 ))
             else:
                 # Check if same elements but different order
-                a_sorted = sorted(a, key=str)
-                b_sorted = sorted(b, key=str)
+                a_sorted = sorted(a, key=safe_str)
+                b_sorted = sorted(b, key=safe_str)
                 if a == b:
                     return  # Identical
                 elif a_sorted == b_sorted:
@@ -307,7 +326,7 @@ class ReplayEngine:
             before = result.copy()
             try:
                 result = stage(result)
-            except Exception as e:
+            except (ValueError, TypeError, KeyError) as e:
                 result = {'error': str(e)}
             
             hop_data.append({
