@@ -15,6 +15,10 @@ from backend.adapters.blocks_to_hyrox_yaml import (
 
 def is_hiit_workout(blocks_json: dict) -> bool:
     """Detect if a workout is a HIIT workout."""
+    # Handle None or non-dict inputs gracefully
+    if blocks_json is None or not isinstance(blocks_json, dict):
+        return False
+    
     for block in blocks_json.get("blocks", []):
         structure = block.get("structure") or ""
         structure = structure.lower() if structure else ""

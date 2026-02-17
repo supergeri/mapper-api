@@ -11,6 +11,7 @@ Tests for:
 
 import pytest
 from backend.services.export_service import ExportService
+from backend.adapters.blocks_to_hiit_garmin_yaml import is_hiit_workout
 
 
 # =============================================================================
@@ -122,55 +123,44 @@ class TestIsHiitWorkout:
     @pytest.mark.unit
     def test_regular_workout_is_not_hiit(
         self,
-        export_service: ExportService,
         sample_blocks_json: dict,
     ):
-        """Regular workout with 'for time' structure returns True."""
-        # Import the function directly since it's a module-level function
-        from backend.adapters.blocks_to_hiit_garmin_yaml import is_hiit_workout
+        """Regular workout with 3-set structure returns False."""
         result = is_hiit_workout(sample_blocks_json)
         assert result is False
 
     @pytest.mark.unit
     def test_hiit_workout_with_for_time(
         self,
-        export_service: ExportService,
         hiit_blocks_json: dict,
     ):
         """HIIT workout with 'for time' structure returns True."""
-        from backend.adapters.blocks_to_hiit_garmin_yaml import is_hiit_workout
         result = is_hiit_workout(hiit_blocks_json)
         assert result is True
 
     @pytest.mark.unit
     def test_amrap_workout_is_hiit(
         self,
-        export_service: ExportService,
         amrap_blocks_json: dict,
     ):
         """AMRAP workout returns True."""
-        from backend.adapters.blocks_to_hiit_garmin_yaml import is_hiit_workout
         result = is_hiit_workout(amrap_blocks_json)
         assert result is True
 
     @pytest.mark.unit
     def test_emom_workout_is_hiit(
         self,
-        export_service: ExportService,
         emom_blocks_json: dict,
     ):
         """EMOM workout returns True."""
-        from backend.adapters.blocks_to_hiit_garmin_yaml import is_hiit_workout
         result = is_hiit_workout(emom_blocks_json)
         assert result is True
 
     @pytest.mark.unit
     def test_exercise_type_hiit(
         self,
-        export_service: ExportService,
     ):
         """Exercise with type=HIIT returns True."""
-        from backend.adapters.blocks_to_hiit_garmin_yaml import is_hiit_workout
         blocks = {
             "title": "Type HIIT",
             "blocks": [
@@ -188,22 +178,40 @@ class TestIsHiitWorkout:
     @pytest.mark.unit
     def test_superset_with_hiit_exercise(
         self,
-        export_service: ExportService,
         superset_hiit_blocks_json: dict,
     ):
         """Superset with HIIT type exercise returns True."""
-        from backend.adapters.blocks_to_hiit_garmin_yaml import is_hiit_workout
         result = is_hiit_workout(superset_hiit_blocks_json)
         assert result is True
 
     @pytest.mark.unit
     def test_empty_blocks_returns_false(
         self,
-        export_service: ExportService,
     ):
         """Empty blocks returns False."""
-        from backend.adapters.blocks_to_hiit_garmin_yaml import is_hiit_workout
         result = is_hiit_workout({})
+        assert result is False
+
+    @pytest.mark.unit
+    def test_none_input_returns_false(
+        self,
+    ):
+        """None input returns False."""
+        result = is_hiit_workout(None)
+        assert result is False
+
+    @pytest.mark.unit
+    def test_missing_blocks_key_returns_false(
+        self):
+        """Missing 'blocks' key returns False."""
+        result = is_hiit_workout({"title": "No blocks"})
+        assert result is False
+
+    @pytest.mark.unit
+    def test_malformed_json_returns_false(
+        self):
+        """Malformed input (non-dict) returns False."""
+        result = is_hiit_workout("not a dict")
         assert result is False
 
 
@@ -235,8 +243,10 @@ class TestMapToWorkoutkit:
         result = export_service.map_to_workoutkit(sample_blocks_json)
         # WorkoutKit DTO should have specific structure
         assert isinstance(result, dict)
-        # The result should not be empty
-        assert len(result) > 0
+        # Validate required keys for WorkoutKit DTO
+        assert "title" in result or "name" in result, "Result should have title or name key"
+        assert "intervals" in result or "exercises" in result or "workout" in result, \
+            "Result should have intervals, exercises, or workout key"
 
     @pytest.mark.unit
     def test_to_workoutkit_with_hiit_workout(
@@ -273,12 +283,18 @@ class TestGetFitMetadata:
         export_service: ExportService,
         sample_blocks_json: dict,
     ):
-        """get_fit_metadata returns metadata with expected keys."""
+        """get_fit_metadata returns metadata with expected keys and valid values."""
         result = export_service.get_fit_metadata(sample_blocks_json)
         assert isinstance(result, dict)
         # FIT metadata should include these keys
         assert "detected_sport" in result
         assert "exercise_count" in result
+        # Validate reasonable values
+        assert result["exercise_count"] is None or isinstance(result["exercise_count"], int), \
+            "exercise_count should be an integer or None"
+        # detected_sport should be a valid sport string or None
+        if result.get("detected_sport") is not None:
+            assert isinstance(result["detected_sport"], str), "detected_sport should be a string"
 
     @pytest.mark.unit
     def test_get_fit_metadata_with_lap_button(
@@ -286,10 +302,18 @@ class TestGetFitMetadata:
         export_service: ExportService,
         sample_blocks_json: dict,
     ):
-        """get_fit_metadata respects use_lap_button parameter."""
-        result = export_service.get_fit_metadata(sample_blocks_json, use_lap_button=True)
-        assert isinstance(result, dict)
-        assert result.get("use_lap_button") is True
+        """get_fit_metadata respects use_lap_button parameter and affects output."""
+        result_with_lap = export_service.get_fit_metadata(sample_blocks_json, use_lap_button=True)
+        result_without_lap = export_service.get_fit_metadata(sample_blocks_json, use_lap_button=False)
+        
+        assert isinstance(result_with_lap, dict)
+        assert result_with_lap.get("use_lap_button") is True
+        assert isinstance(result_without_lap, dict)
+        assert result_without_lap.get("use_lap_button") is False
+        
+        # Verify actual behavior change
+        assert result_with_lap.get("use_lap_button") != result_without_lap.get("use_lap_button"), \
+            "use_lap_button parameter should cause measurable behavior change"
 
     @pytest.mark.unit
     def test_get_fit_metadata_hiit_workout(
@@ -307,6 +331,9 @@ class TestGetFitMetadata:
         self,
         export_service: ExportService,
     ):
-        """get_fit_metadata handles empty blocks."""
+        """get_fit_metadata handles empty blocks - returns dict with default/empty values."""
         result = export_service.get_fit_metadata({})
         assert isinstance(result, dict)
+        # Empty blocks should result in zero exercise count or defaults
+        assert "exercise_count" in result
+        assert result["exercise_count"] == 0 or result["exercise_count"] is None
