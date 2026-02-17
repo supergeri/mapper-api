@@ -157,22 +157,6 @@ def detect_superset_groups(exercises: List[dict]) -> List[Block]:
             superset_candidate_labels.add(label)
 
     # Second pass: create final tagged list with resolved types
-    tagged: List[Tuple[Optional[str], Optional[str], dict]] = []  # (circuit_label, superset_label, exercise)
-    for label, e in all_labels:
-        if label in circuit_labels:
-            tagged.append((label, None, e))  # It's a circuit
-        elif label in superset_candidate_labels:
-            tagged.append((None, label, e))  # It's a superset
-        else:
-            tagged.append((None, None, e))  # No label
-
-    # First pass: identify which labels are circuits (3+ exercises with same label)
-    circuit_labels: set = set()
-    for label in {c for c, _, _ in tagged if c}:
-        if _count_exercises_with_label([(c, e) for c, _, e in tagged], label) >= 3:
-            circuit_labels.add(label)
-
-    # Group into blocks, preserving order
     blocks: List[Block] = []
     current_circuit_label: Optional[str] = None
     current_superset_label: Optional[str] = None
