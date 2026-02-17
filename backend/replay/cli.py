@@ -234,7 +234,8 @@ def cmd_validate(args):
     health = engine.get_session_health(session)
     
     print(f"{Colors.BOLD}Session: {session.name}{Colors.RESET}")
-    print(f"Total hops: {health['total_hops']}")
+    if 'total_hops' in health:
+        print(f"Total hops: {health['total_hops']}")
     print(f"Consecutive hops: {health['consecutive_hops']}")
     print(f"Status: {health['status']}")
     print(f"Message: {health['message']}")
@@ -284,6 +285,12 @@ def cmd_save(args):
         try:
             with open(args.file) as f:
                 data = json.load(f)
+        except FileNotFoundError as e:
+            print(f"Error: File not found: {args.file}", file=sys.stderr)
+            sys.exit(2)
+        except (IOError, OSError) as e:
+            print(f"Error: Cannot read file: {e}", file=sys.stderr)
+            sys.exit(2)
         except json.JSONDecodeError as e:
             print(f"Error: Invalid JSON in file: {e}", file=sys.stderr)
             sys.exit(2)
