@@ -23,6 +23,7 @@ Usage:
 """
 
 import logging
+import os
 from typing import Optional
 
 import sentry_sdk
@@ -60,6 +61,13 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
     # Configure CORS middleware
     _configure_cors(app)
+
+    # Replay capture middleware (AMA-543) — opt-in via env var
+    if os.environ.get("REPLAY_CAPTURE_ENABLED", "").lower() in ("1", "true", "yes"):
+        from backend.capture import CaptureMiddleware
+        capture_dir = os.environ.get("REPLAY_CAPTURE_DIR", "./captures")
+        app.add_middleware(CaptureMiddleware, capture_dir=capture_dir)
+        logger.info("Replay capture middleware enabled → %s", capture_dir)
 
     # Include API routers (AMA-378)
     _include_routers(app)

@@ -5,7 +5,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from replay.core import (
+from backend.replay.core import (
     Session,
     ReplayEngine,
     DiffEngine,

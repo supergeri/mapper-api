@@ -279,9 +279,16 @@ def block_to_intervals(block: dict, default_rest_sec: Optional[int] = None) -> L
         else:
             intervals.extend(superset_steps)
 
-    # If we have multiple intervals and rounds > 1 (circuit structure), wrap all in repeat
+    # If rounds > 1, wrap all intervals in an outer repeat — BUT only if the
+    # intervals are plain steps (WKStepDTO).  When exercises already have their
+    # own RepeatInterval (from sets > 1), nesting would violate the schema
+    # because RepeatInterval.intervals only accepts WKStepDTO leaf types.
+    # In that case the per-exercise repeats already encode the correct volume,
+    # so we skip the outer wrap.  (AMA-543: fixes silent data-corruption bug)
     if len(intervals) > 0 and rounds > 1:
-        return [RepeatInterval(kind="repeat", reps=rounds, intervals=intervals)]
+        has_nested_repeats = any(isinstance(i, RepeatInterval) for i in intervals)
+        if not has_nested_repeats:
+            return [RepeatInterval(kind="repeat", reps=rounds, intervals=intervals)]
 
     return intervals
 

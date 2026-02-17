@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from replay.core import (
+from backend.replay.core import (
     Session, ReplayEngine, DiffEngine, IgnoreConfig, DiffItem
 )
 
