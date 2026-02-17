@@ -2,7 +2,7 @@
 Replay Engine - A CLI tool for replaying captured snapshots through pipeline stages.
 """
 
-from replay.core import (
+from backend.replay.core import (
     Session,
     ReplayEngine,
     DiffEngine,

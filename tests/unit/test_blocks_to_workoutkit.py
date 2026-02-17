@@ -447,6 +447,83 @@ class TestSupersetStructureAware:
         exercise_steps = [s for s in repeat.intervals if s.kind == "reps"]
         assert len(exercise_steps) == 3
 
+    def test_straight_block_rounds_gt1_with_sets_gt1_no_crash(self):
+        """BUG AMA-543: straight block with rounds>1 and exercises with sets>1 crashes.
+
+        Root cause: block_to_intervals() wraps each exercise in a RepeatInterval
+        for sets, then tries to wrap all intervals in another RepeatInterval for
+        rounds. But RepeatInterval.intervals only accepts WKStepDTO (leaf steps),
+        not nested RepeatInterval — causing a Pydantic ValidationError.
+
+        In production (sync.py), this is caught by a broad ValueError handler
+        and falls back to empty intervals — meaning the workout syncs to the
+        device with NO exercise structure. Silent data corruption.
+        """
+        block = {
+            "structure": "straight",
+            "rounds": 3,
+            "exercises": [
+                {"name": "Bicep Curls", "sets": 3, "reps": 12, "rest_sec": 60},
+            ],
+        }
+        # This should NOT raise — currently crashes with ValidationError
+        intervals = block_to_intervals(block)
+        assert len(intervals) > 0
+        # Verify the exercise data is preserved (not silently dropped)
+        all_steps = []
+        for interval in intervals:
+            if hasattr(interval, 'intervals'):
+                all_steps.extend(interval.intervals)
+            else:
+                all_steps.append(interval)
+        reps_steps = [s for s in all_steps if s.kind == "reps"]
+        assert len(reps_steps) >= 1
+        assert reps_steps[0].reps == 12
+
+    def test_straight_block_multi_exercise_rounds_gt1_sets_gt1_no_crash(self):
+        """BUG AMA-543: same nesting crash with multiple exercises."""
+        block = {
+            "structure": "straight",
+            "rounds": 3,
+            "exercises": [
+                {"name": "Squats", "sets": 3, "reps": 8, "rest_sec": 90},
+                {"name": "Bench Press", "sets": 3, "reps": 8, "rest_sec": 90},
+                {"name": "Rows", "sets": 3, "reps": 10, "rest_sec": 60},
+            ],
+        }
+        intervals = block_to_intervals(block)
+        assert len(intervals) > 0
+
+    def test_no_structure_rounds_gt1_sets_gt1_no_crash(self):
+        """BUG AMA-543: same nesting crash when structure field is missing."""
+        block = {
+            "rounds": 3,
+            "exercises": [
+                {"name": "Squats", "sets": 3, "reps": 10, "rest_sec": 60},
+            ],
+        }
+        intervals = block_to_intervals(block)
+        assert len(intervals) > 0
+
+    def test_mixed_sets_rounds_gt1_no_crash(self):
+        """AMA-543 follow-up: mixed block with some exercises having sets>1 and some not.
+
+        When rounds>1 and the block has a mix of multi-set and single-set exercises,
+        the fix skips the outer rounds wrap to avoid nesting. This means the single-set
+        exercise won't repeat — a known limitation noted for follow-up.
+        """
+        block = {
+            "structure": "straight",
+            "rounds": 3,
+            "exercises": [
+                {"name": "Squats", "sets": 3, "reps": 8, "rest_sec": 90},
+                {"name": "Plank", "duration_sec": 60},  # single set, no sets field
+            ],
+        }
+        # Must not crash — the key property being tested
+        intervals = block_to_intervals(block)
+        assert len(intervals) > 0
+
     def test_superset_without_rest(self):
         """Superset with no rest_between_sec omits rest step."""
         block = {
