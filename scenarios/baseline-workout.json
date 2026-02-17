@@ -1,0 +1,17 @@
+{
+  "id": "session-001",
+  "name": "baseline-workout",
+  "data": {
+    "title": "Test Workout",
+    "exercises": [
+      {"name": "Squat", "sets": 3, "reps": 10},
+      {"name": "Bench Press", "sets": 3, "reps": 10}
+    ]
+  },
+  "tags": ["test", "baseline"],
+  "hops": [
+    {"hop_number": 1, "stage": "ingest", "success": true},
+    {"hop_number": 2, "stage": "transform", "success": true}
+  ],
+  "metadata": {}
+}

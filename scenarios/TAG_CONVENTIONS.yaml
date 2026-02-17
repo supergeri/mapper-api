@@ -1,0 +1,90 @@
+# TAG_CONVENTIONS.yaml
+# Tag system for categorizing workout scenarios
+# 
+# Each scenario should have metadata.json with these tag categories
+
+# ============================================
+# WORKOUT_TYPE
+# ============================================
+# Primary type of workout
+workout_type:
+  - strength          # Traditional strength training
+  - hiit              # High intensity intervals
+  - cardio            # Running, cycling, etc.
+  - hybrid            # Mix of strength and cardio (e.g., HYROX)
+  - mobility          # Stretching, recovery
+  - sport             # Sport-specific training
+
+# ============================================
+# STRUCTURE
+# ============================================
+# How the workout is organized
+structure:
+  - superset          # Exercises performed back-to-back
+  - circuit          # Multiple exercises as a circuit
+  - emom             # Every minute on the minute
+  - amrap            # As many rounds as possible
+  - tabata            # 20s work / 10s rest intervals
+  - straight_set     # Traditional straight sets
+  - block            # Block-based programming
+
+# ============================================
+# MODALITIES
+# ============================================
+# Types of exercises/data in the workout
+modalities:
+  - timed             # Time-based exercises (seconds)
+  - rep_based         # Rep-based exercises
+  - distance          # Distance-based exercises
+  - body_weight       # Bodyweight only
+  - weighted          # External weights used
+
+# ============================================
+# EQUIPMENT
+# ============================================
+# Equipment used in the workout
+equipment:
+  - barbell
+  - dumbbell
+  - kettlebell
+  - machine
+  - cable
+  - bodyweight
+  - sled
+  - rower
+  - bike
+  - running
+  - pullup_bar
+  - bench
+
+# ============================================
+# SOURCE
+# ============================================
+# Where the workout came from
+source:
+  - web_ui            # Created via web UI
+  - ai_chat           # Created via AI chat
+  - apple_workout     # Imported from Apple Workout
+  - garmin_import     # Imported from Garmin
+  - strava_import     # Imported from Strava
+  - manual            # Manually entered
+
+# ============================================
+# EXPORT_TARGETS
+# ============================================
+# Which platforms this scenario was tested with
+export_targets:
+  - garmin_fit        # Garmin FIT file export
+  - garmin_yaml       # Garmin YAML format
+  - apple_workoutkit  # Apple WorkoutKit
+  - strava            # Strava upload
+  - zwofactory        # Zwift/Wahoo workout files
+
+# ============================================
+# COMPLETENESS
+# ============================================
+# Whether the scenario has complete data
+completeness:
+  - complete          # Full capture with all data
+  - partial           # Some data missing
+  - edge_case         # Tests edge case handling

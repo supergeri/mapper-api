@@ -1,0 +1,16 @@
+{
+  "name": "chat-leg-day",
+  "description": "Ask AI chat to create a leg day - Tests AI chat to mapper-api path",
+  "tags": {
+    "workout_type": ["strength"],
+    "structure": ["superset", "straight_set"],
+    "modalities": ["rep_based", "weighted"],
+    "equipment": ["barbell", "dumbbell", "machine"],
+    "source": ["ai_chat"],
+    "export_targets": ["garmin_yaml", "apple_workoutkit"],
+    "completeness": ["complete"]
+  },
+  "created": "2026-02-17",
+  "capture_method": "ai_chat",
+  "notes": "Tests AI-generated workout parsing and mapping"
+}

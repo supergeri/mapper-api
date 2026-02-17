@@ -1,0 +1,11 @@
+{
+  "id": "new-test-session",
+  "name": "new-test-session",
+  "data": {
+    "title": "New Session",
+    "data": "test"
+  },
+  "tags": null,
+  "hops": [],
+  "metadata": {}
+}
