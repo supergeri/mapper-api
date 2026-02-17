@@ -28,18 +28,15 @@ SEARCH_WORKOUTS_SCHEMA = {
             },
             "workout_type": {
                 "type": "string",
-                "description": "Filter by workout type (e.g., 'strength', 'cardio', 'hiit')",
-                "default": None
+                "description": "Filter by workout type (e.g., 'strength', 'cardio', 'hiit')"
             },
             "min_duration": {
                 "type": "integer",
-                "description": "Minimum workout duration in minutes",
-                "default": None
+                "description": "Minimum workout duration in minutes"
             },
             "max_duration": {
                 "type": "integer",
-                "description": "Maximum workout duration in minutes",
-                "default": None
+                "description": "Maximum workout duration in minutes"
             }
         },
         "required": ["query"]

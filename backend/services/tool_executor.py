@@ -44,13 +44,19 @@ class ToolExecutor:
         self.search_repo = search_repository
         self.embedding_service = embedding_service
     
-    def execute_tool(self, tool_name: str, parameters: dict[str, Any]) -> dict[str, Any]:
+    def execute_tool(
+        self, 
+        tool_name: str, 
+        parameters: dict[str, Any],
+        profile_id: str = "",
+    ) -> dict[str, Any]:
         """
         Execute a tool by name with the given parameters.
         
         Args:
             tool_name: Name of the tool to execute
             parameters: Parameters to pass to the tool
+            profile_id: User profile ID to scope results
             
         Returns:
             Tool execution result
@@ -59,11 +65,11 @@ class ToolExecutor:
             ValueError: If tool_name is not recognized
         """
         if tool_name == "search_workouts":
-            return self._search_workouts(parameters)
+            return self._search_workouts(parameters, profile_id=profile_id)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
     
-    def _search_workouts(self, params: dict[str, Any]) -> dict[str, Any]:
+    def _search_workouts(self, params: dict[str, Any], profile_id: str = "") -> dict[str, Any]:
         """
         Search for workouts based on query and filters.
         
@@ -77,6 +83,7 @@ class ToolExecutor:
                 - workout_type: Filter by workout type
                 - min_duration: Minimum duration in minutes
                 - max_duration: Maximum duration in minutes
+            profile_id: User profile ID to scope results
                 
         Returns:
             Search results with workout details
@@ -105,11 +112,12 @@ class ToolExecutor:
                 # Generate embedding from the query string
                 query_embedding = self.embedding_service.generate_query_embedding(query)
                 
-                # Perform semantic search using the query (NOT ignoring it!)
+                # Perform semantic search using the query parameter
+                # Fetch more results to account for filtering
                 raw_results = self.search_repo.semantic_search(
-                    profile_id="",  # Will be set by caller
+                    profile_id=profile_id,
                     query_embedding=query_embedding,
-                    limit=limit,
+                    limit=limit * 2,  # Fetch extra to handle filters
                     threshold=0.5,
                 )
                 search_type = "semantic"
@@ -120,31 +128,34 @@ class ToolExecutor:
                 search_type = "keyword_fallback"
         
         # If no results from semantic search (or it failed), use keyword search
-        # This is the key fix: we're actually USING the query parameter now
         if not results:
             results = self.search_repo.keyword_search(
-                profile_id="",  # Will be set by caller
+                profile_id=profile_id,
                 query=query,
-                limit=limit,
+                limit=limit * 2,  # Fetch extra to handle filters
             )
         
-        # Apply filters if specified
+        # Apply filters BEFORE limiting to ensure consistent pagination
         if workout_type:
             results = [r for r in results if self._matches_workout_type(r, workout_type)]
         
         if min_duration is not None or max_duration is not None:
             results = [r for r in results if self._matches_duration(r, min_duration, max_duration)]
         
+        # Apply limit AFTER filtering
+        results = results[:limit]
+        
         # Format results for AI agent consumption
         formatted_results = []
-        for row in results[:limit]:
+        for row in results:
+            created_at = row.get("created_at")
             formatted_results.append({
                 "workout_id": str(row.get("id", "")),
                 "title": row.get("title"),
                 "description": row.get("description"),
                 "sources": row.get("sources") or [],
                 "similarity_score": row.get("similarity"),
-                "created_at": str(row["created_at"]) if row.get("created_at") else None,
+                "created_at": str(created_at) if created_at else None,
             })
         
         return {
