@@ -318,6 +318,12 @@ def cmd_save(args):
     sys.exit(0)
 
 
+def cmd_viewer(args):
+    """Launch the Trace Viewer web interface."""
+    from backend.replay.viewer.server import run_viewer
+    run_viewer(host=args.host, port=args.port, open_browser=not args.no_browser)
+
+
 def main():
     """Main entry point for the replay CLI."""
     parser = argparse.ArgumentParser(
@@ -358,6 +364,13 @@ def main():
     save_parser.add_argument('--file', '-f', type=Path, help='Input file (default: stdin)')
     save_parser.add_argument('--tags', '-t', nargs='*', help='Tags to add')
     save_parser.set_defaults(func=cmd_save)
+    
+    # viewer command
+    viewer_parser = subparsers.add_parser('viewer', help='Launch the Trace Viewer web interface')
+    viewer_parser.add_argument('--host', default='localhost', help='Host to bind to (default: localhost)')
+    viewer_parser.add_argument('--port', type=int, default=8080, help='Port to listen on (default: 8080)')
+    viewer_parser.add_argument('--no-browser', action='store_true', help='Do not open browser automatically')
+    viewer_parser.set_defaults(func=cmd_viewer)
     
     args = parser.parse_args()
     

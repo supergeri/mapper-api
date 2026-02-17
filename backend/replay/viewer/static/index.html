@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trace Viewer - Session Pipeline Visualization</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Left Sidebar: Session Picker -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>📋 Sessions</h1>
+                <button id="refresh-btn" class="btn-icon" title="Refresh sessions">🔄</button>
+            </div>
+            <div class="search-box">
+                <input type="text" id="session-search" placeholder="Search sessions...">
+            </div>
+            <div id="sessions-list" class="sessions-list">
+                <!-- Sessions will be populated here -->
+                <div class="loading">Loading sessions...</div>
+            </div>
+        </aside>
+        
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Pipeline Timeline -->
+            <section class="timeline-section">
+                <div class="section-header">
+                    <h2>Pipeline Timeline</h2>
+                    <div class="timeline-controls">
+                        <button id="compare-btn" class="btn btn-secondary" disabled>
+                            Compare Selected
+                        </button>
+                    </div>
+                </div>
+                <div id="timeline" class="timeline">
+                    <div class="empty-state">
+                        <p>Select a session from the sidebar to view its pipeline</p>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Detail Panel -->
+            <section class="detail-section">
+                <div class="section-header">
+                    <h2>Details</h2>
+                    <div class="detail-controls">
+                        <label class="toggle">
+                            <input type="checkbox" id="show-ignored" checked>
+                            <span>Show ignored fields</span>
+                        </label>
+                        <button id="export-diff" class="btn btn-primary" disabled>
+                            Export Diff as Markdown
+                        </button>
+                    </div>
+                </div>
+                <div id="detail-panel" class="detail-panel">
+                    <div class="empty-state">
+                        <p>Click on a node or arrow to see details</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <script src="viewer.js"></script>
+</body>
+</html>
