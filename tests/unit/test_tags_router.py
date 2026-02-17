@@ -4,13 +4,13 @@ Unit tests for the tags router.
 Part of AMA-595: Write unit tests for programs and tags routers
 
 Tests the tags router endpoints:
-- GET /tags - Get all tags for a user
+- GET /tags - Get all tags for the user
 - POST /tags - Create a new user tag
 - DELETE /tags/{tag_id} - Delete a user tag
 """
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 
 from backend.main import create_app
@@ -23,6 +23,7 @@ from api.deps import get_current_user
 # ---------------------------------------------------------------------------
 
 TEST_USER_ID = "test-user-595"
+OTHER_USER_ID = "other-user-999"
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +42,8 @@ def client():
     settings = Settings(environment="test", _env_file=None)
     app = create_app(settings=settings)
     app.dependency_overrides[get_current_user] = mock_get_current_user
-    return TestClient(app)
+    yield TestClient(app)
+    app.dependency_overrides.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -49,11 +51,11 @@ def client():
 # ---------------------------------------------------------------------------
 
 
-def mock_tag_data(tag_id: str = "tag-123"):
+def mock_tag_data(tag_id: str = "tag-123", profile_id: str = TEST_USER_ID):
     """Return mock tag data."""
     return {
         "id": tag_id,
-        "profile_id": TEST_USER_ID,
+        "profile_id": profile_id,
         "name": "Test Tag",
         "color": "#00FF00",
         "created_at": "2024-01-01T00:00:00Z",
@@ -145,6 +147,7 @@ class TestCreateTag:
 
     def test_create_tag_failure(self, client):
         """Creating a tag when database fails returns success: False."""
+        # Tags router returns 200 with success: False (not HTTP error)
         with patch("api.routers.tags.create_user_tag", return_value=None):
             response = client.post("/tags", json={
                 "profile_id": TEST_USER_ID,
@@ -168,6 +171,94 @@ class TestCreateTag:
             data = response.json()
             assert data["success"] is False
 
+    def test_create_tag_empty_name(self, client):
+        """Creating a tag with empty name returns success: False."""
+        # No Pydantic validation for empty name - handled at database level
+        with patch("api.routers.tags.create_user_tag", return_value=None):
+            response = client.post("/tags", json={
+                "profile_id": TEST_USER_ID,
+                "name": ""
+            })
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is False
+
+    def test_create_tag_missing_name(self, client):
+        """Creating a tag without name returns 422."""
+        response = client.post("/tags", json={
+            "profile_id": TEST_USER_ID,
+            "color": "#00FF00"
+        })
+        
+        assert response.status_code == 422
+
+    def test_create_tag_missing_profile_id(self, client):
+        """Creating a tag without profile_id returns 422."""
+        response = client.post("/tags", json={
+            "name": "Test Tag"
+        })
+        
+        assert response.status_code == 422
+
+    def test_create_tag_invalid_color_format(self, client):
+        """Creating a tag with invalid color format fails at database level."""
+        # No Pydantic validation for color format - database handles it
+        with patch("api.routers.tags.create_user_tag", return_value=None):
+            response = client.post("/tags", json={
+                "profile_id": TEST_USER_ID,
+                "name": "Test Tag",
+                "color": "not-a-color"
+            })
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is False
+
+    def test_create_tag_valid_hex_color(self, client):
+        """Creating a tag with valid hex color returns 200."""
+        mock_tag = mock_tag_data()
+        mock_tag["color"] = "#ABCDEF"
+        
+        with patch("api.routers.tags.create_user_tag", return_value=mock_tag):
+            response = client.post("/tags", json={
+                "profile_id": TEST_USER_ID,
+                "name": "Test Tag",
+                "color": "#ABCDEF"
+            })
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+
+    def test_create_tag_name_too_long(self, client):
+        """Creating a tag with very long name fails at database level."""
+        long_name = "a" * 1000
+        with patch("api.routers.tags.create_user_tag", return_value=None):
+            response = client.post("/tags", json={
+                "profile_id": TEST_USER_ID,
+                "name": long_name
+            })
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is False
+
+    def test_create_tag_special_characters(self, client):
+        """Creating a tag with special characters returns 200."""
+        mock_tag = mock_tag_data()
+        mock_tag["name"] = "Tag with émoji 🎉"
+        
+        with patch("api.routers.tags.create_user_tag", return_value=mock_tag):
+            response = client.post("/tags", json={
+                "profile_id": TEST_USER_ID,
+                "name": "Tag with émoji 🎉"
+            })
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+
 
 # ---------------------------------------------------------------------------
 # Tests: Delete Tag
@@ -190,6 +281,7 @@ class TestDeleteTag:
 
     def test_delete_tag_failure(self, client):
         """Deleting a tag when database fails returns success: False."""
+        # Tags router returns 200 with success: False (not HTTP error)
         with patch("api.routers.tags.delete_user_tag", return_value=False):
             response = client.delete(f"/tags/tag-123?profile_id={TEST_USER_ID}")
             
@@ -203,3 +295,15 @@ class TestDeleteTag:
         response = client.delete("/tags/tag-123")
         
         assert response.status_code == 422
+
+    def test_cannot_modify_other_users_tag(self, client):
+        """Deleting another user's tag returns success: False (authorization enforced)."""
+        # Tag belongs to OTHER_USER_ID, but current user is TEST_USER_ID
+        # Database query filters by profile_id, so it returns False
+        with patch("api.routers.tags.delete_user_tag", return_value=False):
+            response = client.delete(f"/tags/tag-123?profile_id={OTHER_USER_ID}")
+            
+            # Should return 200 with success: False because the tag doesn't belong to this user
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is False

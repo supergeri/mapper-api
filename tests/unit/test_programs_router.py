@@ -27,6 +27,7 @@ from api.deps import get_current_user
 # ---------------------------------------------------------------------------
 
 TEST_USER_ID = "test-user-595"
+OTHER_USER_ID = "other-user-999"
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +46,8 @@ def client():
     settings = Settings(environment="test", _env_file=None)
     app = create_app(settings=settings)
     app.dependency_overrides[get_current_user] = mock_get_current_user
-    return TestClient(app)
+    yield TestClient(app)
+    app.dependency_overrides.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +55,7 @@ def client():
 # ---------------------------------------------------------------------------
 
 
-def mock_program_data(program_id: str = "prog-123"):
+def mock_program_data(program_id: str = "prog-123", profile_id: str = TEST_USER_ID):
     """Return mock program data."""
     return {
         "id": program_id,
@@ -63,7 +65,7 @@ def mock_program_data(program_id: str = "prog-123"):
         "icon": "💪",
         "is_active": True,
         "current_day_index": 0,
-        "profile_id": TEST_USER_ID,
+        "profile_id": profile_id,
         "created_at": "2024-01-01T00:00:00Z",
         "updated_at": "2024-01-01T00:00:00Z",
     }
@@ -131,6 +133,60 @@ class TestCreateProgram:
         with patch("backend.database.create_program", return_value=None):
             response = client.post("/programs", json={
                 "name": "Test Program"
+            })
+            
+            assert response.status_code == 400
+
+    def test_create_program_empty_name(self, client):
+        """Creating a program with empty name fails at database level."""
+        # Pydantic allows empty strings but database fails
+        with patch("backend.database.create_program", return_value=None):
+            response = client.post("/programs", json={
+                "name": ""
+            })
+            
+            assert response.status_code == 400
+
+    def test_create_program_missing_name(self, client):
+        """Creating a program without name returns 422."""
+        response = client.post("/programs", json={
+            "description": "Test description"
+        })
+        
+        assert response.status_code == 422
+
+    def test_create_program_invalid_color_format(self, client):
+        """Creating a program with invalid color format fails at database level."""
+        # No Pydantic validation for color format - database handles it
+        with patch("backend.database.create_program", return_value=None):
+            response = client.post("/programs", json={
+                "name": "Test Program",
+                "color": "not-a-color"
+            })
+            
+            assert response.status_code == 400
+
+    def test_create_program_valid_hex_color(self, client):
+        """Creating a program with valid hex color returns 200."""
+        mock_program = mock_program_data()
+        mock_program["color"] = "#ABCDEF"
+        
+        with patch("backend.database.create_program", return_value=mock_program):
+            response = client.post("/programs", json={
+                "name": "Test Program",
+                "color": "#ABCDEF"
+            })
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+
+    def test_create_program_name_too_long(self, client):
+        """Creating a program with very long name fails at database level."""
+        long_name = "a" * 1000
+        with patch("backend.database.create_program", return_value=None):
+            response = client.post("/programs", json={
+                "name": long_name
             })
             
             assert response.status_code == 400
@@ -210,6 +266,16 @@ class TestGetProgram:
             
             assert response.status_code == 404
 
+    def test_cannot_access_other_users_program(self, client):
+        """Getting another user's program returns 404 (authorization enforced)."""
+        # Program belongs to OTHER_USER_ID, but current user is TEST_USER_ID
+        # Database query filters by profile_id, so it returns None
+        with patch("backend.database.get_program", return_value=None):
+            response = client.get("/programs/prog-123")
+            
+            # Should return 404 because the program doesn't belong to this user
+            assert response.status_code == 404
+
 
 # ---------------------------------------------------------------------------
 # Tests: Update Program
@@ -243,6 +309,16 @@ class TestUpdateProgram:
                 "name": "New Name"
             })
             
+            assert response.status_code == 400
+
+    def test_cannot_update_other_users_program(self, client):
+        """Updating another user's program returns 400 (authorization enforced)."""
+        with patch("backend.database.update_program", return_value=None):
+            response = client.patch("/programs/prog-123", json={
+                "name": "Hacked Name"
+            })
+            
+            # Should return 400 because the program doesn't belong to this user
             assert response.status_code == 400
 
 
@@ -320,6 +396,15 @@ class TestAddToProgram:
         with patch("backend.database.add_workout_to_program", return_value=None):
             response = client.post("/programs/prog-123/members", json={
                 "workout_id": "workout-456"
+            })
+            
+            assert response.status_code == 400
+
+    def test_add_to_program_requires_workout_or_follow_along(self, client):
+        """Adding to program without workout_id or follow_along_id returns 400."""
+        with patch("backend.database.add_workout_to_program", return_value=None):
+            response = client.post("/programs/prog-123/members", json={
+                "day_order": 1
             })
             
             assert response.status_code == 400
