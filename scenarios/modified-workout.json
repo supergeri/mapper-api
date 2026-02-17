@@ -1,0 +1,18 @@
+{
+  "id": "session-002",
+  "name": "modified-workout",
+  "data": {
+    "title": "Test Workout Modified",
+    "exercises": [
+      {"name": "Squat", "sets": 3, "reps": 12},
+      {"name": "Bench Press", "sets": 3, "reps": 10}
+    ]
+  },
+  "tags": ["test", "modified"],
+  "hops": [
+    {"hop_number": 1, "stage": "ingest", "success": true},
+    {"hop_number": 2, "stage": "transform", "success": true},
+    {"hop_number": 3, "stage": "export", "success": true}
+  ],
+  "metadata": {}
+}

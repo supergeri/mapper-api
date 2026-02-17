@@ -1,0 +1,16 @@
+{
+  "name": "hyrox-full",
+  "description": "8 stations with 1km runs via web UI - Tests complex mixed workout with many transitions",
+  "tags": {
+    "workout_type": ["hybrid"],
+    "structure": ["circuit"],
+    "modalities": ["timed", "rep_based", "distance"],
+    "equipment": ["sled", "rower", "running", "kettlebell", "pullup_bar"],
+    "source": ["web_ui"],
+    "export_targets": ["garmin_fit", "garmin_yaml", "apple_workoutkit"],
+    "completeness": ["complete"]
+  },
+  "created": "2026-02-17",
+  "capture_method": "web_ui",
+  "notes": "Complex mixed modality workout - many transition edge cases"
+}

@@ -1,0 +1,16 @@
+{
+  "name": "simple-strength",
+  "description": "3 exercises, 3 sets via web UI - Tests happy path baseline",
+  "tags": {
+    "workout_type": ["strength"],
+    "structure": ["straight_set"],
+    "modalities": ["rep_based", "weighted"],
+    "equipment": ["barbell", "bench"],
+    "source": ["web_ui"],
+    "export_targets": ["garmin_yaml", "apple_workoutkit"],
+    "completeness": ["complete"]
+  },
+  "created": "2026-02-17",
+  "capture_method": "web_ui",
+  "notes": "Happy path baseline - basic strength workout"
+}

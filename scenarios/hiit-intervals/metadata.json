@@ -1,0 +1,16 @@
+{
+  "name": "hiit-intervals",
+  "description": "30s work / 15s rest, 8 rounds via web UI - Tests timed intervals and timing data fragility",
+  "tags": {
+    "workout_type": ["hiit"],
+    "structure": ["tabata", "circuit"],
+    "modalities": ["timed"],
+    "equipment": ["bodyweight"],
+    "source": ["web_ui"],
+    "export_targets": ["garmin_yaml", "zwofactory"],
+    "completeness": ["complete"]
+  },
+  "created": "2026-02-17",
+  "capture_method": "web_ui",
+  "notes": "Tests timing data precision and interval handling"
+}

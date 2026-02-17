@@ -1,0 +1,16 @@
+{
+  "name": "empty-sets",
+  "description": "Create workout with mocked partial completion - Tests edge case handling",
+  "tags": {
+    "workout_type": ["strength"],
+    "structure": ["straight_set"],
+    "modalities": ["rep_based"],
+    "equipment": [],
+    "source": ["web_ui"],
+    "export_targets": [],
+    "completeness": ["edge_case", "partial"]
+  },
+  "created": "2026-02-17",
+  "capture_method": "manual",
+  "notes": "Edge case - partial/incomplete data to test error handling"
+}
