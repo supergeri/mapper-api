@@ -1,5 +1,4 @@
-"""
-Workouts router for workout CRUD and library management.
+"""Workouts router for workout CRUD and library management.
 
 Part of AMA-378: Create api/routers skeleton and wiring
 Updated in AMA-381: Move workout CRUD endpoints from app.py
@@ -21,6 +20,7 @@ This router contains endpoints for:
 Note: Completion endpoints (/workouts/complete, /workouts/completions) are in
 api/routers/completions.py and must be registered BEFORE this router.
 """
+from __future__ import annotations
 
 import logging
 import time
@@ -46,6 +46,7 @@ from backend.adapters.blocks_to_workoutkit import to_workoutkit
 from domain.converters.blocks_to_workout import blocks_to_workout
 from domain.models import WorkoutMetadata, WorkoutSource
 from backend.services.export_queue import ExportQueue
+from backend.utils.intervals import calculate_intervals_duration, convert_exercise_to_interval
 
 logger = logging.getLogger(__name__)
 
@@ -176,75 +177,6 @@ class PatchWorkoutErrorResponse(BaseModel):
 # =============================================================================
 # Helper Functions
 # =============================================================================
-
-
-def calculate_intervals_duration(intervals: list) -> int:
-    """Calculate total duration in seconds from intervals list."""
-    total = 0
-    for interval in intervals:
-        kind = interval.get("kind")
-        if kind == "time" or kind == "warmup" or kind == "cooldown":
-            total += interval.get("seconds", 0)
-        elif kind == "reps":
-            # Estimate ~3 seconds per rep for rep-based exercises
-            total += interval.get("reps", 0) * 3
-            total += interval.get("restSec", 0) or 0
-        elif kind == "repeat":
-            # Recursive calculation for repeat intervals
-            reps = interval.get("reps", 1)
-            inner_duration = calculate_intervals_duration(interval.get("intervals", []))
-            total += inner_duration * reps
-        elif kind == "distance":
-            # Estimate ~6 min/km for distance-based
-            meters = interval.get("meters", 0)
-            total += int(meters * 0.36)  # 6 min/km = 360s/1000m
-    return total
-
-
-def convert_exercise_to_interval(exercise: dict) -> dict:
-    """
-    Convert a workout exercise to iOS companion interval format.
-    """
-    name = exercise.get("name", "Exercise")
-    reps = exercise.get("reps")
-    sets = exercise.get("sets", 1) or 1
-    duration_sec = exercise.get("duration_sec")
-    rest_sec = exercise.get("rest_sec", 60)
-    follow_along_url = exercise.get("followAlongUrl")
-
-    # Determine load string
-    load_parts = []
-    if exercise.get("load"):
-        load_parts.append(exercise.get("load"))
-    if sets and sets > 1:
-        load_parts.append(f"{sets} sets")
-    load = ", ".join(load_parts) if load_parts else None
-
-    if reps:
-        # Rep-based exercise
-        return {
-            "kind": "reps",
-            "reps": reps * (sets or 1),  # Total reps if multiple sets
-            "name": name,
-            "load": load,
-            "restSec": rest_sec,
-            "followAlongUrl": follow_along_url,
-            "carouselPosition": None
-        }
-    elif duration_sec:
-        # Time-based exercise
-        return {
-            "kind": "time",
-            "seconds": duration_sec,
-            "target": name
-        }
-    else:
-        # Default to time-based with 60 seconds
-        return {
-            "kind": "time",
-            "seconds": 60,
-            "target": name
-        }
 
 
 # =============================================================================

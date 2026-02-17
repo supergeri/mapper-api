@@ -3,4 +3,4 @@
 from backend.main import app
 from backend.database import get_ios_companion_pending_workouts
 
-__all__ = ["app", "get_ios_companion_pending_workouts"]
+__all__ = ["app"]
