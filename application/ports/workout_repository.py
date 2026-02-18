@@ -226,6 +226,26 @@ class WorkoutRepository(Protocol):
         """
         ...
 
+    def batch_get_sync_status(
+        self,
+        workout_ids: List[str],
+        user_id: str,
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Get sync status for multiple workouts in a single query.
+
+        This method avoids N+1 query issues when fetching sync status
+        for a list of workouts.
+
+        Args:
+            workout_ids: List of workout UUIDs
+            user_id: User ID
+
+        Returns:
+            Dict mapping workout_id to sync status dict
+        """
+        ...
+
     def update_companion_sync(
         self,
         workout_id: str,

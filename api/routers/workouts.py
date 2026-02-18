@@ -62,15 +62,31 @@ router = APIRouter(
 
 class SaveWorkoutRequest(BaseModel):
     """Request for saving a workout."""
-    profile_id: str | None = None  # Deprecated: use auth instead
-    workout_data: dict
-    sources: list[str] = []
+    profile_id: Optional[str] = None  # Deprecated: use auth instead
+    workout_data: WorkoutData
+    sources: List[str] = []
     device: str
-    exports: dict | None = None
-    validation: dict | None = None
-    title: str | None = None
-    description: str | None = None
-    workout_id: str | None = None  # Optional: for explicit updates to existing workouts
+    exports: Optional[dict] = None
+    validation: Optional[dict] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    workout_id: Optional[str] = None  # Optional: for explicit updates to existing workouts
+
+
+class WorkoutData(BaseModel):
+    """Schema validation for workout_data structure.
+
+    Provides type safety for workout data submitted via API.
+    """
+    title: Optional[str] = None
+    description: Optional[str] = None
+    duration: Optional[int] = None
+    duration_minutes: Optional[int] = None
+    type: Optional[str] = None
+    workout_type: Optional[str] = None
+    blocks: Optional[List[dict]] = []
+    intervals: Optional[List[dict]] = []
+    metadata: Optional[dict] = None
 
 
 class SearchResultItem(BaseModel):
@@ -174,6 +190,34 @@ class PatchWorkoutErrorResponse(BaseModel):
     )
 
 
+class SaveWorkoutResponse(BaseModel):
+    """Response model for save workout endpoint."""
+    success: bool = True
+    workout_id: str | None = None
+    message: str
+    is_update: bool = False
+
+
+class WorkoutListResponse(BaseModel):
+    """Response model for list workouts endpoint."""
+    success: bool = True
+    workouts: list[dict]
+    count: int
+
+
+class WorkoutResponse(BaseModel):
+    """Response model for single workout endpoint."""
+    success: bool = True
+    workout: dict | None = None
+
+
+class WorkoutOperationResponse(BaseModel):
+    """Response model for workout delete/operation endpoints."""
+    success: bool = True
+    message: str
+    workout: dict | None = None
+
+
 # =============================================================================
 # Helper Functions
 # =============================================================================
@@ -265,6 +309,12 @@ def save_workout_endpoint(
             "success": False,
             "message": f"Invalid workout data: {str(e)}"
         }
+    except TimeoutError as e:
+        logger.error(f"Timeout saving workout: {e}")
+        return {
+            "success": False,
+            "message": "Service temporarily unavailable. Please try again."
+        }
     except Exception as e:
         logger.exception(f"Unexpected error saving workout: {e}")
         return {
@@ -273,7 +323,7 @@ def save_workout_endpoint(
         }
 
 
-@router.get("/workouts")
+@router.get("/workouts", response_model=WorkoutListResponse)
 def get_workouts_endpoint(
     user_id: str = Depends(get_current_user),
     workout_repo: WorkoutRepository = Depends(get_workout_repo),
@@ -289,11 +339,14 @@ def get_workouts_endpoint(
         limit=limit,
     )
 
-    # Include sync status for each workout (AMA-307)
-    for workout in workouts:
-        workout_id = workout.get("id")
-        if workout_id:
-            workout["sync_status"] = workout_repo.get_sync_status(workout_id, user_id)
+    # Batch fetch sync status for all workouts to avoid N+1 queries (AMA-307)
+    workout_ids = [w.get("id") for w in workouts if w.get("id")]
+    if workout_ids:
+        sync_status_map = workout_repo.batch_get_sync_status(workout_ids, user_id)
+        for workout in workouts:
+            workout_id = workout.get("id")
+            if workout_id:
+                workout["sync_status"] = sync_status_map.get(workout_id, {"ios": None, "android": None, "garmin": None})
 
     return {
         "success": True,
@@ -500,7 +553,7 @@ def get_incoming_workouts_endpoint(
 # =============================================================================
 
 
-@router.get("/workouts/{workout_id}")
+@router.get("/workouts/{workout_id}", response_model=WorkoutResponse)
 def get_workout_endpoint(
     workout_id: str,
     user_id: str = Depends(get_current_user),
@@ -518,10 +571,10 @@ def get_workout_endpoint(
             "workout": workout
         }
     else:
-        return {
-            "success": False,
-            "message": "Workout not found"
-        }
+        raise HTTPException(
+            status_code=404,
+            detail={"message": "Workout not found"}
+        )
 
 
 @router.put("/workouts/{workout_id}/export-status")
@@ -540,24 +593,24 @@ def update_workout_export_endpoint(
         exported_to_device=request.exported_to_device
     )
 
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail={"message": "Workout not found or not owned by user"}
+        )
+
     # Queue export job if marking as exported
-    if success and request.is_exported:
+    if request.is_exported:
         export_queue.enqueue(
             workout_id=workout_id,
             user_id=user_id,
             device=request.exported_to_device or "unknown",
         )
 
-    if success:
-        return {
-            "success": True,
-            "message": "Export status updated successfully"
-        }
-    else:
-        return {
-            "success": False,
-            "message": "Failed to update export status"
-        }
+    return {
+        "success": True,
+        "message": "Export status updated successfully"
+    }
 
 
 @router.delete("/workouts/{workout_id}")
@@ -569,16 +622,16 @@ def delete_workout_endpoint(
     """Delete a workout."""
     success = workout_repo.delete(workout_id, user_id)
 
-    if success:
-        return {
-            "success": True,
-            "message": "Workout deleted successfully"
-        }
-    else:
-        return {
-            "success": False,
-            "message": "Failed to delete workout"
-        }
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail={"message": "Workout not found or not owned by user"}
+        )
+
+    return {
+        "success": True,
+        "message": "Workout deleted successfully"
+    }
 
 
 @router.patch("/workouts/{workout_id}/favorite")
@@ -595,17 +648,17 @@ def toggle_workout_favorite_endpoint(
         is_favorite=request.is_favorite
     )
 
-    if result:
-        return {
-            "success": True,
-            "workout": result,
-            "message": "Favorite status updated"
-        }
-    else:
-        return {
-            "success": False,
-            "message": "Failed to update favorite status"
-        }
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail={"message": "Workout not found or not owned by user"}
+        )
+
+    return {
+        "success": True,
+        "workout": result,
+        "message": "Favorite status updated"
+    }
 
 
 @router.patch("/workouts/{workout_id}/used")
@@ -621,17 +674,17 @@ def track_workout_usage_endpoint(
         profile_id=user_id
     )
 
-    if result:
-        return {
-            "success": True,
-            "workout": result,
-            "message": "Usage tracked"
-        }
-    else:
-        return {
-            "success": False,
-            "message": "Failed to track usage"
-        }
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail={"message": "Workout not found or not owned by user"}
+        )
+
+    return {
+        "success": True,
+        "workout": result,
+        "message": "Usage tracked"
+    }
 
 
 @router.patch("/workouts/{workout_id}/tags")
@@ -648,17 +701,17 @@ def update_workout_tags_endpoint(
         tags=request.tags
     )
 
-    if result:
-        return {
-            "success": True,
-            "workout": result,
-            "message": "Tags updated"
-        }
-    else:
-        return {
-            "success": False,
-            "message": "Failed to update tags"
-        }
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail={"message": "Workout not found or not owned by user"}
+        )
+
+    return {
+        "success": True,
+        "workout": result,
+        "message": "Tags updated"
+    }
 
 
 # =============================================================================
