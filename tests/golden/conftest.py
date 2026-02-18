@@ -3,11 +3,14 @@ Golden test utilities and pytest configuration.
 
 Part of AMA-395: Create golden test harness for exporters
 Phase 4 - Testing Overhaul
+Extended in AMA-371: Additional helpers for workout fixture loading
 
 Provides:
 - assert_golden(): Compare output against saved fixture
 - update_golden(): Regenerate fixture file
-- --update-golden pytest flag for batch fixture updates
+- load_fixture(): Load canonical workout fixtures
+- compare_output(): Compare actual vs expected output with optional regeneration
+- --update-golden / --regenerate-golden pytest flags for batch fixture updates
 """
 
 import difflib
@@ -171,6 +174,64 @@ def assert_golden(
         )
 
 
+def load_fixture(fixture_name: str) -> Union[str, dict]:
+    """
+    Load a canonical workout fixture file.
+
+    Args:
+        fixture_name: Relative path within fixtures/ directory
+
+    Returns:
+        The fixture content as string, or parsed JSON dict if .json file
+
+    Raises:
+        FileNotFoundError: If fixture doesn't exist
+    """
+    fixture_path = _get_fixture_path(fixture_name)
+
+    if not fixture_path.exists():
+        raise FileNotFoundError(f"Fixture not found: {fixture_path}")
+
+    # Load and parse based on file extension
+    if fixture_path.suffix == ".json":
+        with open(fixture_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    else:
+        with open(fixture_path, "r", encoding="utf-8") as f:
+            return f.read()
+
+
+def compare_output(
+    actual: Union[str, bytes, dict],
+    expected_fixture: str,
+    *,
+    is_binary: bool = False,
+    regenerate: bool = False,
+) -> bool:
+    """
+    Compare actual output against expected fixture, with optional regeneration.
+
+    Args:
+        actual: The actual output to compare
+        expected_fixture: Relative path to expected fixture in fixtures/ directory
+        is_binary: If True, compare as binary (no normalization)
+        regenerate: If True, update the fixture with actual output
+
+    Returns:
+        True if output matches (or was regenerated), False if mismatch
+
+    Raises:
+        GoldenTestError: If output doesn't match fixture (with diff)
+        FileNotfoundError: If fixture doesn't exist (unless regenerate=True)
+    """
+    # Use assert_golden for the comparison (it handles regeneration)
+    try:
+        assert_golden(actual, expected_fixture, is_binary=is_binary, update=regenerate)
+        return True
+    except GoldenTestError:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Pytest Plugin for --update-golden flag
 # ---------------------------------------------------------------------------
@@ -184,19 +245,28 @@ def _should_update_golden() -> bool:
 
 
 def pytest_addoption(parser):
-    """Add --update-golden command line option."""
+    """Add --update-golden and --regenerate-golden command line options."""
     parser.addoption(
         "--update-golden",
         action="store_true",
         default=False,
-        help="Update golden test fixtures instead of asserting",
+        help="Update golden test fixtures instead of asserting (alias: --regenerate-golden)",
+    )
+    parser.addoption(
+        "--regenerate-golden",
+        action="store_true",
+        default=False,
+        help="Regenerate golden test fixtures (alias: --update-golden)",
     )
 
 
 def pytest_configure(config):
     """Configure golden update mode from command line."""
     global _UPDATE_GOLDEN
-    _UPDATE_GOLDEN = config.getoption("--update-golden", default=False)
+    # Support both --update-golden and --regenerate-golden flags
+    _UPDATE_GOLDEN = config.getoption("--update-golden", default=False) or config.getoption(
+        "--regenerate-golden", default=False
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +277,15 @@ def pytest_configure(config):
 @pytest.fixture
 def golden_update_mode(request) -> bool:
     """Fixture to check if we're in golden update mode."""
-    return request.config.getoption("--update-golden", default=False)
+    return request.config.getoption("--update-golden", default=False) or request.config.getoption(
+        "--regenerate-golden", default=False
+    )
+
+
+@pytest.fixture
+def regenerate_golden(request) -> bool:
+    """Fixture to check if we're in golden regeneration mode (--regenerate-golden)."""
+    return request.config.getoption("--regenerate-golden", default=False)
 
 
 @pytest.fixture
