@@ -2,6 +2,7 @@
 OpenAI client wrapper for exercise selection.
 
 Part of AMA-462: Implement ProgramGenerator Service
+Part of AMA-423: Add AIRequestContext to All AI Call Sites for Full Observability
 
 Provides the OpenAIExerciseSelector class for LLM-powered exercise selection.
 """
@@ -25,6 +26,12 @@ from services.llm.schemas import (
     ExerciseSelectionRequest,
     ExerciseSelectionResponse,
 )
+
+# Import AIRequestContext for observability (AMA-423)
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+from shared.ai_context import AIRequestContext
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +92,7 @@ class OpenAIExerciseSelector:
         self._cache: dict[str, CacheEntry] = {}
         self._cache_max_size = cache_max_size
         self._cache_ttl = cache_ttl_seconds
+        self._current_context: Optional[AIRequestContext] = None
 
     def _cache_key(self, request: ExerciseSelectionRequest) -> str:
         """Generate cache key for a request."""
@@ -103,6 +111,7 @@ class OpenAIExerciseSelector:
         self,
         request: ExerciseSelectionRequest,
         use_cache: bool = True,
+        context: Optional[AIRequestContext] = None,
     ) -> ExerciseSelectionResponse:
         """
         Select exercises for a workout using the LLM.
@@ -110,6 +119,7 @@ class OpenAIExerciseSelector:
         Args:
             request: Exercise selection request parameters
             use_cache: Whether to use cached responses
+            context: AI request context for observability (AMA-423)
 
         Returns:
             ExerciseSelectionResponse with selected exercises
@@ -117,6 +127,9 @@ class OpenAIExerciseSelector:
         Raises:
             ExerciseSelectorError: If selection fails after retries
         """
+        # Store context for use in _call_llm
+        self._current_context = context
+        
         # Check cache
         cache_key = self._cache_key(request)
         if use_cache:
@@ -194,6 +207,13 @@ class OpenAIExerciseSelector:
         Raises:
             Exception: On API errors
         """
+        # Build extra body from context for observability (AMA-423)
+        extra_body = {}
+        if self._current_context:
+            helicone_props = self._current_context.to_helicone_headers()
+            if helicone_props:
+                extra_body["metadata"] = helicone_props
+
         response = await self._client.chat.completions.create(
             model=self._model,
             messages=[
@@ -203,6 +223,7 @@ class OpenAIExerciseSelector:
             temperature=0.3,
             max_tokens=2000,
             response_format={"type": "json_object"},
+            extra_body=extra_body if extra_body else None,
         )
 
         content = response.choices[0].message.content

@@ -1,6 +1,8 @@
 """
 Image Parser
 
+Part of AMA-423: Add AIRequestContext to All AI Call Sites for Full Observability
+
 Parses workout images using OCR and Vision AI:
 - Workout screenshots (gym whiteboards, program PDFs)
 - Infographics from Instagram/Pinterest
@@ -18,6 +20,12 @@ import os
 from typing import List, Dict, Any, Optional, Literal
 from dataclasses import dataclass, field
 import httpx
+
+# Import AIRequestContext for observability (AMA-423)
+import sys
+import os as _os
+sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), '..', '..'))
+from shared.ai_context import AIRequestContext
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +119,7 @@ class ImageParser:
         mode: Literal["vision", "ocr", "auto"] = "vision",
         vision_provider: str = "openai",
         vision_model: Optional[str] = "gpt-4o-mini",
+        context: Optional[AIRequestContext] = None,
     ) -> ImageParseResult:
         """
         Parse a single image to extract workout data.
@@ -124,6 +133,7 @@ class ImageParser:
                 - "auto": Try vision, fall back to OCR
             vision_provider: Vision provider ("openai" or "anthropic")
             vision_model: Model to use (e.g., "gpt-4o-mini", "gpt-4o")
+            context: AI request context for observability (AMA-423)
 
         Returns:
             ImageParseResult with extracted workout data
@@ -144,14 +154,14 @@ class ImageParser:
             if mode == "vision" or mode == "auto":
                 result = await cls._parse_with_vision(
                     image_data, filename, image_id,
-                    vision_provider, vision_model
+                    vision_provider, vision_model, context
                 )
                 if result.success or mode == "vision":
                     return result
                 # Fall through to OCR if auto mode and vision failed
 
             if mode == "ocr" or mode == "auto":
-                return await cls._parse_with_ocr(image_data, filename, image_id)
+                return await cls._parse_with_ocr(image_data, filename, image_id, context)
 
             return ImageParseResult(
                 image_id=image_id,
@@ -177,6 +187,7 @@ class ImageParser:
         image_id: str,
         vision_provider: str,
         vision_model: Optional[str],
+        context: Optional[AIRequestContext] = None,
     ) -> ImageParseResult:
         """Parse image using Vision AI via workout-ingestor-api"""
 
@@ -191,6 +202,12 @@ class ImageParser:
                 }
                 if vision_model:
                     data["vision_model"] = vision_model
+                
+                # Pass AI context metadata for observability (AMA-423)
+                if context:
+                    context_data = context.to_dict()
+                    if context_data:
+                        data["ai_context"] = context_data
 
                 response = await client.post(
                     f"{INGESTOR_API_URL}/ingest/image_vision",
@@ -258,6 +275,7 @@ class ImageParser:
         image_data: bytes,
         filename: str,
         image_id: str,
+        context: Optional[AIRequestContext] = None,
     ) -> ImageParseResult:
         """Parse image using OCR via workout-ingestor-api"""
 
@@ -266,10 +284,18 @@ class ImageParser:
                 files = {
                     "file": (filename, image_data, cls._get_content_type(filename))
                 }
+                
+                data = {}
+                # Pass AI context metadata for observability (AMA-423)
+                if context:
+                    context_data = context.to_dict()
+                    if context_data:
+                        data["ai_context"] = context_data
 
                 response = await client.post(
                     f"{INGESTOR_API_URL}/ingest/image",
                     files=files,
+                    data=data if data else None,
                 )
 
                 if response.status_code == 200:
@@ -468,6 +494,7 @@ class ImageParser:
         vision_provider: str = "openai",
         vision_model: Optional[str] = "gpt-4o-mini",
         max_concurrent: int = 3,
+        context: Optional[AIRequestContext] = None,
     ) -> List[ImageParseResult]:
         """
         Parse multiple images with concurrency limit.
@@ -478,6 +505,7 @@ class ImageParser:
             vision_provider: Vision provider
             vision_model: Model to use
             max_concurrent: Maximum concurrent requests
+            context: AI request context for observability (AMA-423)
 
         Returns:
             List of ImageParseResult in same order as input
@@ -491,6 +519,7 @@ class ImageParser:
                     mode=mode,
                     vision_provider=vision_provider,
                     vision_model=vision_model,
+                    context=context,
                 )
 
         tasks = [parse_with_limit(data, name) for data, name in images]
