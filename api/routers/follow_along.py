@@ -38,6 +38,11 @@ from api.deps import (
     update_follow_along_ios_companion_sync,
     delete_follow_along_workout,
 )
+from backend.services.content_classifier import (
+    classify_content,
+    ContentCategory,
+    ClassificationConfidence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -291,7 +296,7 @@ def create_follow_along(
     summary="Ingest follow-along from video URL",
     description="Ingest a follow-along workout from a video URL (Instagram, YouTube, TikTok, Vimeo)",
 )
-def ingest_follow_along(
+async def ingest_follow_along(
     request: IngestFollowAlongRequest,
     user_id: str = Depends(get_current_user),
 ) -> FollowAlongWorkoutResponse:
@@ -310,6 +315,43 @@ def ingest_follow_along(
     """
     try:
         source = request.source or _detect_source_platform(str(request.sourceUrl))
+
+        # AMA-171: Content classification gate - reject non-workout content early
+        # This runs BEFORE expensive processing (transcription, parsing)
+        
+        # Extract video ID from URL (simplified - use URL as ID for now)
+        # In production, you'd extract actual video ID and fetch metadata
+        video_id = str(request.sourceUrl)
+        
+        # For now, we use the URL as title placeholder since we don't have metadata yet
+        # In production, you'd fetch video metadata from the platform's API
+        title = f"Video from {source}"
+        
+        # Classify content (async call)
+        classification = await classify_content(
+            video_id=video_id,
+            platform=source,
+            title=title,
+            description=None,
+        )
+        
+        # Reject non-workout content with helpful error
+        if classification.category == ContentCategory.NON_WORKOUT:
+            logger.warning(f"Rejected non-workout content: {request.sourceUrl} - {classification.reason}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "non_workout_content",
+                    "message": "This video does not appear to be a workout. Please submit a fitness or exercise video.",
+                    "detected_category": classification.category.value,
+                    "confidence": classification.confidence.value,
+                    "reason": classification.reason,
+                },
+            )
+        
+        # Log uncertain classifications for monitoring (but allow through with flag)
+        if classification.category == ContentCategory.UNCERTAIN:
+            logger.info(f"Uncertain classification for {request.sourceUrl}: {classification.reason}")
 
         # Extract and save follow-along workout from video
         # Note: AI extraction from video metadata is not yet implemented.
