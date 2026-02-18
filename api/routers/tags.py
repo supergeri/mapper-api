@@ -14,7 +14,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from backend.database import (
+from api.deps import (
     get_user_tags,
     create_user_tag,
     delete_user_tag,

@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 
 from backend.auth import get_current_user
 from backend.settings import Settings, get_settings
+from api.deps import reset_user_data
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +134,6 @@ async def reset_user_data_endpoint(
     - External service connections (Strava, Garmin)
     - User profile entry
     """
-    from backend.database import reset_user_data
 
     # Guard: Only available in test environment
     if not settings.is_test:

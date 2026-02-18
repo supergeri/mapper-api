@@ -28,7 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from api.deps import get_current_user
-from backend.database import (
+from api.deps import (
     save_follow_along_workout,
     get_follow_along_workouts,
     get_follow_along_workout,
