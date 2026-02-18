@@ -82,6 +82,15 @@ class Exercise(BaseModel):
         default=None, ge=0, description="Rest period after exercise in seconds"
     )
 
+    # Distance (for cardio exercises)
+    distance: Optional[float] = Field(
+        default=None, ge=0, description="Distance value (e.g., 5.0 for 5 miles/km)"
+    )
+    distance_unit: Optional[Literal["miles", "km", "meters", "yards", "feet"]] = Field(
+        default=None,
+        description="Distance unit (e.g., 'miles', 'km', 'meters', 'yards')",
+    )
+
     # Notes
     notes: Optional[str] = Field(
         default=None, description="Additional instructions or notes"
@@ -126,6 +135,16 @@ class Exercise(BaseModel):
             True if load is set, False otherwise.
         """
         return self.load is not None
+
+    @property
+    def has_distance(self) -> bool:
+        """
+        Check if this exercise has a distance prescribed.
+
+        Returns:
+            True if distance is set, False otherwise.
+        """
+        return self.distance is not None
 
     @property
     def total_reps(self) -> Optional[int]:

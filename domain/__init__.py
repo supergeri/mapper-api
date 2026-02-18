@@ -14,6 +14,7 @@ from domain.models import (
     Exercise,
     Load,
     Workout,
+    WorkoutSettings,
     WorkoutMetadata,
     WorkoutSource,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "Exercise",
     "Load",
     "Workout",
+    "WorkoutSettings",
     "WorkoutMetadata",
     "WorkoutSource",
 ]
