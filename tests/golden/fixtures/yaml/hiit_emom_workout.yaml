@@ -1,0 +1,15 @@
+settings:
+  deleteSameNameWorkout: true
+workouts:
+  EMOM 12 Minutes:
+    sport: hiit
+    steps:
+    - repeatUntilTime(12min):
+      - 'Kettlebell Swing [category: HIP_RAISE]': lap | Kettlebell Swing (15 reps)
+      - 'Push Up [category: PUSH_UP]': lap | Push-Up (10 reps)
+      - 'Air Squat [category: SQUAT]': lap | Air Squat (15 reps)
+      - 'Mountain Climber [category: PLANK]': lap | Mountain Climber (20 reps)
+schedulePlan:
+  start_from: 'NORMALIZED_DATE'
+  workouts:
+  - EMOM 12 Minutes
