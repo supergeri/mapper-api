@@ -19,7 +19,16 @@ from typing import Optional, Any
 from fastapi import APIRouter, Query, Depends, HTTPException
 from pydantic import BaseModel
 
-from api.deps import get_current_user
+from api.deps import (
+    get_current_user,
+    create_program,
+    get_programs,
+    get_program,
+    update_program,
+    delete_program,
+    add_workout_to_program,
+    remove_workout_from_program,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +130,6 @@ async def create_program_endpoint(
     current_user: str = Depends(get_current_user),
 ):
     """Create a new workout program."""
-    from backend.database import create_program
 
     result = create_program(
         profile_id=current_user,
@@ -150,7 +158,6 @@ async def get_programs_endpoint(
     current_user: str = Depends(get_current_user),
 ):
     """Get all programs for a user."""
-    from backend.database import get_programs
 
     programs = get_programs(
         profile_id=current_user,
@@ -170,7 +177,6 @@ async def get_program_endpoint(
     current_user: str = Depends(get_current_user),
 ):
     """Get a single program with its members."""
-    from backend.database import get_program
 
     program = get_program(program_id, current_user)
 
@@ -193,7 +199,6 @@ async def update_program_endpoint(
     current_user: str = Depends(get_current_user),
 ):
     """Update a program."""
-    from backend.database import update_program
 
     result = update_program(
         program_id=program_id,
@@ -225,7 +230,6 @@ async def delete_program_endpoint(
     current_user: str = Depends(get_current_user),
 ):
     """Delete a program."""
-    from backend.database import delete_program
 
     success = delete_program(program_id, current_user)
 
@@ -248,7 +252,6 @@ async def add_to_program_endpoint(
     current_user: str = Depends(get_current_user),
 ):
     """Add a workout or follow-along to a program."""
-    from backend.database import add_workout_to_program
 
     result = add_workout_to_program(
         program_id=program_id,
@@ -278,7 +281,6 @@ async def remove_from_program_endpoint(
     current_user: str = Depends(get_current_user),
 ):
     """Remove a workout from a program."""
-    from backend.database import remove_workout_from_program
 
     success = remove_workout_from_program(member_id, current_user)
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Literal, Optional
 
@@ -28,7 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from api.deps import get_current_user
-from backend.database import (
+from api.deps import (
     save_follow_along_workout,
     get_follow_along_workouts,
     get_follow_along_workout,
@@ -49,45 +50,49 @@ router = APIRouter(
 # Uses in-memory cache with TTL for production readiness
 # For multi-instance deployments, consider database-based deduplication
 FOLLOW_ALONG_GARMIN_SYNC_CACHE: Dict[str, tuple[str, datetime]] = {}
+FOLLOW_ALONG_GARMIN_SYNC_CACHE_LOCK = threading.Lock()
 CACHE_MAX_SIZE = 1000
 CACHE_TTL_HOURS = 24
 
 
 def _cleanup_cache() -> None:
     """Remove expired entries from the cache to prevent unbounded memory growth."""
-    now = datetime.utcnow()
-    cutoff = now - timedelta(hours=CACHE_TTL_HOURS)
-    expired_keys = [
-        key for key, (_, timestamp) in FOLLOW_ALONG_GARMIN_SYNC_CACHE.items()
-        if timestamp < cutoff
-    ]
-    for key in expired_keys:
-        del FOLLOW_ALONG_GARMIN_SYNC_CACHE[key]
+    with FOLLOW_ALONG_GARMIN_SYNC_CACHE_LOCK:
+        now = datetime.utcnow()
+        cutoff = now - timedelta(hours=CACHE_TTL_HOURS)
+        expired_keys = [
+            key for key, (_, timestamp) in FOLLOW_ALONG_GARMIN_SYNC_CACHE.items()
+            if timestamp < cutoff
+        ]
+        for key in expired_keys:
+            del FOLLOW_ALONG_GARMIN_SYNC_CACHE[key]
 
 
 def _has_garmin_synced_before(workout_id: str, user_id: str) -> bool:
     """Check if this workout+user combination has been synced to Garmin recently."""
     _cleanup_cache()  # Clean expired entries before checking
     cache_key = f"{user_id}:{workout_id}"
-    return cache_key in FOLLOW_ALONG_GARMIN_SYNC_CACHE
+    with FOLLOW_ALONG_GARMIN_SYNC_CACHE_LOCK:
+        return cache_key in FOLLOW_ALONG_GARMIN_SYNC_CACHE
 
 
 def _mark_garmin_synced(workout_id: str, user_id: str, garmin_workout_id: str) -> None:
     """Mark a workout as synced to Garmin for this user."""
-    # Enforce size limit to prevent unbounded memory growth
-    if len(FOLLOW_ALONG_GARMIN_SYNC_CACHE) >= CACHE_MAX_SIZE:
-        _cleanup_cache()
-        # If still at capacity, remove oldest entries
+    with FOLLOW_ALONG_GARMIN_SYNC_CACHE_LOCK:
+        # Enforce size limit to prevent unbounded memory growth
         if len(FOLLOW_ALONG_GARMIN_SYNC_CACHE) >= CACHE_MAX_SIZE:
-            sorted_keys = sorted(
-                FOLLOW_ALONG_GARMIN_SYNC_CACHE.items(),
-                key=lambda x: x[1][1]
-            )
-            for key, _ in sorted_keys[:CACHE_MAX_SIZE // 4]:
-                del FOLLOW_ALONG_GARMIN_SYNC_CACHE[key]
-    
-    cache_key = f"{user_id}:{workout_id}"
-    FOLLOW_ALONG_GARMIN_SYNC_CACHE[cache_key] = (garmin_workout_id, datetime.utcnow())
+            _cleanup_cache()
+            # If still at capacity, remove oldest entries
+            if len(FOLLOW_ALONG_GARMIN_SYNC_CACHE) >= CACHE_MAX_SIZE:
+                sorted_keys = sorted(
+                    FOLLOW_ALONG_GARMIN_SYNC_CACHE.items(),
+                    key=lambda x: x[1][1]
+                )
+                for key, _ in sorted_keys[:CACHE_MAX_SIZE // 4]:
+                    del FOLLOW_ALONG_GARMIN_SYNC_CACHE[key]
+        
+        cache_key = f"{user_id}:{workout_id}"
+        FOLLOW_ALONG_GARMIN_SYNC_CACHE[cache_key] = (garmin_workout_id, datetime.utcnow())
 
 
 # Platform type for source detection

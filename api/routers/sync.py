@@ -34,9 +34,9 @@ from fastapi import APIRouter, Query, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
-from api.deps import get_current_user, get_export_queue
-from backend.services.export_queue import ExportQueue
-from backend.database import (
+from api.deps import (
+    get_current_user,
+    get_export_queue,
     get_workout,
     update_workout_ios_companion_sync,
     update_workout_android_companion_sync,
@@ -48,6 +48,7 @@ from backend.database import (
     report_sync_failed,
     get_workout_sync_status,
 )
+from backend.services.export_queue import ExportQueue
 from backend.adapters.blocks_to_workoutkit import to_workoutkit
 from backend.adapters.blocks_to_hyrox_yaml import map_exercise_to_garmin
 from backend.core.exercise_categories import add_category_to_exercise_name

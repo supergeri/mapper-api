@@ -16,7 +16,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.deps import get_current_user
-from backend.database import (
+from api.deps import (
     get_account_deletion_preview,
     delete_user_account,
 )
