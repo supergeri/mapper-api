@@ -212,7 +212,7 @@ class OpenAIExerciseSelector:
         if self._current_context:
             helicone_props = self._current_context.to_helicone_headers()
             if helicone_props:
-                extra_body["metadata"] = helicone_props
+                extra_body["properties"] = helicone_props
 
         response = await self._client.chat.completions.create(
             model=self._model,

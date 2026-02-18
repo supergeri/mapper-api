@@ -23,8 +23,7 @@ import httpx
 
 # Import AIRequestContext for observability (AMA-423)
 import sys
-import os as _os
-sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from shared.ai_context import AIRequestContext
 
 logger = logging.getLogger(__name__)

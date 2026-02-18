@@ -49,7 +49,7 @@ class EmbeddingService:
             helicone_headers = context.to_helicone_headers()
             if helicone_headers:
                 # Helicone uses 'properties' in extra body
-                extra_body["metadata"] = helicone_headers
+                extra_body["properties"] = helicone_headers
 
         response = self._client.embeddings.create(
             input=text,

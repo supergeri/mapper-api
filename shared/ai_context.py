@@ -22,6 +22,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
+VALID_ENVIRONMENTS = {"production", "staging", "dev", "development", "test"}
+
+
 @dataclass
 class AIRequestContext:
     """
@@ -45,6 +48,23 @@ class AIRequestContext:
     session_id: Optional[str] = None
     environment: str = "production"
     extra: dict = field(default_factory=dict)
+    
+    def __post_init__(self):
+        """Validate context after initialization."""
+        # Validate environment
+        if self.environment not in VALID_ENVIRONMENTS:
+            raise ValueError(
+                f"Invalid environment '{self.environment}'. "
+                f"Must be one of: {', '.join(sorted(VALID_ENVIRONMENTS))}"
+            )
+        
+        # Validate user_id is non-empty if provided
+        if self.user_id is not None and not self.user_id:
+            raise ValueError("user_id must be a non-empty string if provided")
+        
+        # Validate feature_name is non-empty if provided
+        if self.feature_name is not None and not self.feature_name:
+            raise ValueError("feature_name must be a non-empty string if provided")
     
     def to_dict(self) -> dict:
         """Convert context to dictionary for API headers."""
