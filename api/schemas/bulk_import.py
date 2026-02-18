@@ -28,6 +28,8 @@ class DetectedItem(BaseModel):
     confidence: float = 0
     errors: Optional[List[str]] = None
     warnings: Optional[List[str]] = None
+    # AMA-171: Content classification for URL-based items
+    content_classification: Optional[Dict[str, Any]] = None
 
 
 class ColumnMapping(BaseModel):
