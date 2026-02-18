@@ -17,6 +17,8 @@ import inspect
 import pytest
 from fastapi.testclient import TestClient
 
+pytestmark = pytest.mark.integration
+
 from backend.app import app
 from api.deps import (
     get_current_user,
