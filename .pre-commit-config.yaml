@@ -10,32 +10,31 @@ repos:
         exclude: ^(.secrets.baseline|requirements.txt|requirements-dev.txt)
 
   # Shell Scripts: shellcheck
-  - repo: https://github.com/ludeeus/action-shellcheck
-    rev: 0.0.0
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
     hooks:
       - id: shellcheck
-        args: ['-S', 'error']
 
-  # JavaScript/TypeScript: oxlint and oxfmt (if package.json exists)
-  - repo: https://github.com/oxsecurity/megalinter
-    rev: v7.3.0
-    hooks:
-      - id: oxlint
-        args: ['-j', '2']
-        types: [javascript, jsx, typescript, tsx]
-      - id: oxfmt
-        types: [javascript, jsx, typescript, tsx]
+  # JavaScript/TypeScript: eslint and prettier (if needed)
+  # Removed oxlint/oxfmt from megalinter - using standard Node.js linters instead
+  # - repo: https://github.com/oxsecurity/megalinter
+  #   rev: v7.3.0
+  #   hooks:
+  #     - id: oxlint
+  #       args: ['-j', '2']
+  #       types: [javascript, jsx, typescript, tsx]
+  #     - id: oxfmt
+  #       types: [javascript, jsx, typescript, tsx]
 
   # GitHub Actions: actionlint and zizmor
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.4
     hooks:
       - id: actionlint
-  - repo: https://github.com/rhysd/zizmor
+  - repo: https://github.com/woodruffw/zizmor
     rev: v0.3.0
     hooks:
       - id: zizmor
-        args: ['--severity', 'medium']
 
   # File Hygiene
   - repo: https://github.com/pre-commit/pre-commit-hooks
