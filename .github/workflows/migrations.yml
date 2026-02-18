@@ -1,0 +1,46 @@
+name: Database Migrations
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+
+jobs:
+  migrate:
+    name: Run migrations on ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Run database migrations
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "Error: SUPABASE_DB_URL secret is not set for the ${{ github.event.inputs.environment }} environment"
+            exit 1
+          fi
+          
+          echo "Running migrations on ${{ github.event.inputs.environment }}..."
+          supabase db push --db-url "$SUPABASE_DB_URL" || exit 1
+          
+      - name: Verify migration status
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          echo "Checking migration status..."
+          supabase migration list --db-url "$SUPABASE_DB_URL"
