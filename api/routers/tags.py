@@ -11,10 +11,11 @@ This router contains endpoints for:
 
 from typing import Optional, List
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from api.deps import (
+    get_current_user,
     get_user_tags,
     create_user_tag,
     delete_user_tag,
@@ -44,6 +45,7 @@ class CreateTagRequest(BaseModel):
 
 @router.get("/tags")
 def get_tags_endpoint(
+    user_id: str = Depends(get_current_user),
     profile_id: str = Query(..., description="User profile ID")
 ):
     """
@@ -65,7 +67,10 @@ def get_tags_endpoint(
 
 
 @router.post("/tags")
-def create_tag_endpoint(request: CreateTagRequest):
+def create_tag_endpoint(
+    request: CreateTagRequest,
+    user_id: str = Depends(get_current_user)
+):
     """
     Create a new user tag.
 
@@ -97,6 +102,7 @@ def create_tag_endpoint(request: CreateTagRequest):
 @router.delete("/tags/{tag_id}")
 def delete_tag_endpoint(
     tag_id: str,
+    user_id: str = Depends(get_current_user),
     profile_id: str = Query(..., description="User profile ID")
 ):
     """

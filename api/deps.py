@@ -31,7 +31,7 @@ Testing:
 """
 
 from functools import lru_cache
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from fastapi import Depends, Header
 from supabase import Client, create_client
@@ -637,7 +637,7 @@ def remove_workout_from_program(member_id: str, profile_id: str):
 # =============================================================================
 
 
-def get_user_tags(profile_id: str):
+def get_user_tags(profile_id: str) -> List[Dict[str, Any]]:
     """
     Get all tags for a user.
 
@@ -647,7 +647,7 @@ def get_user_tags(profile_id: str):
     return _get_user_tags(profile_id)
 
 
-def create_user_tag(profile_id: str, name: str, color: str = None):
+def create_user_tag(profile_id: str, name: str, color: str = None) -> Optional[Dict[str, Any]]:
     """
     Create a new user tag.
 
@@ -657,7 +657,7 @@ def create_user_tag(profile_id: str, name: str, color: str = None):
     return _create_user_tag(profile_id, name, color)
 
 
-def delete_user_tag(tag_id: str, profile_id: str):
+def delete_user_tag(tag_id: str, profile_id: str) -> bool:
     """
     Delete a user tag.
 
@@ -802,17 +802,37 @@ def get_workout_sync_status(workout_id: str, user_id: str):
 # =============================================================================
 
 
-def save_follow_along_workout(user_id: str, workout_data: dict):
+def save_follow_along_workout(
+    user_id: str,
+    source: str,
+    source_url: str,
+    title: str,
+    description: Optional[str] = None,
+    video_duration_sec: Optional[int] = None,
+    thumbnail_url: Optional[str] = None,
+    video_proxy_url: Optional[str] = None,
+    steps: Optional[List[Dict[str, Any]]] = None
+) -> Optional[Dict[str, Any]]:
     """
     Save a follow-along workout.
 
     Part of AMA-365: Create FastAPI deps providers
     """
     from backend.database import save_follow_along_workout as _save
-    return _save(user_id, workout_data)
+    return _save(
+        user_id=user_id,
+        source=source,
+        source_url=source_url,
+        title=title,
+        description=description,
+        video_duration_sec=video_duration_sec,
+        thumbnail_url=thumbnail_url,
+        video_proxy_url=video_proxy_url,
+        steps=steps
+    )
 
 
-def get_follow_along_workouts(user_id: str):
+def get_follow_along_workouts(user_id: str) -> List[Dict[str, Any]]:
     """
     Get follow-along workouts for a user.
 
@@ -822,7 +842,7 @@ def get_follow_along_workouts(user_id: str):
     return _get(user_id)
 
 
-def get_follow_along_workout(workout_id: str, user_id: str):
+def get_follow_along_workout(workout_id: str, user_id: str) -> Optional[Dict[str, Any]]:
     """
     Get a follow-along workout by ID.
 
@@ -832,7 +852,7 @@ def get_follow_along_workout(workout_id: str, user_id: str):
     return _get(workout_id, user_id)
 
 
-def update_follow_along_garmin_sync(workout_id: str, user_id: str, garmin_workout_id: str):
+def update_follow_along_garmin_sync(workout_id: str, user_id: str, garmin_workout_id: str) -> bool:
     """
     Update Garmin sync status for follow-along workout.
 
@@ -842,7 +862,7 @@ def update_follow_along_garmin_sync(workout_id: str, user_id: str, garmin_workou
     return _update(workout_id, user_id, garmin_workout_id)
 
 
-def update_follow_along_apple_watch_sync(workout_id: str, user_id: str):
+def update_follow_along_apple_watch_sync(workout_id: str, user_id: str) -> bool:
     """
     Update Apple Watch sync status for follow-along workout.
 
@@ -852,7 +872,7 @@ def update_follow_along_apple_watch_sync(workout_id: str, user_id: str):
     return _update(workout_id, user_id)
 
 
-def update_follow_along_ios_companion_sync(workout_id: str, user_id: str):
+def update_follow_along_ios_companion_sync(workout_id: str, user_id: str) -> bool:
     """
     Update iOS companion sync status for follow-along workout.
 
@@ -862,7 +882,7 @@ def update_follow_along_ios_companion_sync(workout_id: str, user_id: str):
     return _update(workout_id, user_id)
 
 
-def delete_follow_along_workout(workout_id: str, user_id: str):
+def delete_follow_along_workout(workout_id: str, user_id: str) -> bool:
     """
     Delete a follow-along workout.
 
