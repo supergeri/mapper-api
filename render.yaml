@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: mapper-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    repo: https://github.com/supergeri/mapper-api
+    branch: main
+    autoDeploy: false
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "8001"
+      - fromGroup: amakaflow-shared
+      - fromGroup: mapper-api-secrets
+    scaling:
+      minInstances: 1
+      maxInstances: 3
+      targetMemoryPercent: 80
+      targetCPUPercent: 70
+    buildFilter:
+      paths:
+        - backend/**
+        - domain/**
+        - api/**
+        - application/**
+        - infrastructure/**
+        - shared/**
+        - requirements.txt
+        - Dockerfile
