@@ -1,5 +1,7 @@
 # Workout Canonical Mapper
 
+[![Coverage](https://img.shields.io/badge/coverage-48%25-green)](https://github.com/supergeri/mapper-api/actions)
+
 A Python application that converts workout data from OCR/ingest format to canonical exercise names and exports to Garmin YAML format.
 
 ## Features
