@@ -3,6 +3,7 @@ Embedding Service for generating query embeddings via OpenAI.
 
 Part of AMA-432: Semantic search endpoint for mapper-api
 Part of AMA-423: Add AIRequestContext to All AI Call Sites for Full Observability
+AMA-422: Migrated to AIClientFactory with Helicone support
 
 Calls OpenAI's text-embedding-3-small model to convert natural language
 queries into 1536-dimension embedding vectors for cosine similarity search.
@@ -11,9 +12,7 @@ queries into 1536-dimension embedding vectors for cosine similarity search.
 import logging
 from typing import Optional
 
-from openai import OpenAI
-
-from shared.ai_context import AIRequestContext
+from backend.ai import AIClientFactory, AIRequestContext
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +20,27 @@ logger = logging.getLogger(__name__)
 class EmbeddingService:
     """Generates text embeddings using OpenAI's embedding API."""
 
-    def __init__(self, api_key: str, model: str = "text-embedding-3-small"):
-        self._client = OpenAI(api_key=api_key)
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "text-embedding-3-small",
+        user_id: Optional[str] = None,
+    ):
+        """
+        Initialize the embedding service.
+
+        Args:
+            api_key: OpenAI API key
+            model: Embedding model to use (default: text-embedding-3-small)
+            user_id: Optional user ID for tracking/observability
+        """
+        # Create context for Helicone tracking
+        context = AIRequestContext(
+            user_id=user_id,
+            feature_name="embedding_generate",
+            custom_properties={"model": model},
+        )
+        self._client = AIClientFactory.create_openai_client(context=context)
         self._model = model
 
     def generate_query_embedding(
