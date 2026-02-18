@@ -849,7 +849,7 @@ if __name__ == "__main__":
 
     fit_bytes = to_fit(test_blocks)
     print(f"Generated {len(fit_bytes)} bytes")
-    
+
     with open("/tmp/test_v5.fit", "wb") as f:
         f.write(fit_bytes)
     print("Saved to /tmp/test_v5.fit")

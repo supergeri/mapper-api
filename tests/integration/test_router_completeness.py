@@ -72,7 +72,7 @@ KEY_ENDPOINTS = [
     ("GET", "/workouts/incoming", [200, 401, 503]),
     # Using a placeholder ID for path parameters - 404 means resource not found (OK)
     ("GET", "/workouts/test-id", [200, 401, 404, 503]),
-    # Mapping/Export endpoints  
+    # Mapping/Export endpoints
     ("POST", "/map/final", [422, 200, 401]),
     ("POST", "/map/auto-map", [422, 200, 401]),
     ("POST", "/map/to-workoutkit", [422, 200, 401]),
@@ -127,10 +127,10 @@ class TestRouterCompleteness:
     ):
         """
         Test that an endpoint responds with an allowed status code.
-        
+
         This verifies that the router is properly configured and the endpoint
         exists (not returning 404 Not Found for missing routes).
-        
+
         Args:
             auth_client: FastAPI test client with mocked auth
             method: HTTP method (GET, POST, etc.)
@@ -161,7 +161,7 @@ class TestRouterCompleteness:
 @pytest.mark.integration
 class TestAppMinimal:
     """Test that app.py is minimal (no excessive code).
-    
+
     NOTE: These tests are expected to fail until AMA-xxx is completed to refactor
     backend/app.py to be minimal. Currently the file has 2474 lines and contains
     route definitions that should be in api/routers/.
@@ -171,29 +171,29 @@ class TestAppMinimal:
     def test_app_py_line_count(self):
         """
         Verify that backend/app.py is minimal.
-        
+
         The app.py file should primarily be an import statement from
         the factory (backend.main). Having excessive code in app.py
         indicates the router modularization is incomplete.
-        
+
         A reasonable threshold is 100 lines - any more indicates
         the file is not minimal.
         """
         import os
-        
+
         app_py_path = os.path.join(
             os.path.dirname(__file__),
             "..", "..", "backend", "app.py"
         )
         app_py_path = os.path.abspath(app_py_path)
-        
+
         with open(app_py_path, "r") as f:
             line_count = len(f.readlines())
-        
+
         # Threshold: 100 lines is reasonable for a minimal app.py
         # This should just import the app from the factory
         MAX_LINES = 100
-        
+
         assert line_count <= MAX_LINES, (
             f"backend/app.py has {line_count} lines, which exceeds "
             f"the minimal threshold of {MAX_LINES} lines. "
@@ -207,16 +207,16 @@ class TestAppMinimal:
         and basic configuration, not route definitions.
         """
         import os
-        
+
         app_py_path = os.path.join(
             os.path.dirname(__file__),
             "..", "..", "backend", "app.py"
         )
         app_py_path = os.path.abspath(app_py_path)
-        
+
         with open(app_py_path, "r") as f:
             content = f.read()
-        
+
         # Check for route definitions - these should NOT be in app.py
         # if the app is properly modularized
         route_indicators = [
@@ -226,10 +226,10 @@ class TestAppMinimal:
             "@app.patch(",
             "@app.delete(",
         ]
-        
+
         # Count how many route decorators exist
         route_count = sum(1 for indicator in route_indicators if indicator in content)
-        
+
         # No route decorators should be in app.py if it's minimal
         assert route_count == 0, (
             f"backend/app.py contains {route_count} route decorators. "
@@ -245,7 +245,7 @@ class TestEndpointCoverage:
     def test_no_undefined_routes(self, auth_client):
         """
         Test that undefined routes properly return 404.
-        
+
         This ensures that the 404 responses are legitimate "not found"
         rather than missing route definitions.
         """

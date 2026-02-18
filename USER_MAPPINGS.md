@@ -128,4 +128,3 @@ curl -X POST "http://localhost:8000/mappings/add" \
 # 4. Next time you process a workout with "MY CUSTOM EXERCISE",
 #    it will automatically map to "Custom Exercise Name"!
 ```
-

@@ -15,11 +15,11 @@ def get_supabase_client() -> Optional[Client]:
     """Get Supabase client instance."""
     supabase_url = os.getenv("SUPABASE_URL")
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
-    
+
     if not supabase_url or not supabase_key:
         logger.warning("Supabase credentials not configured. Workout storage will be disabled.")
         return None
-    
+
     try:
         return create_client(supabase_url, supabase_key)
     except Exception as e:
@@ -163,30 +163,30 @@ def get_workouts(
 ) -> List[Dict[str, Any]]:
     """
     Get workouts for a user.
-    
+
     Args:
         profile_id: User profile ID
         device: Filter by device (optional)
         is_exported: Filter by export status (optional)
         limit: Maximum number of workouts to return
-        
+
     Returns:
         List of workout records
     """
     supabase = get_supabase_client()
     if not supabase:
         return []
-    
+
     try:
         query = supabase.table("workouts").select("*").eq("profile_id", profile_id)
-        
+
         if device:
             query = query.eq("device", device)
         if is_exported is not None:
             query = query.eq("is_exported", is_exported)
-        
+
         query = query.order("created_at", desc=True).limit(limit)
-        
+
         result = query.execute()
         return result.data if result.data else []
     except Exception as e:
@@ -197,18 +197,18 @@ def get_workouts(
 def get_workout(workout_id: str, profile_id: str) -> Optional[Dict[str, Any]]:
     """
     Get a single workout by ID.
-    
+
     Args:
         workout_id: Workout UUID
         profile_id: User profile ID (for security)
-        
+
     Returns:
         Workout data or None if not found
     """
     supabase = get_supabase_client()
     if not supabase:
         return None
-    
+
     try:
         result = supabase.table("workouts").select("*").eq("id", workout_id).eq("profile_id", profile_id).single().execute()
         return result.data if result.data else None
@@ -225,27 +225,27 @@ def update_workout_export_status(
 ) -> bool:
     """
     Update workout export status.
-    
+
     Args:
         workout_id: Workout UUID
         profile_id: User profile ID (for security)
         is_exported: Whether workout has been exported
         exported_to_device: Device ID it was exported to
-        
+
     Returns:
         True if successful, False otherwise
     """
     supabase = get_supabase_client()
     if not supabase:
         return False
-    
+
     try:
         from datetime import datetime, timezone
-        
+
         update_data = {
             "is_exported": is_exported,
         }
-        
+
         if is_exported:
             update_data["exported_at"] = datetime.now(timezone.utc).isoformat()
             if exported_to_device:
@@ -254,7 +254,7 @@ def update_workout_export_status(
             # Clear export info if marking as not exported
             update_data["exported_at"] = None
             update_data["exported_to_device"] = None
-        
+
         result = supabase.table("workouts").update(update_data).eq("id", workout_id).eq("profile_id", profile_id).execute()
         return result.data is not None
     except Exception as e:
@@ -1699,7 +1699,7 @@ def save_follow_along_workout(
 ) -> Optional[Dict[str, Any]]:
     """
     Save a follow-along workout to Supabase.
-    
+
     Args:
         user_id: User ID
         source: Source type (e.g., "instagram")
@@ -1710,14 +1710,14 @@ def save_follow_along_workout(
         thumbnail_url: Thumbnail image URL
         video_proxy_url: Video proxy URL
         steps: List of step dictionaries
-        
+
     Returns:
         Saved workout data or None if failed
     """
     supabase = get_supabase_client()
     if not supabase:
         return None
-    
+
     try:
         # Insert workout
         workout_data = {
@@ -1730,15 +1730,15 @@ def save_follow_along_workout(
             "thumbnail_url": thumbnail_url,
             "video_proxy_url": video_proxy_url,
         }
-        
+
         result = supabase.table("follow_along_workouts").insert(workout_data).execute()
-        
+
         if not result.data or len(result.data) == 0:
             return None
-        
+
         workout = result.data[0]
         workout_id = workout["id"]
-        
+
         # Insert steps if provided
         if steps:
             step_records = []
@@ -1749,11 +1749,11 @@ def save_follow_along_workout(
                 start_sec = step.get("startTimeSec") or step.get("start", 0)
                 end_sec = step.get("endTimeSec") or step.get("end", 0)
                 duration_sec = step.get("durationSec") or step.get("duration", 0)
-                
+
                 # Calculate duration if not provided
                 if duration_sec == 0 and end_sec > start_sec:
                     duration_sec = end_sec - start_sec
-                
+
                 step_records.append({
                     "follow_along_workout_id": workout_id,
                     "order": step_order,
@@ -1767,13 +1767,13 @@ def save_follow_along_workout(
                     "intensity_hint": step.get("intensityHint"),
                     "notes": step.get("notes"),
                 })
-            
+
             if step_records:
                 supabase.table("follow_along_steps").insert(step_records).execute()
-        
+
         # Fetch complete workout with steps
         return get_follow_along_workout(workout_id, user_id)
-        
+
     except Exception as e:
         logger.error(f"Failed to save follow-along workout: {e}")
         return None
@@ -1785,23 +1785,23 @@ def get_follow_along_workouts(
 ) -> List[Dict[str, Any]]:
     """
     Get follow-along workouts for a user.
-    
+
     Args:
         user_id: User ID
         limit: Maximum number of workouts to return
-        
+
     Returns:
         List of workout records with steps
     """
     supabase = get_supabase_client()
     if not supabase:
         return []
-    
+
     try:
         result = supabase.table("follow_along_workouts").select(
             "*, steps:follow_along_steps(*)"
         ).eq("user_id", user_id).order("created_at", desc=True).limit(limit).execute()
-        
+
         return result.data if result.data else []
     except Exception as e:
         logger.error(f"Failed to get follow-along workouts: {e}")
@@ -1811,23 +1811,23 @@ def get_follow_along_workouts(
 def get_follow_along_workout(workout_id: str, user_id: str) -> Optional[Dict[str, Any]]:
     """
     Get a single follow-along workout by ID.
-    
+
     Args:
         workout_id: Workout ID
         user_id: User ID (for security)
-        
+
     Returns:
         Workout data with steps or None if not found
     """
     supabase = get_supabase_client()
     if not supabase:
         return None
-    
+
     try:
         result = supabase.table("follow_along_workouts").select(
             "*, steps:follow_along_steps(*)"
         ).eq("id", workout_id).eq("user_id", user_id).single().execute()
-        
+
         if result.data:
             # Sort steps by order
             if "steps" in result.data and result.data["steps"]:
@@ -1846,25 +1846,25 @@ def update_follow_along_garmin_sync(
 ) -> bool:
     """
     Update Garmin sync status for a follow-along workout.
-    
+
     Args:
         workout_id: Workout ID
         user_id: User ID (for security)
         garmin_workout_id: Garmin workout ID
-        
+
     Returns:
         True if successful, False otherwise
     """
     supabase = get_supabase_client()
     if not supabase:
         return False
-    
+
     try:
         result = supabase.table("follow_along_workouts").update({
             "garmin_workout_id": garmin_workout_id,
             "garmin_last_sync_at": datetime.now(timezone.utc).isoformat()
         }).eq("id", workout_id).eq("user_id", user_id).execute()
-        
+
         return result.data is not None
     except Exception as e:
         logger.error(f"Failed to update Garmin sync: {e}")
@@ -1878,25 +1878,25 @@ def update_follow_along_apple_watch_sync(
 ) -> bool:
     """
     Update Apple Watch sync status for a follow-along workout.
-    
+
     Args:
         workout_id: Workout ID
         user_id: User ID (for security)
         apple_watch_workout_id: Apple Watch workout ID
-        
+
     Returns:
         True if successful, False otherwise
     """
     supabase = get_supabase_client()
     if not supabase:
         return False
-    
+
     try:
         result = supabase.table("follow_along_workouts").update({
             "apple_watch_workout_id": apple_watch_workout_id,
             "apple_watch_last_sync_at": datetime.now(timezone.utc).isoformat()
         }).eq("id", workout_id).eq("user_id", user_id).execute()
-        
+
         return result.data is not None
     except Exception as e:
         logger.error(f"Failed to update Apple Watch sync: {e}")
@@ -1909,23 +1909,23 @@ def update_follow_along_ios_companion_sync(
 ) -> bool:
     """
     Update iOS Companion App sync status for a follow-along workout.
-    
+
     Args:
         workout_id: Workout ID
         user_id: User ID (for security)
-        
+
     Returns:
         True if successful, False otherwise
     """
     supabase = get_supabase_client()
     if not supabase:
         return False
-    
+
     try:
         result = supabase.table("follow_along_workouts").update({
             "ios_companion_synced_at": datetime.now(timezone.utc).isoformat()
         }).eq("id", workout_id).eq("user_id", user_id).execute()
-        
+
         return result.data is not None
     except Exception as e:
         logger.error(f"Failed to update iOS Companion sync: {e}")
@@ -1935,29 +1935,29 @@ def update_follow_along_ios_companion_sync(
 def delete_follow_along_workout(workout_id: str, user_id: str) -> bool:
     """
     Delete a follow-along workout and its steps.
-    
+
     Args:
         workout_id: Workout ID
         user_id: User ID (for security)
-        
+
     Returns:
         True if successful, False otherwise
     """
     supabase = get_supabase_client()
     if not supabase:
         return False
-    
+
     try:
         # Delete steps first (foreign key constraint)
         supabase.table("follow_along_steps").delete().eq(
             "follow_along_workout_id", workout_id
         ).execute()
-        
+
         # Then delete the workout
         result = supabase.table("follow_along_workouts").delete().eq(
             "id", workout_id
         ).eq("user_id", user_id).execute()
-        
+
         return result.data is not None and len(result.data) > 0
     except Exception as e:
         logger.error(f"Failed to delete follow-along workout: {e}")

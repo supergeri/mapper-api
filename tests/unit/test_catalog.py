@@ -23,7 +23,7 @@ class TestCatalog:
         """Test that all_synonyms yields canonical names and synonyms."""
         results = list(all_synonyms())
         assert len(results) > 0
-        
+
         for canonical, synonyms in results:
             assert isinstance(canonical, str)
             assert isinstance(synonyms, list)
@@ -34,14 +34,12 @@ class TestCatalog:
     def test_all_synonyms_contains_expected(self):
         """Test that all_synonyms contains expected exercises."""
         results = dict(all_synonyms())
-        
+
         # Check that known exercises are present
         assert "dumbbell_bench_press_flat" in results
         assert "push_up" in results
         assert "dumbbell_flye_incline" in results
-        
+
         # Check that canonical names are in their synonym lists
         assert "dumbbell_bench_press_flat" in results["dumbbell_bench_press_flat"]
         assert "push_up" in results["push_up"]
-
-

@@ -73,4 +73,3 @@ class Workout(BaseModel):
 class CIR(BaseModel):
 
     workout: Workout
-

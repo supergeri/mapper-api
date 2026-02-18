@@ -23,4 +23,3 @@ class Workout(BaseModel):
     sport: Literal["run", "ride"]
     name: str
     steps: list[Step]
-

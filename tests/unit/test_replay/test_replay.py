@@ -59,7 +59,7 @@ class TestReplayCLI:
 
         # Create args object
         args = argparse.Namespace(session='test-run', baseline=None)
-        
+
         # Monkeypatch get_sessions_dir
         import replay.cli
         original_get_sessions_dir = replay.cli.get_sessions_dir
@@ -69,16 +69,16 @@ class TestReplayCLI:
             cmd_run(args)
         except SystemExit:
             pass  # Expected for some exit codes
-        
+
         replay.cli.get_sessions_dir = original_get_sessions_dir
-        
+
         captured = capsys.readouterr()
         assert 'test-run' in captured.out
 
     def test_cmd_run_with_invalid_name(self, sessions_dir, capsys):
         """Test that run command rejects invalid session names."""
         args = argparse.Namespace(session='../etc/passwd', baseline=None)
-        
+
         import replay.cli
         original_get_sessions_dir = replay.cli.get_sessions_dir
         replay.cli.get_sessions_dir = lambda: sessions_dir
@@ -87,7 +87,7 @@ class TestReplayCLI:
             cmd_run(args)
         except SystemExit as e:
             assert e.code == 2
-        
+
         replay.cli.get_sessions_dir = original_get_sessions_dir
 
     def test_cmd_diff_identical_sessions(self, sessions_dir, capsys):
@@ -103,7 +103,7 @@ class TestReplayCLI:
             session.to_file(sessions_dir / f'{name}.json')
 
         args = argparse.Namespace(session_a='session-a', session_b='session-b')
-        
+
         import replay.cli
         original_get_sessions_dir = replay.cli.get_sessions_dir
         replay.cli.get_sessions_dir = lambda: sessions_dir
@@ -112,19 +112,19 @@ class TestReplayCLI:
             cmd_diff(args)
         except SystemExit as e:
             assert e.code == 0  # Should exit with 0 for identical
-        
+
         replay.cli.get_sessions_dir = original_get_sessions_dir
 
     def test_cmd_diff_different_sessions(self, sessions_dir, capsys):
         """Test diff command with different sessions."""
         session_a = Session(id='a', name='a', data={'key': 'value1'})
         session_b = Session(id='b', name='b', data={'key': 'value2'})
-        
+
         session_a.to_file(sessions_dir / 'a.json')
         session_b.to_file(sessions_dir / 'b.json')
 
         args = argparse.Namespace(session_a='a', session_b='b')
-        
+
         import replay.cli
         original_get_sessions_dir = replay.cli.get_sessions_dir
         replay.cli.get_sessions_dir = lambda: sessions_dir
@@ -133,21 +133,21 @@ class TestReplayCLI:
             cmd_diff(args)
         except SystemExit as e:
             assert e.code == 1  # Should exit with 1 for different
-        
+
         replay.cli.get_sessions_dir = original_get_sessions_dir
 
     def test_cmd_list_empty(self, sessions_dir, capsys):
         """Test list command with no sessions."""
         args = argparse.Namespace()
-        
+
         import replay.cli
         original_get_sessions_dir = replay.cli.get_sessions_dir
         replay.cli.get_sessions_dir = lambda: sessions_dir
 
         cmd_list(args)
-        
+
         replay.cli.get_sessions_dir = original_get_sessions_dir
-        
+
         captured = capsys.readouterr()
         assert 'No sessions found' in captured.out
 
@@ -165,15 +165,15 @@ class TestReplayCLI:
             session.to_file(sessions_dir / f'{name}.json')
 
         args = argparse.Namespace()
-        
+
         import replay.cli
         original_get_sessions_dir = replay.cli.get_sessions_dir
         replay.cli.get_sessions_dir = lambda: sessions_dir
 
         cmd_list(args)
-        
+
         replay.cli.get_sessions_dir = original_get_sessions_dir
-        
+
         captured = capsys.readouterr()
         assert 'session-1' in captured.out
 
@@ -188,7 +188,7 @@ class TestReplayCLI:
         session.to_file(sessions_dir / 'valid.json')
 
         args = argparse.Namespace(session='valid')
-        
+
         import replay.cli
         original_get_sessions_dir = replay.cli.get_sessions_dir
         replay.cli.get_sessions_dir = lambda: sessions_dir
@@ -197,7 +197,7 @@ class TestReplayCLI:
             cmd_validate(args)
         except SystemExit as e:
             assert e.code == 0  # Valid session exits with 0
-        
+
         replay.cli.get_sessions_dir = original_get_sessions_dir
 
     def test_cmd_validate_invalid_session(self, sessions_dir, capsys):
@@ -211,7 +211,7 @@ class TestReplayCLI:
         session.to_file(sessions_dir / 'invalid.json')
 
         args = argparse.Namespace(session='invalid')
-        
+
         import replay.cli
         original_get_sessions_dir = replay.cli.get_sessions_dir
         replay.cli.get_sessions_dir = lambda: sessions_dir
@@ -220,9 +220,9 @@ class TestReplayCLI:
             cmd_validate(args)
         except SystemExit as e:
             assert e.code == 1  # Invalid session exits with 1
-        
+
         replay.cli.get_sessions_dir = original_get_sessions_dir
-        
+
         captured = capsys.readouterr()
         # Invalid session should have no hops
         assert 'No hops recorded' in captured.out or 'invalid' in captured.out
@@ -234,7 +234,7 @@ class TestReplayEnginePartialSessions:
     def test_load_nonexistent_session_raises(self, tmp_path):
         """Test that loading nonexistent session raises FileNotFoundError."""
         engine = ReplayEngine(tmp_path)
-        
+
         with pytest.raises(FileNotFoundError):
             engine.load_session('nonexistent')
 
@@ -249,10 +249,10 @@ class TestReplayEnginePartialSessions:
                 {'hop_number': 3}  # Gap - missing hop 2
             ]
         )
-        
+
         engine = ReplayEngine(tmp_path)
         health = engine.get_session_health(session)
-        
+
         assert health['status'] == 'valid_with_gaps'
         assert health['total_hops'] == 2
 
@@ -263,16 +263,16 @@ class TestReplayEnginePartialSessions:
             name='test',
             data={'input': 5}
         )
-        
+
         def double_stage(data):
             return {'input': data['input'] * 2}
-        
+
         def add_ten_stage(data):
             return {'input': data['input'] + 10}
-        
+
         engine = ReplayEngine(tmp_path)
         result = engine.replay_session(session, [double_stage, add_ten_stage])
-        
+
         # 5 * 2 + 10 = 20
         assert result['input'] == 20
         assert len(session.hops) == 2

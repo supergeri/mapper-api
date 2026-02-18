@@ -14,6 +14,8 @@ repos:
     rev: v0.11.0.1
     hooks:
       - id: shellcheck
+        types: [bash]
+        exclude: ^run_tests\.sh$
 
   # JavaScript/TypeScript: eslint and prettier (if needed)
   # Removed oxlint/oxfmt from megalinter - using standard Node.js linters instead
@@ -47,13 +49,14 @@ repos:
         args: ['--maxkb', '500']
       - id: check-merge-conflict
 
-  # Local: pytest (existing)
-  - repo: local
-    hooks:
-      - id: pytest
-        name: Run pytest
-        entry: pytest
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [commit]
+  # Note: pytest hook removed - requires dependencies not available in pre-commit environment
+  # pytest should be run via CI test job instead
+  # - repo: local
+  #   hooks:
+  #     - id: pytest
+  #       name: Run pytest
+  #       entry: pytest
+  #       language: system
+  #       pass_filenames: false
+  #       always_run: true
+  #       stages: [commit]

@@ -53,7 +53,7 @@ def test_garmin_debug(settings: Settings = Depends(get_settings)):
     Test endpoint to verify GARMIN_EXPORT_DEBUG logging is working.
 
     Only available in development environments.
-    
+
     Returns a simple message and triggers debug logs if enabled.
     """
     # Guard: Only available in development
@@ -62,7 +62,7 @@ def test_garmin_debug(settings: Settings = Depends(get_settings)):
             status_code=403,
             detail="This endpoint is only available in development environment"
         )
-    
+
     if settings.garmin_export_debug:
         logger.warning("=== GARMIN_DEBUG_TEST_ENDPOINT ===")
         print("=== GARMIN_EXPORT_STEP ===")
@@ -77,14 +77,14 @@ def test_garmin_debug(settings: Settings = Depends(get_settings)):
             "target_type": "reps",
             "target_value": "10"
         }, indent=2))
-        
+
         print("=== GARMIN_CATEGORY_ASSIGN ===")
         print(json.dumps({
             "garmin_name_before": "Test Exercise",
             "assigned_category": "TEST",
             "garmin_name_after": "Test Exercise [category: TEST]"
         }, indent=2))
-        
+
         return {
             "status": "success",
             "message": "GARMIN_EXPORT_DEBUG is ACTIVE - check Docker logs for debug output",

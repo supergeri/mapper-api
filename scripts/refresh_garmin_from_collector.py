@@ -68,4 +68,3 @@ print("Updated:", MAP_YAML)
 
 print("\nDONE: Garmin datasets are fully refreshed from GarminExercisesCollector.")
 print("You can now run your server — all categories & exercise names are exact Garmin values.")
-

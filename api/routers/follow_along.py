@@ -95,7 +95,7 @@ def _mark_garmin_synced(workout_id: str, user_id: str, garmin_workout_id: str) -
                 )
                 for key, _ in sorted_keys[:CACHE_MAX_SIZE // 4]:
                     del FOLLOW_ALONG_GARMIN_SYNC_CACHE[key]
-        
+
         cache_key = f"{user_id}:{workout_id}"
         FOLLOW_ALONG_GARMIN_SYNC_CACHE[cache_key] = (garmin_workout_id, datetime.utcnow())
 
@@ -144,7 +144,7 @@ class PushResponse(BaseModel):
 class PushToGarminRequest(BaseModel):
     """Request to push follow-along workout to Garmin."""
     garminWorkoutId: str = Field(description="Garmin workout ID")
-    
+
     @field_validator('garminWorkoutId')
     @classmethod
     def validate_garmin_workout_id(cls, v: str) -> str:
@@ -160,7 +160,7 @@ class PushToGarminRequest(BaseModel):
 class PushToAppleWatchRequest(BaseModel):
     """Request to push follow-along workout to Apple Watch."""
     appleWatchWorkoutId: str = Field(description="Apple Watch workout ID")
-    
+
     @field_validator('appleWatchWorkoutId')
     @classmethod
     def validate_apple_watch_workout_id(cls, v: str) -> str:
@@ -181,7 +181,7 @@ class CreateFollowAlongFromWorkoutRequest(BaseModel):
     """Request to create a follow-along from an existing workout."""
     workout: "WorkoutData" = Field(description="Workout data")
     sourceUrl: Optional[HttpUrl] = Field(None, description="Source video URL")
-    
+
     model_config = {"extra": "allow"}  # Allow extra fields from source
 
 
@@ -200,7 +200,7 @@ class WorkoutData(BaseModel):
     title: str
     description: Optional[str] = None
     steps: List[Dict[str, Any]] = []
-    
+
     model_config = {"extra": "allow"}  # Allow extra fields from source
 
 
@@ -598,7 +598,7 @@ def push_to_garmin(
             success=True,
             message=f"Follow-along workout {workout_id} already synced to Garmin",
         )
-    
+
     try:
         # Update Garmin sync status
         update_follow_along_garmin_sync(
@@ -606,7 +606,7 @@ def push_to_garmin(
             user_id=user_id,
             garmin_workout_id=request.garminWorkoutId,
         )
-        
+
         # Mark as synced to prevent future duplicates
         _mark_garmin_synced(workout_id, user_id, request.garminWorkoutId)
 

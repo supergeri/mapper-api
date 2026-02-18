@@ -19,7 +19,7 @@ class APNsServiceConfig:
         use_sandbox: bool = False,
     ):
         """Initialize APNs service configuration.
-        
+
         Args:
             team_id: Apple Team ID
             key_id: APNs Key ID
@@ -39,7 +39,7 @@ class APNsService:
 
     def __init__(self, config: APNsServiceConfig):
         """Initialize APNs service.
-        
+
         Args:
             config: APNs service configuration
         """
@@ -50,7 +50,7 @@ class APNsService:
 
     def initialize(self) -> bool:
         """Initialize the APNs client.
-        
+
         Returns:
             True if initialization was successful, False otherwise
         """
@@ -78,13 +78,13 @@ class APNsService:
         extra_data: Optional[dict] = None,
     ) -> bool:
         """Send a push notification to a device.
-        
+
         Args:
             device_token: The device's APNs token
             title: Notification title
             body: Notification message body
             extra_data: Additional data to send with notification
-            
+
         Returns:
             True if notification was sent successfully
         """
@@ -108,7 +108,7 @@ class APNsService:
     @property
     def is_ready(self) -> bool:
         """Check if APNs service is ready to send notifications.
-        
+
         Returns:
             True if service is initialized and ready
         """

@@ -17,4 +17,3 @@ def all_synonyms():
 def lookup(canonical):
 
     return next((c for c in CAT if c["canonical"] == canonical), None)
-

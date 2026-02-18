@@ -305,12 +305,12 @@ class TestGetFitMetadata:
         """get_fit_metadata respects use_lap_button parameter and affects output."""
         result_with_lap = export_service.get_fit_metadata(sample_blocks_json, use_lap_button=True)
         result_without_lap = export_service.get_fit_metadata(sample_blocks_json, use_lap_button=False)
-        
+
         assert isinstance(result_with_lap, dict)
         assert result_with_lap.get("use_lap_button") is True
         assert isinstance(result_without_lap, dict)
         assert result_without_lap.get("use_lap_button") is False
-        
+
         # Verify actual behavior change
         assert result_with_lap.get("use_lap_button") != result_without_lap.get("use_lap_button"), \
             "use_lap_button parameter should cause measurable behavior change"

@@ -14,7 +14,7 @@ from backend.replay.core import (
 __all__ = [
     'Session',
     'ReplayEngine',
-    'DiffEngine', 
+    'DiffEngine',
     'DiffResult',
     'DiffItem',
     'IgnoreConfig'
