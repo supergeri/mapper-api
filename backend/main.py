@@ -121,6 +121,7 @@ def _include_routers(app: FastAPI) -> None:
     Updated in AMA-594: Add tags router
     Updated in AMA-596: Add account router
     Updated in AMA-597: Move debug/testing endpoints to health router
+    Updated in AMA-362: Add follow-along router
     """
     from api.routers import (
         account_router,
@@ -159,6 +160,8 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(programs_router)
     # User tags (AMA-594)
     app.include_router(tags_router)
+    # Follow-along workouts (AMA-587)
+    app.include_router(follow_along_router)
     # User settings (AMA-585)
     app.include_router(settings_router)
     # Follow-along workouts (AMA-356)
