@@ -359,6 +359,60 @@ class SupabaseWorkoutRepository:
             logger.error(f"Failed to get workout sync status: {e}")
             return {"ios": None, "android": None, "garmin": None}
 
+    def batch_get_sync_status(
+        self,
+        workout_ids: List[str],
+        user_id: str,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Get sync status for multiple workouts in a single query.
+
+        This method avoids N+1 query issues when fetching sync status
+        for a list of workouts.
+
+        Args:
+            workout_ids: List of workout UUIDs
+            user_id: User ID
+
+        Returns:
+            Dict mapping workout_id to sync status dict
+        """
+        if not workout_ids:
+            return {}
+
+        try:
+            result = self._client.table("workout_sync_queue").select(
+                "workout_id, device_type, device_id, status, queued_at, synced_at, failed_at, error_message"
+            ).eq("user_id", user_id).in_("workout_id", workout_ids).execute()
+
+            # Initialize empty status for all workout_ids
+            sync_status_map: Dict[str, Dict[str, Any]] = {
+                wid: {"ios": None, "android": None, "garmin": None}
+                for wid in workout_ids
+            }
+
+            if result.data:
+                for entry in result.data:
+                    workout_id = entry.get("workout_id")
+                    if workout_id not in sync_status_map:
+                        continue
+
+                    device_type = entry.get("device_type")
+                    if device_type in ("ios", "android", "garmin"):
+                        sync_status_map[workout_id][device_type] = {
+                            "status": entry.get("status"),
+                            "queued_at": entry.get("queued_at"),
+                            "synced_at": entry.get("synced_at"),
+                            "failed_at": entry.get("failed_at"),
+                            "error_message": entry.get("error_message"),
+                            "device_id": entry.get("device_id") or None,
+                        }
+
+            return sync_status_map
+
+        except Exception as e:
+            logger.error(f"Failed to batch get workout sync status: {e}")
+            return {wid: {"ios": None, "android": None, "garmin": None} for wid in workout_ids}
+
     def update_companion_sync(
         self,
         workout_id: str,
