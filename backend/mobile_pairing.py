@@ -2,7 +2,6 @@
 Mobile Pairing module for iOS Companion App authentication (AMA-61).
 Handles QR code / short code pairing between web app and iOS app.
 """
-import os
 import secrets
 import json
 from datetime import datetime, timedelta, timezone
@@ -10,6 +9,8 @@ from typing import Optional, Dict, Any, Tuple
 from pydantic import BaseModel, field_validator
 import logging
 import jwt
+
+from backend.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,6 @@ _clerk_client = None
 # Token configuration
 TOKEN_EXPIRY_MINUTES = 5
 JWT_EXPIRY_DAYS = 30
-JWT_SECRET = os.getenv("JWT_SECRET", "amakaflow-mobile-jwt-secret-change-in-production")
 JWT_ALGORITHM = "HS256"
 
 # Rate limiting: max tokens per user per hour
@@ -38,7 +38,9 @@ def get_clerk_client():
     """Get or create the Clerk client for fetching user profiles."""
     global _clerk_client
     if _clerk_client is None:
-        clerk_secret_key = os.getenv("CLERK_SECRET_KEY")
+        # Try settings first, then fall back to env var for test compatibility
+        import os
+        clerk_secret_key = os.environ.get("CLERK_SECRET_KEY") or settings.clerk_secret_key
         if clerk_secret_key:
             try:
                 from clerk_backend_api import Clerk
@@ -182,7 +184,7 @@ def generate_qr_data(token: str, api_url: Optional[str] = None) -> str:
         JSON string for QR code
     """
     if api_url is None:
-        api_url = os.getenv("MAPPER_API_PUBLIC_URL", "https://api.amakaflow.com")
+        api_url = settings.mapper_api_public_url
 
     qr_data = {
         "type": "amakaflow_pairing",
@@ -217,7 +219,7 @@ def generate_jwt_for_user(clerk_user_id: str, profile: Dict[str, Any]) -> Tuple[
         "name": profile.get("name"),
     }
 
-    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    token = jwt.encode(payload, settings.jwt_secret, algorithm=JWT_ALGORITHM)
     return token, expiry
 
 

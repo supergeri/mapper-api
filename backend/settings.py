@@ -220,3 +220,38 @@ def get_settings() -> Settings:
         Settings: Application settings instance
     """
     return Settings()
+
+
+# Module-level singleton for convenient access (lazy-loaded)
+# Usage: from backend.settings import settings
+# Note: For dependency injection in FastAPI, use get_settings() instead
+# The singleton is lazy-loaded to pick up env vars at runtime (important for tests)
+def _get_settings_singleton() -> Settings:
+    """Get the cached settings singleton."""
+    return get_settings()
+
+
+# For backwards compatibility and convenience: from backend.settings import settings
+# This uses a property-like behavior via __getattr__ at module level
+import sys
+_settings_module = sys.modules[__name__]
+
+
+class _SettingsProxy:
+    """Proxy object that delegates to cached settings instance."""
+    
+    def __getattr__(self, name: str):
+        return getattr(get_settings(), name)
+    
+    def __setattr__(self, name: str, value):
+        if name.startswith('_'):
+            object.__setattr__(self, name, value)
+        else:
+            setattr(get_settings(), name, value)
+    
+    def __repr__(self):
+        return f"<settings: {get_settings()}>"
+
+
+# Install the proxy as 'settings' in the module namespace
+_settings_module.settings = _SettingsProxy()
