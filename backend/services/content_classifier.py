@@ -9,10 +9,12 @@ Hybrid approach to classify video content as workout or non-workout:
 Cache classification by video ID to avoid re-classifying same URLs.
 """
 
+import asyncio
 import re
 import hashlib
 import logging
 import time
+from functools import lru_cache
 from typing import Dict, Any, Optional, Tuple, List
 from dataclasses import dataclass, field
 from enum import Enum
@@ -49,7 +51,8 @@ class ClassificationResult:
     cached: bool = False
 
 
-# Simple in-memory cache (for production, consider Redis)
+# Simple in-memory cache with size limit to prevent unbounded growth
+MAX_CACHE_SIZE = 1000  # Maximum number of cached entries
 _classification_cache: Dict[str, Tuple[ClassificationResult, float]] = {}
 
 
@@ -166,8 +169,17 @@ class ContentClassifier:
         return None
 
     def _save_to_cache(self, video_id: str, platform: str, result: ClassificationResult) -> None:
-        """Save classification result to cache."""
+        """Save classification result to cache with size limit."""
         cache_key = self._get_cache_key(video_id, platform)
+        
+        # If cache is full, remove oldest entries (first 10% of entries)
+        if len(_classification_cache) >= MAX_CACHE_SIZE:
+            # Sort by timestamp (oldest first) and remove oldest 10%
+            sorted_items = sorted(_classification_cache.items(), key=lambda x: x[1][1])
+            for key, _ in sorted_items[:MAX_CACHE_SIZE // 10]:
+                del _classification_cache[key]
+            logger.info(f"Cache full, evicted {MAX_CACHE_SIZE // 10} oldest entries")
+        
         _classification_cache[cache_key] = (result, time.time())
 
     def _keyword_filter(
@@ -268,6 +280,8 @@ Respond with ONLY one word: "workout" or "non_workout"
 
         try:
             from openai import AsyncOpenAI
+            from openai import APIError, RateLimitError, APIConnectionError, APITimeoutError
+            
             client = AsyncOpenAI(api_key=self._settings.openai_api_key)
             
             response = await client.chat.completions.create(
@@ -277,10 +291,31 @@ Respond with ONLY one word: "workout" or "non_workout"
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=10,
-                temperature=0
+                temperature=0,
+                timeout=30.0  # Add timeout to prevent hanging requests
             )
             
+            # Validate response format before parsing
+            if not response.choices or not response.choices[0].message.content:
+                logger.warning("LLM returned empty response")
+                return ClassificationResult(
+                    category=ContentCategory.UNCERTAIN,
+                    confidence=ClassificationConfidence.LOW,
+                    reason="LLM returned empty response",
+                    used_llm=True
+                )
+            
             result = response.choices[0].message.content.strip().lower()
+            
+            # Validate response contains expected keywords
+            if "workout" not in result and "non_workout" not in result:
+                logger.warning(f"LLM returned unexpected response: {result}")
+                return ClassificationResult(
+                    category=ContentCategory.UNCERTAIN,
+                    confidence=ClassificationConfidence.LOW,
+                    reason=f"LLM returned unexpected response format: {result}",
+                    used_llm=True
+                )
             
             if "workout" in result:
                 return ClassificationResult(
@@ -297,7 +332,7 @@ Respond with ONLY one word: "workout" or "non_workout"
                     used_llm=True
                 )
                 
-        except Exception as e:
+        except (APIError, RateLimitError, APIConnectionError, APITimeoutError, asyncio.TimeoutError, ValueError) as e:
             logger.error(f"LLM classification failed: {e}")
             return ClassificationResult(
                 category=ContentCategory.UNCERTAIN,

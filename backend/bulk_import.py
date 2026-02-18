@@ -482,7 +482,7 @@ class BulkImportService:
                             title=metadata.title,
                             description=metadata.description
                         )
-                    except Exception as e:
+                    except (asyncio.TimeoutError, ValueError, ConnectionError) as e:
                         logger.warning(f"Classification failed for {metadata.url}: {e}")
                         classification_error = str(e)
 
