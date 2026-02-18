@@ -610,14 +610,16 @@ def create_program(profile_id: str, name: str, description: str = None, color: s
 
 
 def update_program(program_id: str, profile_id: str, name: str = None, description: str = None, 
-                   color: str = None, icon: str = None, is_active: bool = None):
+                   color: str = None, icon: str = None, is_active: bool = None,
+                   current_day_index: int = None):
     """
     Update a workout program.
 
     Part of AMA-365: Create FastAPI deps providers
+    Updated: AMA-351 - Add current_day_index parameter
     """
     from backend.database import update_program as _update_program
-    return _update_program(program_id, profile_id, name, description, color, icon, is_active)
+    return _update_program(program_id, profile_id, name, description, color, icon, current_day_index, is_active)
 
 
 def delete_program(program_id: str, profile_id: str):
@@ -630,14 +632,16 @@ def delete_program(program_id: str, profile_id: str):
     return _delete_program(program_id, profile_id)
 
 
-def add_workout_to_program(program_id: str, workout_id: str, profile_id: str):
+def add_workout_to_program(program_id: str, profile_id: str, workout_id: str = None, 
+                           follow_along_id: str = None, day_order: int = None):
     """
     Add a workout to a program.
 
     Part of AMA-365: Create FastAPI deps providers
+    Updated: AMA-351 - Add follow_along_id and day_order parameters
     """
     from backend.database import add_workout_to_program as _add
-    return _add(program_id, workout_id, profile_id)
+    return _add(program_id, profile_id, workout_id, follow_along_id, day_order)
 
 
 def remove_workout_from_program(member_id: str, profile_id: str):
