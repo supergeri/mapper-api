@@ -1,0 +1,80 @@
+name: 'Stale Issue/PR Management'
+
+on:
+  schedule:
+    # Daily at 3:17 AM UTC
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+  # Run on main branch changes to keep workflow in sync
+  push:
+    branches:
+      - main
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          # Issue configuration
+          days-before-stale: 14
+          days-before-close: 7
+          # PR configuration (using same as issues for Antfarm repos)
+          days-before-pr-stale: 14
+          days-before-pr-close: 7
+          
+          # Exemption labels - these labels make issues/PRs immune to staleness
+          exempt-issue-labels: 'enhancement,maintainer,pinned,security,no-stale'
+          exempt-pr-labels: 'enhancement,maintainer,pinned,security,no-stale'
+          
+          # Auto-exempt assigned issues/PRs
+          any-of-labels: ''
+          
+          # Remove stale label when updated
+          remove-stale-when-updated: true
+          
+          # Labels to add when marking as stale
+          stale-issue-label: 'stale'
+          stale-pr-label: 'stale'
+          
+          # Comment messages
+          stale-issue-message: |
+            This issue has been automatically marked as stale because it has not had recent activity. It will be closed in 7 days if no further activity occurs.
+            
+            If this issue is still relevant, please add a comment to keep it open.
+            Issues with the `enhancement`, `maintainer`, `pinned`, `security`, or `no-stale` labels are exempt from staleness.
+            
+            *This is an automated action by Antfarm*
+            
+          stale-pr-message: |
+            This PR has been automatically marked as stale because it has not had recent activity. It will be closed in 7 days if no further activity occurs.
+            
+            If this PR is still relevant, please add a comment or update it to keep it open.
+            PRs with the `enhancement`, `maintainer`, `pinned`, `security`, or `no-stale` labels are exempt from staleness.
+            
+            *This is an automated action by Antfarm*
+            
+          close-issue-message: |
+            This issue was automatically closed because it was stale for 7 days with no recent activity.
+            
+            If you believe this was closed in error, please reopen with a comment explaining why.
+            
+            *This is an automated action by Antfarm*
+            
+          close-pr-message: |
+            This PR was automatically closed because it was stale for 7 days with no recent activity.
+            
+            If you believe this was closed in error, please reopen with a comment explaining why.
+            
+            *This is an automated action by Antfarm*
+            
+          # Enable exempt-all-pr-assignees and exempt-all-issue-assignees
+          exempt-all-pr-assignees: true
+          exempt-all-issue-assignees: true
+          
+          # Only mark issues/PRs with these operations label (optional - disabled to process all)
+          operations-per-run: 100
