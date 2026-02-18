@@ -41,6 +41,7 @@ from tests.fakes.progression_repository import (
     FakeProgressionRepository,
     create_test_sessions,
 )
+from tests.fakes.search_repository import FakeSearchRepository
 
 
 # =============================================================================
@@ -343,6 +344,7 @@ __all__ = [
     "FakeExerciseMatchRepository",
     "FakeExercisesRepository",
     "FakeProgressionRepository",
+    "FakeSearchRepository",
     # Factory functions
     "create_workout_repo",
     "create_completion_repo",
