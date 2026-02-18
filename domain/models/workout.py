@@ -13,6 +13,37 @@ from domain.models.block import Block
 from domain.models.metadata import WorkoutMetadata
 
 
+class WorkoutSettings(BaseModel):
+    """
+    Settings/options for a workout.
+
+    Contains configuration options that affect how the workout
+    should be performed or displayed.
+    """
+
+    rest_timer_enabled: bool = Field(
+        default=True,
+        description="Whether rest timer prompts are enabled",
+    )
+    auto_start_next_exercise: bool = Field(
+        default=False,
+        description="Whether to auto-start next exercise after rest period",
+    )
+    countdown_seconds: int = Field(
+        default=3,
+        ge=0,
+        description="Countdown seconds before starting each exercise",
+    )
+    show_weights: bool = Field(
+        default=True,
+        description="Whether to show weight/load values during workout",
+    )
+    hide_rest_days: bool = Field(
+        default=False,
+        description="Whether to hide rest days in the workout",
+    )
+
+
 class Workout(BaseModel):
     """
     Aggregate root representing a complete workout.
@@ -84,6 +115,12 @@ class Workout(BaseModel):
     metadata: WorkoutMetadata = Field(
         default_factory=WorkoutMetadata,
         description="Provenance, platform, and tracking metadata",
+    )
+
+    # Settings
+    settings: WorkoutSettings = Field(
+        default_factory=WorkoutSettings,
+        description="Workout settings and preferences",
     )
 
     # Usage tracking

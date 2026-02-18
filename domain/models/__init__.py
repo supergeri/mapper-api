@@ -45,11 +45,12 @@ from domain.models.block import Block, BlockType
 from domain.models.exercise import Exercise
 from domain.models.load import Load
 from domain.models.metadata import WorkoutMetadata, WorkoutSource
-from domain.models.workout import Workout
+from domain.models.workout import Workout, WorkoutSettings
 
 __all__ = [
     # Main entities
     "Workout",
+    "WorkoutSettings",
     "Block",
     "Exercise",
     "Load",
