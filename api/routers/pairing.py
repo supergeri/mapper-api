@@ -20,8 +20,8 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.deps import get_current_user, get_device_repo
-from application.ports import DeviceRepository
+from api.deps import get_current_user, get_device_repo, get_user_profile_repo
+from application.ports import DeviceRepository, UserProfileRepository
 from backend.mobile_pairing import (
     GeneratePairingResponse,
     PairDeviceRequest,
@@ -315,6 +315,7 @@ async def get_push_tokens_endpoint(
 @router.get("/mobile/profile")
 async def get_mobile_profile_endpoint(
     user_id: str = Depends(get_current_user),
+    user_profile_repo: UserProfileRepository = Depends(get_user_profile_repo),
 ):
     """
     Get current user's profile for mobile apps (AMA-268, AMA-269, AMA-276).
@@ -345,18 +346,15 @@ async def get_mobile_profile_endpoint(
         }
 
     # Fallback to database profile (only if Clerk fails)
-    # Import here to avoid requiring database when Clerk is available (AMA-276)
     try:
-        from api.deps import get_user_profile_repo
-        user_profile_repo = get_user_profile_repo()
         db_profile = user_profile_repo.get_profile(user_id)
         if db_profile:
             return {
                 "success": True,
                 "profile": db_profile
             }
-    except Exception:
-        # Database not available, continue to return minimal profile
+    except Exception as e:
+        logger.error(f"Database profile fetch failed: {e}")
         pass
 
     # Return minimal profile if neither source has data
