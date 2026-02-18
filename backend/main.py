@@ -125,6 +125,7 @@ def _include_routers(app: FastAPI) -> None:
         programs_router,
         tags_router,
         settings_router,
+        follow_along_router,
         sync_router,
         bulk_import_router,
     )
@@ -150,6 +151,8 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(tags_router)
     # User settings (AMA-585)
     app.include_router(settings_router)
+    # Follow-along workouts (AMA-356)
+    app.include_router(follow_along_router)
     # Account management (AMA-596)
     app.include_router(account_router)
     # Device sync (iOS, Android, Garmin) (AMA-589)
