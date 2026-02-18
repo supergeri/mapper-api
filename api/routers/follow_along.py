@@ -20,10 +20,12 @@ Part of AMA-587: Extract follow-along router from monolithic app.py
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+import re
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from api.deps import get_current_user
 from backend.database import (
@@ -44,24 +46,55 @@ router = APIRouter(
 )
 
 # AMA-599: Idempotency guard for Garmin syncs - prevents duplicate syncs
-# This is an in-memory cache that tracks recently synced workouts per user
-# For production, consider database-based deduplication
-FOLLOW_ALONG_GARMIN_SYNC_CACHE: Dict[str, str] = {}
+# Uses in-memory cache with TTL for production readiness
+# For multi-instance deployments, consider database-based deduplication
+FOLLOW_ALONG_GARMIN_SYNC_CACHE: Dict[str, tuple[str, datetime]] = {}
+CACHE_MAX_SIZE = 1000
+CACHE_TTL_HOURS = 24
+
+
+def _cleanup_cache() -> None:
+    """Remove expired entries from the cache to prevent unbounded memory growth."""
+    now = datetime.utcnow()
+    cutoff = now - timedelta(hours=CACHE_TTL_HOURS)
+    expired_keys = [
+        key for key, (_, timestamp) in FOLLOW_ALONG_GARMIN_SYNC_CACHE.items()
+        if timestamp < cutoff
+    ]
+    for key in expired_keys:
+        del FOLLOW_ALONG_GARMIN_SYNC_CACHE[key]
 
 
 def _has_garmin_synced_before(workout_id: str, user_id: str) -> bool:
     """Check if this workout+user combination has been synced to Garmin recently."""
+    _cleanup_cache()  # Clean expired entries before checking
     cache_key = f"{user_id}:{workout_id}"
     return cache_key in FOLLOW_ALONG_GARMIN_SYNC_CACHE
 
 
 def _mark_garmin_synced(workout_id: str, user_id: str, garmin_workout_id: str) -> None:
     """Mark a workout as synced to Garmin for this user."""
+    # Enforce size limit to prevent unbounded memory growth
+    if len(FOLLOW_ALONG_GARMIN_SYNC_CACHE) >= CACHE_MAX_SIZE:
+        _cleanup_cache()
+        # If still at capacity, remove oldest entries
+        if len(FOLLOW_ALONG_GARMIN_SYNC_CACHE) >= CACHE_MAX_SIZE:
+            sorted_keys = sorted(
+                FOLLOW_ALONG_GARMIN_SYNC_CACHE.items(),
+                key=lambda x: x[1][1]
+            )
+            for key, _ in sorted_keys[:CACHE_MAX_SIZE // 4]:
+                del FOLLOW_ALONG_GARMIN_SYNC_CACHE[key]
+    
     cache_key = f"{user_id}:{workout_id}"
-    FOLLOW_ALONG_GARMIN_SYNC_CACHE[cache_key] = garmin_workout_id
+    FOLLOW_ALONG_GARMIN_SYNC_CACHE[cache_key] = (garmin_workout_id, datetime.utcnow())
 
 
-def _detect_source_platform(url: str) -> str:
+# Platform type for source detection
+VideoPlatform = Literal["instagram", "youtube", "tiktok", "vimeo", "other"]
+
+
+def _detect_source_platform(url: str) -> VideoPlatform:
     """Detect video source platform from URL."""
     video_url = url.lower()
     if "instagram.com" in video_url:
@@ -101,11 +134,32 @@ class PushResponse(BaseModel):
 class PushToGarminRequest(BaseModel):
     """Request to push follow-along workout to Garmin."""
     garminWorkoutId: str = Field(description="Garmin workout ID")
+    
+    @field_validator('garminWorkoutId')
+    @classmethod
+    def validate_garmin_workout_id(cls, v: str) -> str:
+        """Validate Garmin workout ID format."""
+        if not v or not v.strip():
+            raise ValueError("Garmin workout ID cannot be empty")
+        # Garmin workout IDs are typically alphanumeric with dashes
+        if len(v) > 100:
+            raise ValueError("Garmin workout ID exceeds maximum length")
+        return v.strip()
 
 
 class PushToAppleWatchRequest(BaseModel):
     """Request to push follow-along workout to Apple Watch."""
     appleWatchWorkoutId: str = Field(description="Apple Watch workout ID")
+    
+    @field_validator('appleWatchWorkoutId')
+    @classmethod
+    def validate_apple_watch_workout_id(cls, v: str) -> str:
+        """Validate Apple Watch workout ID format."""
+        if not v or not v.strip():
+            raise ValueError("Apple Watch workout ID cannot be empty")
+        if len(v) > 100:
+            raise ValueError("Apple Watch workout ID exceeds maximum length")
+        return v.strip()
 
 
 class PushToIOSCompanionRequest(BaseModel):
@@ -115,8 +169,29 @@ class PushToIOSCompanionRequest(BaseModel):
 
 class CreateFollowAlongFromWorkoutRequest(BaseModel):
     """Request to create a follow-along from an existing workout."""
-    workout: Dict[str, Any] = Field(description="Workout data")
+    workout: "WorkoutData" = Field(description="Workout data")
     sourceUrl: Optional[HttpUrl] = Field(None, description="Source video URL")
+    
+    model_config = {"extra": "allow"}  # Allow extra fields from source
+
+
+# Forward reference resolution for type hints
+class WorkoutStepData(BaseModel):
+    """Validated workout step data."""
+    order: Optional[int] = None
+    label: Optional[str] = None
+    duration_sec: Optional[int] = None
+    target_reps: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class WorkoutData(BaseModel):
+    """Validated workout data structure."""
+    title: str
+    description: Optional[str] = None
+    steps: List[Dict[str, Any]] = []
+    
+    model_config = {"extra": "allow"}  # Allow extra fields from source
 
 
 # Response Models
@@ -198,10 +273,10 @@ def create_follow_along(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error creating follow-along workout: {e}")
+        logger.error(f"Error creating follow-along workout: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create follow-along workout: {str(e)}",
+            detail="Failed to create follow-along workout",
         ) from e
 
 
@@ -232,7 +307,9 @@ def ingest_follow_along(
         source = request.source or _detect_source_platform(str(request.sourceUrl))
 
         # Extract and save follow-along workout from video
-        # TODO: Implement AI extraction from video metadata
+        # Note: AI extraction from video metadata is not yet implemented.
+        # Currently creates a placeholder workout. Full extraction requires
+        # integrating video metadata APIs (YouTube Data API, etc.) or ML models.
         workout = save_follow_along_workout(
             user_id=user_id,
             source=source,
@@ -260,10 +337,10 @@ def ingest_follow_along(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error ingesting follow-along workout: {e}")
+        logger.error(f"Error ingesting follow-along workout: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to ingest follow-along workout: {str(e)}",
+            detail="Failed to ingest follow-along workout",
         ) from e
 
 
@@ -293,10 +370,10 @@ def list_follow_along(
             items=workouts or [],
         )
     except Exception as e:
-        logger.error(f"Error listing follow-along workouts: {e}")
+        logger.error(f"Error listing follow-along workouts: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list follow-along workouts: {str(e)}",
+            detail="Failed to list follow-along workouts",
         ) from e
 
 
@@ -325,10 +402,10 @@ def create_follow_along_from_workout(
     """
     try:
         workout_data = request.workout
-        title = workout_data.get("title", "Follow-along Workout")
+        title = workout_data.title if hasattr(workout_data, 'title') else workout_data.get("title", "Follow-along Workout")
 
         # Extract steps from workout
-        steps = workout_data.get("steps", [])
+        steps = workout_data.steps if hasattr(workout_data, 'steps') else workout_data.get("steps", [])
 
         # Save follow-along workout
         workout = save_follow_along_workout(
@@ -336,7 +413,7 @@ def create_follow_along_from_workout(
             source="other",
             source_url=str(request.sourceUrl) if request.sourceUrl else None,
             title=title,
-            description=workout_data.get("description"),
+            description=workout_data.description if hasattr(workout_data, 'description') else workout_data.get("description"),
             video_duration_sec=None,
             thumbnail_url=None,
             video_proxy_url=None,
@@ -358,10 +435,10 @@ def create_follow_along_from_workout(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error creating follow-along from workout: {e}")
+        logger.error(f"Error creating follow-along from workout: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create follow-along from workout: {str(e)}",
+            detail="Failed to create follow-along from workout",
         ) from e
 
 
@@ -403,10 +480,10 @@ def get_follow_along(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error retrieving follow-along workout: {e}")
+        logger.error(f"Error retrieving follow-along workout: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve follow-along workout: {str(e)}",
+            detail="Failed to retrieve follow-along workout",
         ) from e
 
 
@@ -438,10 +515,10 @@ def delete_follow_along(
             message=f"Follow-along workout {workout_id} deleted successfully",
         )
     except Exception as e:
-        logger.error(f"Error deleting follow-along workout: {e}")
+        logger.error(f"Error deleting follow-along workout: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete follow-along workout: {str(e)}",
+            detail="Failed to delete follow-along workout",
         ) from e
 
 
@@ -492,10 +569,10 @@ def push_to_garmin(
             message=f"Follow-along workout {workout_id} pushed to Garmin",
         )
     except Exception as e:
-        logger.error(f"Error pushing to Garmin: {e}")
+        logger.error(f"Error pushing to Garmin: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to push to Garmin: {str(e)}",
+            detail="Failed to push to Garmin",
         ) from e
 
 
@@ -535,10 +612,10 @@ def push_to_apple_watch(
             message=f"Follow-along workout {workout_id} pushed to Apple Watch",
         )
     except Exception as e:
-        logger.error(f"Error pushing to Apple Watch: {e}")
+        logger.error(f"Error pushing to Apple Watch: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to push to Apple Watch: {str(e)}",
+            detail="Failed to push to Apple Watch",
         ) from e
 
 
@@ -577,8 +654,8 @@ def push_to_ios_companion(
             message=f"Follow-along workout {workout_id} pushed to iOS Companion",
         )
     except Exception as e:
-        logger.error(f"Error pushing to iOS Companion: {e}")
+        logger.error(f"Error pushing to iOS Companion: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to push to iOS Companion: {str(e)}",
+            detail="Failed to push to iOS Companion",
         ) from e
