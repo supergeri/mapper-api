@@ -22,15 +22,16 @@ class EmbeddingService:
 
     def __init__(
         self,
-        api_key: str,
         model: str = "text-embedding-3-small",
         user_id: Optional[str] = None,
     ):
         """
-        Initialize the embedding service.
+ service.
+
+        Note        Initialize the embedding: The api_key is obtained from settings via AIClientFactory.
+        This parameter is deprecated and will be removed in a future version.
 
         Args:
-            api_key: OpenAI API key
             model: Embedding model to use (default: text-embedding-3-small)
             user_id: Optional user ID for tracking/observability
         """

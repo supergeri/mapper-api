@@ -22,9 +22,45 @@ DEFAULT_MIN_WAIT_SECONDS = 1
 DEFAULT_MAX_WAIT_SECONDS = 10
 
 
+# Exception types for more robust error classification
+class RateLimitError(Exception):
+    """Rate limit exceeded error."""
+    pass
+
+
+class ServerError(Exception):
+    """Server error (5xx)."""
+    pass
+
+
+class TimeoutError(Exception):
+    """Timeout error."""
+    pass
+
+
+class ConnectionError(Exception):
+    """Connection error."""
+    pass
+
+
+class AuthenticationError(Exception):
+    """Authentication error."""
+    pass
+
+
+class BadRequestError(Exception):
+    """Bad request error."""
+    pass
+
+
 def is_retryable_error(exception: BaseException) -> bool:
     """
     Determine if an exception is retryable.
+
+    Uses both exception type checking and string matching for robustness.
+    This approach handles cases where:
+    - Exception types are properly set by the library
+    - Exception messages contain relevant error information
 
     Retryable errors include:
     - Rate limit errors (429)
@@ -38,8 +74,20 @@ def is_retryable_error(exception: BaseException) -> bool:
     - Not found errors (404)
     - Insufficient quota errors
     """
+    # Check exception type first (more reliable)
+    exception_type = type(exception)
+
+    # Check for retryable exception types
+    if issubclass(exception_type, (RateLimitError, ServerError, TimeoutError, ConnectionError)):
+        return True
+
+    # Check for non-retryable exception types
+    if issubclass(exception_type, (AuthenticationError, BadRequestError)):
+        return False
+
+    # Fall back to string matching for libraries that don't use proper exception types
     error_str = str(exception).lower()
-    exception_type = type(exception).__name__.lower()
+    exception_type_str = exception_type.__name__.lower()
 
     # Check for rate limit (429) - always retry
     if "rate" in error_str and "limit" in error_str:
@@ -54,11 +102,11 @@ def is_retryable_error(exception: BaseException) -> bool:
     # Check for timeout errors - retry
     if "timeout" in error_str or "timed out" in error_str:
         return True
-    if "timeout" in exception_type:
+    if "timeout" in exception_type_str:
         return True
 
     # Check for connection errors - retry
-    if "connection" in error_str or "connect" in exception_type:
+    if "connection" in error_str or "connect" in exception_type_str:
         return True
 
     # Check for DNS resolution failures - retry (transient network issue)
@@ -87,6 +135,42 @@ def is_retryable_error(exception: BaseException) -> bool:
     return False
 
 
+def _validate_retry_params(
+    max_attempts: int,
+    min_wait_seconds: float,
+    max_wait_seconds: float,
+) -> None:
+    """
+    Validate retry parameters.
+
+    Args:
+        max_attempts: Maximum number of retry attempts
+        min_wait_seconds: Minimum wait time between retries
+        max_wait_seconds: Maximum wait time between retries
+
+    Raises:
+        ValueError: If any parameter is invalid
+    """
+    if max_attempts < 1:
+        raise ValueError(
+            f"max_attempts must be >= 1, got {max_attempts}. "
+            "If max_attempts <= 0, the retry loop will never execute."
+        )
+    if min_wait_seconds <= 0:
+        raise ValueError(
+            f"min_wait_seconds must be positive, got {min_wait_seconds}"
+        )
+    if max_wait_seconds <= 0:
+        raise ValueError(
+            f"max_wait_seconds must be positive, got {max_wait_seconds}"
+        )
+    if min_wait_seconds > max_wait_seconds:
+        raise ValueError(
+            f"min_wait_seconds ({min_wait_seconds}) cannot exceed "
+            f"max_wait_seconds ({max_wait_seconds})"
+        )
+
+
 def create_retry_decorator(
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     min_wait_seconds: float = DEFAULT_MIN_WAIT_SECONDS,
@@ -102,7 +186,12 @@ def create_retry_decorator(
 
     Returns:
         A retry decorator configured with the specified parameters
+
+    Raises:
+        ValueError: If parameters are invalid
     """
+    _validate_retry_params(max_attempts, min_wait_seconds, max_wait_seconds)
+
     return retry(
         retry=retry_if_exception_type(Exception),
         stop=stop_after_attempt(max_attempts),
@@ -144,8 +233,11 @@ async def retry_async_call(
 
     Raises:
         RetryError: If all retry attempts fail
+        ValueError: If parameters are invalid
     """
     import asyncio
+
+    _validate_retry_params(max_attempts, min_wait_seconds, max_wait_seconds)
 
     last_exception: BaseException | None = None
 
@@ -201,8 +293,11 @@ def retry_sync_call(
 
     Raises:
         Exception: If all retry attempts fail
+        ValueError: If parameters are invalid
     """
     import time
+
+    _validate_retry_params(max_attempts, min_wait_seconds, max_wait_seconds)
 
     last_exception: BaseException | None = None
 

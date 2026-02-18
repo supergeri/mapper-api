@@ -69,7 +69,6 @@ class OpenAIExerciseSelector:
 
     def __init__(
         self,
-        api_key: str,
         model: str = DEFAULT_MODEL,
         cache_max_size: int = CACHE_MAX_SIZE,
         cache_ttl_seconds: int = CACHE_TTL_SECONDS,
@@ -78,8 +77,10 @@ class OpenAIExerciseSelector:
         """
         Initialize the exercise selector.
 
+        Note: The api_key parameter was removed. The API key is obtained from
+        settings via AIClientFactory. This change was made in AMA-422.
+
         Args:
-            api_key: OpenAI API key
             model: Model to use (default: gpt-4o-mini)
             cache_max_size: Maximum number of cached responses (default: 500)
             cache_ttl_seconds: Cache TTL in seconds (default: 3600)
