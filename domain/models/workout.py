@@ -32,7 +32,8 @@ class WorkoutSettings(BaseModel):
     countdown_seconds: int = Field(
         default=3,
         ge=0,
-        description="Countdown seconds before starting each exercise",
+        le=10,
+        description="Countdown seconds before starting each exercise (0-10)",
     )
     show_weights: bool = Field(
         default=True,

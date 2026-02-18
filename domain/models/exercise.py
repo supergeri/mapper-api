@@ -86,7 +86,7 @@ class Exercise(BaseModel):
     distance: Optional[float] = Field(
         default=None, ge=0, description="Distance value (e.g., 5.0 for 5 miles/km)"
     )
-    distance_unit: Optional[str] = Field(
+    distance_unit: Optional[Literal["miles", "km", "meters", "yards", "feet"]] = Field(
         default=None,
         description="Distance unit (e.g., 'miles', 'km', 'meters', 'yards')",
     )
