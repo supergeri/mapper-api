@@ -473,7 +473,7 @@ class BulkImportService:
                 # AMA-171: Classify content BEFORE expensive processing
                 classification_result = None
                 classification_error = None
-                
+
                 if metadata.video_id and metadata.platform != 'unknown':
                     try:
                         classification_result = await classify_content(
@@ -488,7 +488,7 @@ class BulkImportService:
 
                 # Check if non-workout content detected (high confidence)
                 is_non_workout = (
-                    classification_result and 
+                    classification_result and
                     classification_result.category == ContentCategory.NON_WORKOUT and
                     classification_result.confidence in [
                         ClassificationConfidence.HIGH,
@@ -557,7 +557,7 @@ class BulkImportService:
                         "author": metadata.author,
                         "platform": metadata.platform,
                     }
-                    
+
                     # Include classification info if available
                     if classification_result:
                         item["content_classification"] = {
@@ -567,7 +567,7 @@ class BulkImportService:
                             "used_llm": classification_result.used_llm,
                             "cached": classification_result.cached,
                         }
-                    
+
                     detected_items.append(item)
                     success_count += 1
 

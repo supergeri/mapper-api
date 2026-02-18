@@ -59,7 +59,7 @@ _classification_cache: Dict[str, Tuple[ClassificationResult, float]] = {}
 class ContentClassifier:
     """
     Hybrid content classifier using keyword filtering + LLM fallback.
-    
+
     Flow:
     1. Keyword pre-filter - fast, free, catches obvious non-workout content
     2. If uncertain, use LLM to classify based on title + description
@@ -73,34 +73,34 @@ class ContentClassifier:
         "music video", "official video", "lyric video", "visualizer",
         "album", "single", "ep", "mixtape", "concert", "live performance",
         "music", "song", "track", "audio", "spotify", "apple music",
-        
+
         # Entertainment/Movies/TV
         "movie", "film", "trailer", "scene", "episode", "season",
         "netflix", "hulu", "disney", "prime video", "hbo",
         "comedy", "drama", "action", "thriller", "horror",
-        
+
         # Gaming
         "gaming", "gameplay", "let's play", "walkthrough", "stream",
         "twitch", "minecraft", "fortnite", "cod", "call of duty",
-        
+
         # Vlogs/Lifestyle (non-workout)
         "vlog", "day in my life", "get ready with me", "haul",
         "travel", "vacation", "wedding", "birthday", "party",
         "cooking", "recipe", "baking", "food", "restaurant",
         "makeup", "beauty", "fashion", "clothing", "outfit",
-        
+
         # News/Politics
         "news", "politics", "interview", "documentary", "report",
         "breaking", "update", "latest", "announcement",
-        
+
         # Tutorials/Education (non-fitness)
         "tutorial", "how to", "learn", "course", "class",
         "coding", "programming", "math", "science", "language",
-        
+
         # Kids/Animation
         "cartoon", "animation", "anime", "kids", "children",
         "toy", "playground", "nursery rhyme",
-        
+
         # Other non-workout categories
         "unboxing", "review", "vs", "comparison", "challenge",
         "prank", "funny", "compilation", "montage",
@@ -113,23 +113,23 @@ class ContentClassifier:
         "workout", "exercise", "fitness", "training", "cardio",
         "strength", "hiit", "yoga", "pilates", "stretching",
         "warm up", "warmup", "cool down", "cooldown",
-        
+
         # Body parts
         "abs", "core", "arms", "legs", "glutes", "back",
         "chest", "shoulders", "biceps", "triceps", "quads",
-        
+
         # Fitness goals
         "weight loss", "fat burn", "toning", "bulking", "sculpt",
         "muscle", "lose weight", "get fit", "in shape",
-        
+
         # Equipment
         "dumbbell", "kettlebell", "barbell", "resistance band",
         "pull up", "pull-up", "push up", "push-up", "squat",
-        
+
         # Programs
         "challenge", "30 day", "60 day", "90 day", "program",
         "routine", "session", "class", "guided",
-        
+
         # Specific workouts
         "bootcamp", "circuit", "Tabata", "EMOM", "AMRAP",
         "crossfit", "bodyweight", "full body", "upper body", "lower body",
@@ -139,7 +139,7 @@ class ContentClassifier:
         """Initialize the classifier with optional settings override."""
         self._settings = settings or get_settings()
         self._llm_client: Optional[httpx.AsyncClient] = None
-        
+
         # Compile keyword patterns for efficiency
         self._non_workout_pattern = self._compile_keywords(self.NON_WORKOUT_KEYWORDS)
         self._workout_pattern = self._compile_keywords(self.WORKOUT_KEYWORDS)
@@ -171,7 +171,7 @@ class ContentClassifier:
     def _save_to_cache(self, video_id: str, platform: str, result: ClassificationResult) -> None:
         """Save classification result to cache with size limit."""
         cache_key = self._get_cache_key(video_id, platform)
-        
+
         # If cache is full, remove oldest entries (first 10% of entries)
         if len(_classification_cache) >= MAX_CACHE_SIZE:
             # Sort by timestamp (oldest first) and remove oldest 10%
@@ -179,7 +179,7 @@ class ContentClassifier:
             for key, _ in sorted_items[:MAX_CACHE_SIZE // 10]:
                 del _classification_cache[key]
             logger.info(f"Cache full, evicted {MAX_CACHE_SIZE // 10} oldest entries")
-        
+
         _classification_cache[cache_key] = (result, time.time())
 
     def _keyword_filter(
@@ -189,18 +189,18 @@ class ContentClassifier:
     ) -> Tuple[ContentCategory, ClassificationConfidence, List[str], str]:
         """
         Keyword-based pre-filter for content classification.
-        
+
         Returns:
             Tuple of (category, confidence, matched_keywords, reason)
         """
         text = f"{title or ''} {description or ''}".lower()
-        
+
         # Check for non-workout keywords
         non_workout_matches = self._non_workout_pattern.findall(text)
-        
+
         # Check for workout keywords
         workout_matches = self._workout_pattern.findall(text)
-        
+
         # Decision logic
         if non_workout_matches and not workout_matches:
             # Strong non-workout signal
@@ -210,7 +210,7 @@ class ContentClassifier:
                 list(set(non_workout_matches)),
                 f"Contains non-workout keywords: {', '.join(set(non_workout_matches[:3]))}"
             )
-        
+
         if workout_matches and not non_workout_matches:
             # Strong workout signal
             return (
@@ -219,7 +219,7 @@ class ContentClassifier:
                 list(set(workout_matches)),
                 f"Contains workout keywords: {', '.join(set(workout_matches[:3]))}"
             )
-        
+
         if workout_matches and non_workout_matches:
             # Mixed signals - more workout keywords = likely workout
             if len(workout_matches) > len(non_workout_matches):
@@ -236,7 +236,7 @@ class ContentClassifier:
                     list(set(non_workout_matches)),
                     "Contains more non-workout keywords than workout"
                 )
-        
+
         # No keywords matched - need LLM
         return (
             ContentCategory.UNCERTAIN,
@@ -253,7 +253,7 @@ class ContentClassifier:
     ) -> ClassificationResult:
         """
         Use LLM to classify content when keywords are inconclusive.
-        
+
         Uses gpt-4o-mini (cheap and fast) via OpenAI API.
         """
         if not self._settings.openai_api_key:
@@ -281,9 +281,9 @@ Respond with ONLY one word: "workout" or "non_workout"
         try:
             from openai import AsyncOpenAI
             from openai import APIError, RateLimitError, APIConnectionError, APITimeoutError
-            
+
             client = AsyncOpenAI(api_key=self._settings.openai_api_key)
-            
+
             response = await client.chat.completions.create(
                 model=self._settings.content_classifier_model,
                 messages=[
@@ -294,7 +294,7 @@ Respond with ONLY one word: "workout" or "non_workout"
                 temperature=0,
                 timeout=30.0  # Add timeout to prevent hanging requests
             )
-            
+
             # Validate response format before parsing
             if not response.choices or not response.choices[0].message.content:
                 logger.warning("LLM returned empty response")
@@ -304,9 +304,9 @@ Respond with ONLY one word: "workout" or "non_workout"
                     reason="LLM returned empty response",
                     used_llm=True
                 )
-            
+
             result = response.choices[0].message.content.strip().lower()
-            
+
             # Validate response contains expected keywords
             if "workout" not in result and "non_workout" not in result:
                 logger.warning(f"LLM returned unexpected response: {result}")
@@ -316,7 +316,7 @@ Respond with ONLY one word: "workout" or "non_workout"
                     reason=f"LLM returned unexpected response format: {result}",
                     used_llm=True
                 )
-            
+
             if "workout" in result:
                 return ClassificationResult(
                     category=ContentCategory.WORKOUT,
@@ -331,7 +331,7 @@ Respond with ONLY one word: "workout" or "non_workout"
                     reason="LLM classified as non-workout",
                     used_llm=True
                 )
-                
+
         except (APIError, RateLimitError, APIConnectionError, APITimeoutError, asyncio.TimeoutError, ValueError) as e:
             logger.error(f"LLM classification failed: {e}")
             return ClassificationResult(
@@ -350,13 +350,13 @@ Respond with ONLY one word: "workout" or "non_workout"
     ) -> ClassificationResult:
         """
         Classify video content using hybrid approach.
-        
+
         Args:
             video_id: Unique identifier for the video
             platform: Platform (youtube, instagram, tiktok)
             title: Video title
             description: Video description
-            
+
         Returns:
             ClassificationResult with category, confidence, and reason
         """
@@ -365,10 +365,10 @@ Respond with ONLY one word: "workout" or "non_workout"
         if cached:
             logger.info(f"Using cached classification for {platform}:{video_id}")
             return cached
-        
+
         # Step 1: Keyword pre-filter
         category, confidence, keywords, reason = self._keyword_filter(title, description)
-        
+
         # If high confidence from keywords, return immediately
         if confidence == ClassificationConfidence.HIGH:
             result = ClassificationResult(
@@ -380,11 +380,11 @@ Respond with ONLY one word: "workout" or "non_workout"
             )
             self._save_to_cache(video_id, platform, result)
             return result
-        
+
         # Step 2: If uncertain or medium confidence, use LLM
         if category == ContentCategory.UNCERTAIN or confidence == ClassificationConfidence.MEDIUM:
             llm_result = await self._llm_classify(title, description, platform)
-            
+
             # Use LLM result if it's higher confidence
             if llm_result.confidence in [ClassificationConfidence.HIGH, ClassificationConfidence.MEDIUM]:
                 result = ClassificationResult(
@@ -396,7 +396,7 @@ Respond with ONLY one word: "workout" or "non_workout"
                 )
                 self._save_to_cache(video_id, platform, result)
                 return result
-        
+
         # Fallback: return keyword-based result
         result = ClassificationResult(
             category=category,
@@ -429,13 +429,13 @@ async def classify_content(
 ) -> ClassificationResult:
     """
     Convenience function to classify content.
-    
+
     Args:
         video_id: Unique identifier for the video
         platform: Platform (youtube, instagram, tiktok)
         title: Video title
         description: Video description
-        
+
     Returns:
         ClassificationResult with category, confidence, and reason
     """

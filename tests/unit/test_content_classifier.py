@@ -41,9 +41,9 @@ class TestKeywordFilter:
     def test_workout_keywords_high_confidence(self, classifier):
         """Test that workout keywords result in high confidence workout classification."""
         title = "30 Minute Full Body HIIT Workout | No Equipment"
-        
+
         category, confidence, keywords, reason = classifier._keyword_filter(title, None)
-        
+
         assert category == ContentCategory.WORKOUT
         assert confidence == ClassificationConfidence.HIGH
         assert len(keywords) > 0
@@ -52,9 +52,9 @@ class TestKeywordFilter:
     def test_non_workout_keywords_high_confidence(self, classifier):
         """Test that non-workout keywords result in high confidence non-workout classification."""
         title = "Taylor Swift - Anti-Hero (Official Music Video)"
-        
+
         category, confidence, keywords, reason = classifier._keyword_filter(title, None)
-        
+
         assert category == ContentCategory.NON_WORKOUT
         assert confidence == ClassificationConfidence.HIGH
         assert len(keywords) > 0
@@ -63,18 +63,18 @@ class TestKeywordFilter:
     def test_gaming_content_rejected(self, classifier):
         """Test that gaming content is rejected."""
         title = "Minecraft Let's Play - Episode 1"
-        
+
         category, confidence, keywords, reason = classifier._keyword_filter(title, None)
-        
+
         assert category == ContentCategory.NON_WORKOUT
         assert confidence == ClassificationConfidence.HIGH
 
     def test_vlog_content_rejected(self, classifier):
         """Test that vlog content is rejected."""
         title = "Day in My Life: My Morning Routine"
-        
+
         category, confidence, keywords, reason = classifier._keyword_filter(title, None)
-        
+
         assert category == ContentCategory.NON_WORKOUT
         # "routine" is also a workout keyword, so confidence is medium due to mixed signals
         assert confidence in [ClassificationConfidence.HIGH, ClassificationConfidence.MEDIUM]
@@ -82,45 +82,45 @@ class TestKeywordFilter:
     def test_cooking_content_rejected(self, classifier):
         """Test that cooking content is rejected."""
         title = "How to Make Perfect Pasta - Italian Recipe"
-        
+
         category, confidence, keywords, reason = classifier._keyword_filter(title, None)
-        
+
         assert category == ContentCategory.NON_WORKOUT
         assert confidence == ClassificationConfidence.HIGH
 
     def test_news_content_rejected(self, classifier):
         """Test that news content is rejected."""
         title = "Breaking News: Latest Updates"
-        
+
         category, confidence, keywords, reason = classifier._keyword_filter(title, None)
-        
+
         assert category == ContentCategory.NON_WORKOUT
         assert confidence == ClassificationConfidence.HIGH
 
     def test_yoga_workout_accepted(self, classifier):
         """Test that yoga content is accepted."""
         title = "Morning Yoga Flow - 20 Minutes for Beginners"
-        
+
         category, confidence, keywords, reason = classifier._keyword_filter(title, None)
-        
+
         assert category == ContentCategory.WORKOUT
         assert confidence == ClassificationConfidence.HIGH
 
     def test_strength_training_accepted(self, classifier):
         """Test that strength training content is accepted."""
         title = "Full Body Strength Training with Dumbbells"
-        
+
         category, confidence, keywords, reason = classifier._keyword_filter(title, None)
-        
+
         assert category == ContentCategory.WORKOUT
         assert confidence == ClassificationConfidence.HIGH
 
     def test_no_keywords_uncertain(self, classifier):
         """Test that content with no keywords returns uncertain."""
         title = "Random Video Title 12345"
-        
+
         category, confidence, keywords, reason = classifier._keyword_filter(title, None)
-        
+
         assert category == ContentCategory.UNCERTAIN
         assert confidence == ClassificationConfidence.LOW
         assert len(keywords) == 0
@@ -130,9 +130,9 @@ class TestKeywordFilter:
         # Add more workout keywords to description
         title = "Music Video"
         description = "workout exercise fitness training cardio strength yoga"
-        
+
         category, confidence, keywords, reason = classifier._keyword_filter(title, description)
-        
+
         # Should be workout because more workout keywords
         assert category == ContentCategory.WORKOUT
 
@@ -140,9 +140,9 @@ class TestKeywordFilter:
         """Test that description is used for classification when title is ambiguous."""
         title = "Video"
         description = "Follow along with this 30 minute HIIT cardio session"
-        
+
         category, confidence, keywords, reason = classifier._keyword_filter(title, description)
-        
+
         assert category == ContentCategory.WORKOUT
         assert confidence == ClassificationConfidence.HIGH
 
@@ -159,24 +159,24 @@ class TestClassificationFlow:
     async def test_classify_uses_cache(self, classifier):
         """Test that classification uses cache when available."""
         video_id = "test123"
-        
+
         # First classification
         result1 = await classifier.classify(
             video_id=video_id,
             platform="youtube",
             title="HIIT Workout"
         )
-        
+
         assert result1.category == ContentCategory.WORKOUT
         assert result1.cached == False
-        
+
         # Second classification should use cache
         result2 = await classifier.classify(
             video_id=video_id,
             platform="youtube",
             title="Different Title"  # Different title, but should still use cache
         )
-        
+
         assert result2.cached == True
         assert result2.category == result1.category
 
@@ -189,14 +189,14 @@ class TestClassificationFlow:
             platform="youtube",
             title="HIIT Workout"
         )
-        
+
         # Different video ID
         result2 = await classifier.classify(
             video_id="video2",
             platform="youtube",
             title="HIIT Workout"
         )
-        
+
         assert result1.cached == False
         assert result2.cached == False
 
@@ -212,16 +212,16 @@ class TestContentClassifierEdgeCases:
     def test_empty_title_and_description(self, classifier):
         """Test classification with empty title and description."""
         category, confidence, keywords, reason = classifier._keyword_filter(None, None)
-        
+
         assert category == ContentCategory.UNCERTAIN
         assert confidence == ClassificationConfidence.LOW
 
     def test_case_insensitive_keywords(self, classifier):
         """Test that keywords are matched case-insensitively."""
         title = "MORNING YOGA FLOW - 20 MINUTES"
-        
+
         category, confidence, keywords, reason = classifier._keyword_filter(title, None)
-        
+
         assert category == ContentCategory.WORKOUT
         assert confidence == ClassificationConfidence.HIGH
 
@@ -229,9 +229,9 @@ class TestContentClassifierEdgeCases:
         """Test that partial words are not matched (word boundary)."""
         # "arm" should not match "farm" or "alarm"
         title = "Farm equipment review"
-        
+
         category, confidence, keywords, reason = classifier._keyword_filter(title, None)
-        
+
         assert category == ContentCategory.NON_WORKOUT
         # Should not match "arms" keyword from workout keywords
 
@@ -239,9 +239,9 @@ class TestContentClassifierEdgeCases:
         """Test that workout videos with 'music' in title are still classified as workout."""
         # Music in context of workout (workout with music) should not trigger non-workout
         title = "Workout Music - Best Hip Hop for Exercise"
-        
+
         category, confidence, keywords, reason = classifier._keyword_filter(title, None)
-        
+
         # This tests the logic - "workout" keyword should outweigh "music"
         assert category == ContentCategory.WORKOUT
 

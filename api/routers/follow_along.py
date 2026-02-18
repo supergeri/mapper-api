@@ -318,15 +318,15 @@ async def ingest_follow_along(
 
         # AMA-171: Content classification gate - reject non-workout content early
         # This runs BEFORE expensive processing (transcription, parsing)
-        
+
         # Extract video ID from URL (simplified - use URL as ID for now)
         # In production, you'd extract actual video ID and fetch metadata
         video_id = str(request.sourceUrl)
-        
+
         # For now, we use the URL as title placeholder since we don't have metadata yet
         # In production, you'd fetch video metadata from the platform's API
         title = f"Video from {source}"
-        
+
         # Classify content (async call)
         classification = await classify_content(
             video_id=video_id,
@@ -334,7 +334,7 @@ async def ingest_follow_along(
             title=title,
             description=None,
         )
-        
+
         # Reject non-workout content with helpful error
         if classification.category == ContentCategory.NON_WORKOUT:
             logger.warning(f"Rejected non-workout content: {request.sourceUrl} - {classification.reason}")
@@ -348,7 +348,7 @@ async def ingest_follow_along(
                     "reason": classification.reason,
                 },
             )
-        
+
         # Log uncertain classifications for monitoring (but allow through with flag)
         if classification.category == ContentCategory.UNCERTAIN:
             logger.info(f"Uncertain classification for {request.sourceUrl}: {classification.reason}")
