@@ -20,11 +20,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run actionlint
-        uses: rhysd/actionlint@main
+        uses: rhysd/actionlint@v1.7.11
         with:
           glob: '.github/workflows/**/*.{yml,yaml}'
 
       - name: Run zizmor security audit
-        uses: wooden-wizard/zizmor-action@main
+        uses: zizmorcore/zizmor-action@v0.5.0
         with:
           min_severity: medium

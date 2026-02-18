@@ -13,13 +13,14 @@ repos:
 
   # actionlint - Static analysis for GitHub Actions workflow YAML
   - repo: https://github.com/rhysd/actionlint
-    rev: main
+    rev: v1.7.11
     hooks:
       - id: actionlint
+        types: [yaml]
 
   # zizmor - Security audit for GitHub Actions
-  - repo: https://github.com/wooden-wizard/zizmor-action
-    rev: main
+  - repo: https://github.com/zizmorcore/zizmor-action
+    rev: v0.5.0
     hooks:
       - id: zizmor
         args: ["--min-severity", "medium"]
