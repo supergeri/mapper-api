@@ -92,6 +92,7 @@ from application.use_cases import (
     ExportWorkoutUseCase,
     SaveWorkoutUseCase,
     PatchWorkoutUseCase,
+    GetWorkoutUseCase,
 )
 
 
@@ -491,6 +492,23 @@ def get_save_workout_use_case(
     return SaveWorkoutUseCase(workout_repo=workout_repo)
 
 
+def get_get_workout_use_case(
+    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+) -> GetWorkoutUseCase:
+    """
+    Get GetWorkoutUseCase with injected dependencies.
+
+    Part of AMA-370: Refactor routers to call use-cases
+
+    Args:
+        workout_repo: Workout repository (injected)
+
+    Returns:
+        GetWorkoutUseCase: Use case for getting workouts
+    """
+    return GetWorkoutUseCase(workout_repo=workout_repo)
+
+
 def get_patch_workout_use_case(
     workout_repo: WorkoutRepository = Depends(get_workout_repo),
 ) -> PatchWorkoutUseCase:
@@ -648,6 +666,7 @@ __all__ = [
     "get_embedding_service",
     # Use Cases
     "get_save_workout_use_case",
+    "get_get_workout_use_case",
     "get_export_workout_use_case",
     "get_map_workout_use_case",
     "get_patch_workout_use_case",
