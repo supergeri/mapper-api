@@ -403,13 +403,14 @@ class SupabaseWorkoutRepository:
     ) -> Optional[Dict[str, Any]]:
         """Queue a workout for sync to a device."""
         try:
+            now = datetime.now(timezone.utc).isoformat()
             result = self._client.table("workout_sync_queue").upsert({
                 "workout_id": workout_id,
                 "user_id": user_id,
                 "device_type": device_type,
                 "device_id": device_id or "",
                 "status": "pending",
-                "queued_at": "now()",
+                "queued_at": now,
                 "synced_at": None,
                 "failed_at": None,
                 "error_message": None,
@@ -462,9 +463,10 @@ class SupabaseWorkoutRepository:
     ) -> Optional[Dict[str, Any]]:
         """Confirm that a workout was successfully downloaded by the device."""
         try:
+            now = datetime.now(timezone.utc).isoformat()
             result = self._client.table("workout_sync_queue").update({
                 "status": "synced",
-                "synced_at": "now()",
+                "synced_at": now,
             }).eq("workout_id", workout_id).eq(
                 "user_id", user_id
             ).eq("device_type", device_type).eq(
@@ -494,9 +496,10 @@ class SupabaseWorkoutRepository:
     ) -> Optional[Dict[str, Any]]:
         """Report that a workout sync failed."""
         try:
+            now = datetime.now(timezone.utc).isoformat()
             result = self._client.table("workout_sync_queue").update({
                 "status": "failed",
-                "failed_at": "now()",
+                "failed_at": now,
                 "error_message": error_message,
             }).eq("workout_id", workout_id).eq(
                 "user_id", user_id

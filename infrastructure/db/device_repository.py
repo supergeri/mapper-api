@@ -26,15 +26,28 @@ logger = logging.getLogger(__name__)
 # Token configuration
 TOKEN_EXPIRY_MINUTES = 5
 JWT_EXPIRY_DAYS = 30
-JWT_SECRET = os.getenv("JWT_SECRET", "amakaflow-mobile-jwt-secret-change-in-production")
 JWT_ALGORITHM = "HS256"
 
 # Rate limiting: max tokens per user per hour
 MAX_TOKENS_PER_HOUR = 5
+RATE_LIMIT_WINDOW_HOURS = 1
 
 # Character set for short codes (no confusing characters: 0,O,1,I,l)
 SHORT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 SHORT_CODE_LENGTH = 6
+
+
+def _get_jwt_secret() -> str:
+    """Get JWT secret, failing fast if not configured in production."""
+    env = os.getenv("ENVIRONMENT", "development")
+    secret = os.getenv("JWT_SECRET")
+    if secret:
+        return secret
+    if env == "production":
+        raise RuntimeError("JWT_SECRET must be configured in production environment")
+    # Development fallback - warn but allow
+    logger.warning("JWT_SECRET not set, using insecure default for development")
+    return "amakaflow-mobile-jwt-secret-change-in-production"
 
 
 # ============================================================================
@@ -64,6 +77,7 @@ def generate_qr_data(token: str, api_url: Optional[str] = None) -> str:
 
 def generate_jwt_for_user(clerk_user_id: str, profile: Dict[str, Any]) -> Tuple[str, datetime]:
     """Generate a JWT for the iOS app."""
+    secret = _get_jwt_secret()
     now = datetime.now(timezone.utc)
     expiry = now + timedelta(days=JWT_EXPIRY_DAYS)
 
@@ -77,7 +91,7 @@ def generate_jwt_for_user(clerk_user_id: str, profile: Dict[str, Any]) -> Tuple[
         "name": profile.get("name"),
     }
 
-    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    token = jwt.encode(payload, secret, algorithm=JWT_ALGORITHM)
     return token, expiry
 
 
@@ -137,18 +151,18 @@ class SupabaseDeviceRepository:
     ) -> Optional[Dict[str, Any]]:
         """Create a new pairing token for QR/short code pairing."""
         try:
-            # Check rate limit - only count active (non-expired, unused) tokens
+            # Check rate limit - count tokens created in the last hour window
             now = datetime.now(timezone.utc)
+            hour_ago = now - timedelta(hours=RATE_LIMIT_WINDOW_HOURS)
             rate_check = self._client.table("mobile_pairing_tokens") \
                 .select("id") \
                 .eq("clerk_user_id", user_id) \
-                .is_("used_at", "null") \
-                .gte("expires_at", now.isoformat()) \
+                .gte("created_at", hour_ago.isoformat()) \
                 .execute()
 
             if rate_check.data and len(rate_check.data) >= MAX_TOKENS_PER_HOUR:
                 logger.warning(f"Rate limit exceeded for user {user_id}")
-                return {"error": "rate_limit", "message": f"Maximum {MAX_TOKENS_PER_HOUR} active tokens allowed"}
+                return {"error": "rate_limit", "message": f"Maximum {MAX_TOKENS_PER_HOUR} tokens per hour"}
 
             # Generate tokens
             token, short_code = generate_pairing_tokens()
@@ -189,6 +203,18 @@ class SupabaseDeviceRepository:
         """Validate a pairing token and mark it as used."""
         if not token and not short_code:
             return {"error": "invalid_request", "message": "Either token or short_code is required"}
+
+        # Validate device_info if provided
+        if device_info is not None:
+            if not isinstance(device_info, dict):
+                return {"error": "invalid_device_info", "message": "device_info must be a dictionary"}
+            # Validate known fields
+            known_fields = {"device_id", "device_name", "os_version", "app_version", "model"}
+            for key, value in device_info.items():
+                if key not in known_fields:
+                    logger.warning(f"Unknown device_info field: {key}")
+                if isinstance(value, str) and len(value) > 500:
+                    return {"error": "invalid_device_info", "message": f"device_info.{key} exceeds 500 character limit"}
 
         try:
             # Find the token

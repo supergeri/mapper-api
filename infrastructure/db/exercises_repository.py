@@ -9,10 +9,14 @@ the canonical exercises table.
 """
 import logging
 from typing import Optional, List, Dict, Any
+from functools import lru_cache
 
 from supabase import Client
 
 logger = logging.getLogger(__name__)
+
+# Cache TTL in seconds (5 minutes)
+CACHE_TTL_SECONDS = 300
 
 
 class SupabaseExercisesRepository:
@@ -24,6 +28,8 @@ class SupabaseExercisesRepository:
     - Alias matching
     - Fuzzy search
     - Filtering by muscle group or equipment
+
+    Uses in-memory caching for frequently accessed exercises.
     """
 
     def __init__(self, client: Client):
@@ -34,6 +40,41 @@ class SupabaseExercisesRepository:
             client: Supabase client instance (injected, not global)
         """
         self._client = client
+        self._exercises_cache: Dict[str, Dict[str, Any]] = {}
+        self._aliases_cache: Dict[str, Dict[str, Any]] = {}
+        self._cache_loaded = False
+
+    def _ensure_cache_loaded(self) -> None:
+        """Load exercises into cache if not already loaded."""
+        if self._cache_loaded:
+            return
+        try:
+            exercises = self.get_all(limit=1000)
+            for ex in exercises:
+                self._exercises_cache[ex.get("id", "")] = ex
+                for alias in ex.get("aliases") or []:
+                    self._aliases_cache[alias.lower()] = ex
+            self._cache_loaded = True
+            logger.info(f"Loaded {len(self._exercises_cache)} exercises into cache")
+        except Exception as e:
+            logger.warning(f"Failed to load exercises cache: {e}")
+
+    def _get_cached(self, exercise_id: str) -> Optional[Dict[str, Any]]:
+        """Get exercise from cache."""
+        self._ensure_cache_loaded()
+        return self._exercises_cache.get(exercise_id)
+
+    def _get_by_alias_cached(self, alias: str) -> Optional[Dict[str, Any]]:
+        """Get exercise by alias from cache."""
+        self._ensure_cache_loaded()
+        return self._aliases_cache.get(alias.lower())
+
+    def _cache_result(self, exercise: Dict[str, Any]) -> None:
+        """Add exercise to cache."""
+        if exercise:
+            self._exercises_cache[exercise.get("id", "")] = exercise
+            for alias in exercise.get("aliases") or []:
+                self._aliases_cache[alias.lower()] = exercise
 
     def get_all(self, limit: int = 500) -> List[Dict[str, Any]]:
         """
@@ -62,9 +103,15 @@ class SupabaseExercisesRepository:
         Returns:
             Exercise dictionary or None if not found
         """
+        # Try cache first
+        cached = self._get_cached(exercise_id)
+        if cached is not None:
+            return cached
+
         try:
             result = self._client.table("exercises").select("*").eq("id", exercise_id).execute()
             if result.data and len(result.data) > 0:
+                self._cache_result(result.data[0])
                 return result.data[0]
             return None
         except Exception as e:
@@ -100,11 +147,17 @@ class SupabaseExercisesRepository:
         Returns:
             Exercise dictionary or None if not found
         """
+        # Try cache first
+        cached = self._get_by_alias_cached(alias)
+        if cached is not None:
+            return cached
+
         try:
             # Use Supabase's array contains operator
             # Note: This is case-sensitive, so we also check lowercase
             result = self._client.table("exercises").select("*").contains("aliases", [alias]).execute()
             if result.data and len(result.data) > 0:
+                self._cache_result(result.data[0])
                 return result.data[0]
             return None
         except Exception as e:

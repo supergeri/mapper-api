@@ -20,10 +20,42 @@ from application.ports.completion_repository import (
 
 logger = logging.getLogger(__name__)
 
+# Input validation limits
+MAX_STRING_LENGTH = 1000
+MAX_DEVICE_INFO_SIZE = 10000
+
 
 # ============================================================================
 # Helper Functions (stateless utilities)
 # ============================================================================
+
+def validate_string_field(value: Optional[str], field_name: str) -> Optional[str]:
+    """Validate and truncate string field to max length."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        logger.warning(f"{field_name} must be a string, got {type(value)}")
+        return None
+    if len(value) > MAX_STRING_LENGTH:
+        logger.warning(f"{field_name} exceeds {MAX_STRING_LENGTH} chars, truncating")
+        return value[:MAX_STRING_LENGTH]
+    return value
+
+
+def validate_dict_field(value: Optional[Dict[str, Any]], field_name: str) -> Optional[Dict[str, Any]]:
+    """Validate dict field size."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        logger.warning(f"{field_name} must be a dict, got {type(value)}")
+        return None
+    import json
+    size = len(json.dumps(value))
+    if size > MAX_DEVICE_INFO_SIZE:
+        logger.warning(f"{field_name} exceeds {MAX_DEVICE_INFO_SIZE} bytes, rejecting")
+        return None
+    return value
+
 
 def format_duration(seconds: int) -> str:
     """Format duration in seconds to MM:SS or HH:MM:SS."""
@@ -373,6 +405,31 @@ class SupabaseCompletionRepository:
         simulation_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Save a workout completion record."""
+        # Validate heart_rate_samples if provided
+        if heart_rate_samples is not None:
+            if not isinstance(heart_rate_samples, list):
+                logger.warning(f"heart_rate_samples must be a list, got {type(heart_rate_samples)}")
+                heart_rate_samples = None
+            else:
+                # Validate structure: each sample should have required fields
+                validated_samples = []
+                for i, sample in enumerate(heart_rate_samples[:1000]):  # Limit to 1000 samples
+                    if not isinstance(sample, dict):
+                        logger.warning(f"heart_rate_samples[{i}] must be a dict")
+                        continue
+                    # Check for required fields (timestamp and value)
+                    if "timestamp" not in sample and "seconds" not in sample:
+                        logger.warning(f"heart_rate_samples[{i}] missing timestamp field")
+                        continue
+                    if "value" not in sample and "bpm" not in sample:
+                        logger.warning(f"heart_rate_samples[{i}] missing heart rate value field")
+                        continue
+                    validated_samples.append(sample)
+                heart_rate_samples = validated_samples[:500]  # Limit to 500 samples max
+
+        # Validate device_info
+        device_info = validate_dict_field(device_info, "device_info")
+
         try:
             duration_seconds = calculate_duration_seconds(started_at, ended_at)
 
