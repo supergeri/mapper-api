@@ -92,3 +92,17 @@ uvicorn backend.app:app --reload
 ```
 
 The server will start on `http://localhost:8000`
+
+## Database Migrations
+
+This project uses Supabase for the database. Migrations can be run against both development and staging environments using the GitHub Actions workflow.
+
+### Running Migrations via GitHub Actions
+
+1. Go to the **Actions** tab in the repository
+2. Select the **Database Migrations** workflow
+3. Click **Run workflow**
+4. Choose the target environment (`development` or `staging`)
+5. Click **Run workflow** to execute
+
+For detailed documentation, see [DATABASE.md](./DATABASE.md).

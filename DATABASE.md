@@ -86,6 +86,55 @@ If you need to add new tables or columns:
    - Deploy web app (runs migration)
    - Deploy mapper-api (uses new schema)
 
+## Running Migrations via GitHub Actions
+
+This repository includes a GitHub Actions workflow that can run Supabase migrations against both development and staging environments.
+
+### Workflow: Database Migrations
+
+The workflow is located at `.github/workflows/migrations.yml` and supports both development and staging environments.
+
+#### How to Run
+
+1. **Navigate to GitHub repository** → Actions tab → "Database Migrations" workflow
+2. Click **Run workflow**
+3. Select the target environment:
+   - `development` - For local/dev testing
+   - `staging` - For pre-production validation
+4. Click **Run workflow**
+
+#### Required Secrets
+
+Configure the following secrets in your GitHub repository settings for each environment:
+
+**For `development` environment:**
+- `SUPABASE_PROJECT_ID` - Development Supabase project ID
+- `SUPABASE_DB_URL` - Development database connection string
+
+**For `staging` environment:**
+- `SUPABASE_PROJECT_ID` - Staging Supabase project ID
+- `SUPABASE_DB_URL` - Staging database connection string
+
+To configure secrets:
+1. Go to Repository Settings → Environments
+2. Select the environment (development or staging)
+3. Add the required secrets
+
+#### Manual Local Migration
+
+For local development, you can also run migrations manually:
+
+```bash
+# Install Supabase CLI
+npm install -g supabase
+
+# Set database URL
+export SUPABASE_DB_URL="postgresql://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT].supabase.co:5432/postgres"
+
+# Push migrations
+supabase db push --db-url "$SUPABASE_DB_URL"
+```
+
 ## Schema Reference
 
 See the web app's `supabase/migrations/` folder for the complete schema:
