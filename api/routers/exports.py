@@ -18,7 +18,7 @@ This router contains endpoints for:
 """
 
 import logging
-from typing import Dict, Any
+from typing import Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -41,7 +41,7 @@ router = APIRouter(
 
 class BlocksPayload(BaseModel):
     """Payload for blocks format used by workflow endpoints."""
-    blocks_json: dict
+    blocks_json: Dict[str, Any]
 
 
 # =============================================================================
@@ -124,8 +124,8 @@ def map_to_workoutkit(
 @router.post("/map/to-zwo")
 def map_to_zwo(
     p: BlocksPayload,
-    sport: str = Query(None, description="Sport type: 'run' or 'ride'. Auto-detected if not provided."),
-    format: str = Query("zwo", description="File format: 'zwo' for Zwift, 'xml' for generic XML"),
+    sport: Optional[Literal["run", "ride"]] = Query(None, description="Sport type: 'run' or 'ride'. Auto-detected if not provided."),
+    format: Literal["zwo", "xml"] = Query("zwo", description="File format: 'zwo' for Zwift, 'xml' for generic XML"),
     export_service: ExportService = Depends(get_export_service),
 ):
     """Convert blocks JSON to Zwift ZWO XML format for running or cycling workout.
@@ -144,7 +144,7 @@ def map_to_zwo(
 @router.post("/map/to-fit")
 def map_to_fit(
     p: BlocksPayload,
-    sport_type: str = Query(
+    sport_type: Optional[Literal["strength", "cardio", "running"]] = Query(
         None,
         description="Force sport type: 'strength', 'cardio', or 'running'. Auto-detected if not provided."
     ),

@@ -7,11 +7,14 @@ Fixes:
 - Proper repeat structure for sets
 """
 
+import logging
 import re
 import struct
 import time
 from pathlib import Path
 from io import BytesIO
+
+logger = logging.getLogger(__name__)
 
 try:
     from fastapi.responses import StreamingResponse
@@ -371,7 +374,8 @@ def blocks_to_steps(blocks_json, use_lap_button=False):
                     if isinstance(reps_raw, str):
                         try:
                             duration_value = int(reps_raw.split('-')[0])  # Handle ranges like "8-10"
-                        except:
+                        except (ValueError, AttributeError) as e:
+                            logger.warning(f"Failed to parse reps value '{reps_raw}': {e}, defaulting to 10")
                             duration_value = 10
                     else:
                         duration_value = int(reps_raw) if reps_raw else 10
@@ -382,7 +386,8 @@ def blocks_to_steps(blocks_json, use_lap_button=False):
                         # Parse range like "6-8" or "8-10" -> use upper bound
                         parts = reps_range.replace('-', ' ').split()
                         duration_value = int(parts[-1]) if parts else 10
-                    except:
+                    except (ValueError, IndexError) as e:
+                        logger.warning(f"Failed to parse reps range '{reps_range}': {e}, defaulting to 10")
                         duration_value = 10
                 else:
                     # No reps, no distance, no time - use OPEN (press lap when done)
