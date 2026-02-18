@@ -35,6 +35,7 @@ from backend.parsers import (
     parse_images_batch,
     is_supported_image,
 )
+from backend.services.content_classifier import classify_content, ContentCategory, ClassificationConfidence
 from backend.core.garmin_matcher import find_garmin_exercise, get_garmin_suggestions
 
 # Import Pydantic models from api/schemas (AMA-591)
@@ -469,29 +470,106 @@ class BulkImportService:
                     if metadata.video_id:
                         title += f" ({metadata.video_id[:8]}...)"
 
-                detected_items.append({
-                    "id": item_id,
-                    "source_index": idx,
-                    "source_type": "urls",
-                    "source_ref": metadata.url,
-                    "raw_data": {
-                        "url": metadata.url,
-                        "platform": metadata.platform,
-                        "video_id": metadata.video_id,
-                        "title": metadata.title,
-                        "author": metadata.author,
+                # AMA-171: Classify content BEFORE expensive processing
+                classification_result = None
+                classification_error = None
+                
+                if metadata.video_id and metadata.platform != 'unknown':
+                    try:
+                        classification_result = await classify_content(
+                            video_id=metadata.video_id,
+                            platform=metadata.platform,
+                            title=metadata.title,
+                            description=metadata.description
+                        )
+                    except Exception as e:
+                        logger.warning(f"Classification failed for {metadata.url}: {e}")
+                        classification_error = str(e)
+
+                # Check if non-workout content detected (high confidence)
+                is_non_workout = (
+                    classification_result and 
+                    classification_result.category == ContentCategory.NON_WORKOUT and
+                    classification_result.confidence in [
+                        ClassificationConfidence.HIGH,
+                        ClassificationConfidence.MEDIUM
+                    ]
+                )
+
+                if is_non_workout:
+                    # Reject non-workout content with clear message
+                    detected_items.append({
+                        "id": item_id,
+                        "source_index": idx,
+                        "source_type": "urls",
+                        "source_ref": metadata.url,
+                        "raw_data": {
+                            "url": metadata.url,
+                            "platform": metadata.platform,
+                            "video_id": metadata.video_id,
+                            "title": metadata.title,
+                            "author": metadata.author,
+                            "thumbnail_url": metadata.thumbnail_url,
+                            "duration_seconds": metadata.duration_seconds,
+                        },
+                        "parsed_title": title,
+                        "parsed_exercise_count": 0,
+                        "parsed_block_count": 0,
+                        "confidence": 20,
                         "thumbnail_url": metadata.thumbnail_url,
-                        "duration_seconds": metadata.duration_seconds,
-                    },
-                    "parsed_title": title,
-                    "parsed_exercise_count": 0,
-                    "parsed_block_count": 0,
-                    "confidence": 70,
-                    "thumbnail_url": metadata.thumbnail_url,
-                    "author": metadata.author,
-                    "platform": metadata.platform,
-                })
-                success_count += 1
+                        "author": metadata.author,
+                        "platform": metadata.platform,
+                        "errors": [
+                            f"Non-workout content detected: {classification_result.reason}. "
+                            f"This appears to be a {classification_result.category.value} video, not a workout. "
+                            "Please submit a workout video for processing."
+                        ],
+                        "content_classification": {
+                            "category": classification_result.category.value,
+                            "confidence": classification_result.confidence.value,
+                            "reason": classification_result.reason,
+                            "used_llm": classification_result.used_llm,
+                            "cached": classification_result.cached,
+                        },
+                    })
+                    error_count += 1
+                else:
+                    # Proceed with detection (workout or uncertain)
+                    item = {
+                        "id": item_id,
+                        "source_index": idx,
+                        "source_type": "urls",
+                        "source_ref": metadata.url,
+                        "raw_data": {
+                            "url": metadata.url,
+                            "platform": metadata.platform,
+                            "video_id": metadata.video_id,
+                            "title": metadata.title,
+                            "author": metadata.author,
+                            "thumbnail_url": metadata.thumbnail_url,
+                            "duration_seconds": metadata.duration_seconds,
+                        },
+                        "parsed_title": title,
+                        "parsed_exercise_count": 0,
+                        "parsed_block_count": 0,
+                        "confidence": 70,
+                        "thumbnail_url": metadata.thumbnail_url,
+                        "author": metadata.author,
+                        "platform": metadata.platform,
+                    }
+                    
+                    # Include classification info if available
+                    if classification_result:
+                        item["content_classification"] = {
+                            "category": classification_result.category.value,
+                            "confidence": classification_result.confidence.value,
+                            "reason": classification_result.reason,
+                            "used_llm": classification_result.used_llm,
+                            "cached": classification_result.cached,
+                        }
+                    
+                    detected_items.append(item)
+                    success_count += 1
 
         return detected_items, success_count, error_count
 
