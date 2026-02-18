@@ -2,6 +2,7 @@
 Mobile Pairing module for iOS Companion App authentication (AMA-61).
 Handles QR code / short code pairing between web app and iOS app.
 """
+import os
 import secrets
 import json
 from datetime import datetime, timedelta, timezone
@@ -38,9 +39,8 @@ def get_clerk_client():
     """Get or create the Clerk client for fetching user profiles."""
     global _clerk_client
     if _clerk_client is None:
-        # Try settings first, then fall back to env var for test compatibility
-        import os
-        clerk_secret_key = os.environ.get("CLERK_SECRET_KEY") or settings.clerk_secret_key
+        # Use settings first, then fall back to env var for test compatibility
+        clerk_secret_key = settings.clerk_secret_key or os.environ.get("CLERK_SECRET_KEY")
         if clerk_secret_key:
             try:
                 from clerk_backend_api import Clerk
