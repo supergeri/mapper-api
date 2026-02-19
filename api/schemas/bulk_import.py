@@ -157,6 +157,10 @@ class BulkExecuteRequest(BaseModel):
     workout_ids: List[str]
     device: str
     async_mode: bool = True
+    allow_override: bool = Field(
+        default=False,
+        description="If True, allows this import to override concurrency limits and prevents cancellation"
+    )
 
 
 # ============================================================================

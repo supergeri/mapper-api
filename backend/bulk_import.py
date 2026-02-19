@@ -1207,20 +1207,31 @@ class BulkImportService:
         profile_id: str,
         workout_ids: List[str],
         device: str,
-        async_mode: bool = True
+        async_mode: bool = True,
+        allow_override: bool = False
     ) -> BulkExecuteResponse:
         """
         Execute the actual import of workouts.
 
         In async mode, creates a background job and returns immediately.
         In sync mode, processes all workouts before returning.
+
+        Args:
+            job_id: Import job ID
+            profile_id: User profile ID
+            workout_ids: List of workout IDs to import
+            device: Target device for import
+            async_mode: Run import asynchronously (default True)
+            allow_override: If True, prevents this import from being cancelled
+                          by concurrent imports (AMA-675)
         """
         # Create import job entry
         import_job_id = str(uuid.uuid4())
 
         self._update_job_status(
             job_id, profile_id, "running",
-            target_device=device
+            target_device=device,
+            allow_override=allow_override
         )
 
         if async_mode:
@@ -1390,10 +1401,21 @@ class BulkImportService:
         job_id: str,
         profile_id: str
     ) -> bool:
-        """Cancel a running import job"""
+        """
+        Cancel a running import job.
+        
+        If the job has allow_override=True (set during execution),
+        it cannot be cancelled - this prevents approved imports
+        from being interrupted by concurrent operations (AMA-675).
+        """
         job = self._get_job(job_id, profile_id)
 
         if not job or job.get("status") != "running":
+            return False
+
+        # Check if job has allow_override flag - if so, prevent cancellation
+        if job.get("allow_override", False):
+            logger.info(f"Import job {job_id} has allow_override=True, cancellation blocked")
             return False
 
         return self._update_job_status(job_id, profile_id, "cancelled")

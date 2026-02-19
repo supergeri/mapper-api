@@ -351,6 +351,7 @@ async def bulk_import_execute(
         workout_ids=request.workout_ids,
         device=request.device,
         async_mode=request.async_mode,
+        allow_override=request.allow_override,
     )
 
 
