@@ -1,8 +1,10 @@
 """AI client factory with Helicone integration support."""
+from __future__ import annotations
+
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Dict
 
 import httpx
 from backend.settings import get_settings
@@ -93,9 +95,9 @@ class AIRequestContext:
     session_id: str | None = None
     feature_name: str | None = None
     request_id: str | None = None
-    custom_properties: dict[str, str] = field(default_factory=dict)
+    custom_properties: Dict[str, str] = field(default_factory=dict)
 
-    def to_tracking_headers(self) -> dict[str, str]:
+    def to_tracking_headers(self) -> Dict[str, str]:
         """Convert context to provider-specific tracking headers.
 
         Currently generates Helicone headers when Helicone is enabled.
@@ -104,7 +106,7 @@ class AIRequestContext:
 
         Header values are sanitized to prevent header injection attacks.
         """
-        headers: dict[str, str] = {}
+        headers: Dict[str, str] = {}
 
         if self.user_id:
             headers["Helicone-User-Id"] = _sanitize_header_value(self.user_id)
@@ -163,7 +165,7 @@ class AIClientFactory:
             raise ValueError("OpenAI API key not configured. Set OPENAI_API_KEY environment variable.")
 
         # Build client kwargs
-        client_kwargs: dict[str, Any] = {
+        client_kwargs: Dict[str, Any] = {
             "api_key": api_key,
             "timeout": timeout,
         }
@@ -230,7 +232,7 @@ class AIClientFactory:
             raise ValueError("Anthropic API key not configured. Set ANTHROPIC_API_KEY environment variable.")
 
         # Build client kwargs
-        client_kwargs: dict[str, Any] = {
+        client_kwargs: Dict[str, Any] = {
             "api_key": api_key,
             "timeout": timeout,
         }
