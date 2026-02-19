@@ -11,7 +11,7 @@ This router contains endpoints for:
 
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 
 from api.deps import (
@@ -57,6 +57,9 @@ def get_tags_endpoint(
     Returns:
         List of tags with count
     """
+    # Authorization: ensure user_id matches profile_id
+    if user_id != profile_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this profile's tags")
     tags = get_user_tags(profile_id)
 
     return {
@@ -80,6 +83,10 @@ def create_tag_endpoint(
     Returns:
         Created tag or error message
     """
+    # Authorization: ensure user_id matches profile_id
+    if user_id != request.profile_id:
+        raise HTTPException(status_code=403, detail="Not authorized to create tags for this profile")
+
     result = create_user_tag(
         profile_id=request.profile_id,
         name=request.name,
@@ -115,6 +122,10 @@ def delete_tag_endpoint(
     Returns:
         Success status message
     """
+    # Authorization: ensure user_id matches profile_id
+    if user_id != profile_id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete tags for this profile")
+
     success = delete_user_tag(tag_id, profile_id)
 
     if success:

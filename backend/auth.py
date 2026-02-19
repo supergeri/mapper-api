@@ -10,25 +10,28 @@ E2E Test Bypass (dev/staging only):
 - X-Test-Auth header with TEST_AUTH_SECRET
 - X-Test-User-Id header with user ID to impersonate
 """
-import os
 import jwt
 from fastapi import HTTPException, Header
 from typing import Optional
 import logging
 
+from backend.settings import settings
+
 logger = logging.getLogger(__name__)
 
-# Environment check for test bypass (never in production)
-ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
-TEST_AUTH_SECRET = os.getenv("TEST_AUTH_SECRET", "")
-
 # Clerk JWKS for JWT validation
-CLERK_DOMAIN = os.getenv("CLERK_DOMAIN", "")
-CLERK_JWKS_URL = f"https://{CLERK_DOMAIN}/.well-known/jwks.json" if CLERK_DOMAIN else ""
+CLERK_JWKS_URL: str = ""  # Lazy initialization to avoid issues at import time
+
+def _get_clerk_jwks_url() -> str:
+    """Get Clerk JWKS URL, lazily initialized."""
+    global CLERK_JWKS_URL
+    if not CLERK_JWKS_URL and settings.clerk_domain:
+        CLERK_JWKS_URL = f"https://{settings.clerk_domain}/.well-known/jwks.json"
+    return CLERK_JWKS_URL
+
 _jwks_client = None
 
 # Mobile JWT configuration (must match mobile_pairing.py)
-MOBILE_JWT_SECRET = os.getenv("JWT_SECRET", "amakaflow-mobile-jwt-secret-change-in-production")
 MOBILE_JWT_ALGORITHM = "HS256"
 MOBILE_JWT_ISSUER = "amakaflow"
 MOBILE_JWT_AUDIENCE = "ios_companion"
@@ -37,8 +40,9 @@ MOBILE_JWT_AUDIENCE = "ios_companion"
 def get_jwks_client():
     """Get or create the JWKS client for Clerk JWT validation."""
     global _jwks_client
-    if _jwks_client is None and CLERK_DOMAIN:
-        _jwks_client = jwt.PyJWKClient(CLERK_JWKS_URL)
+    jwks_url = _get_clerk_jwks_url()
+    if _jwks_client is None and jwks_url:
+        _jwks_client = jwt.PyJWKClient(jwks_url)
     return _jwks_client
 
 
@@ -87,7 +91,7 @@ def validate_test_auth(test_secret: str, user_id: str) -> str:
     Security: This is explicitly disabled in production.
     """
     # Safety check: Never allow in production
-    if ENVIRONMENT == "production":
+    if settings.is_production:
         logger.warning("Test auth bypass attempted in production - denied")
         raise HTTPException(
             status_code=403,
@@ -95,7 +99,7 @@ def validate_test_auth(test_secret: str, user_id: str) -> str:
         )
 
     # Check if test auth is configured
-    if not TEST_AUTH_SECRET:
+    if not settings.test_auth_secret:
         logger.warning("Test auth attempted but TEST_AUTH_SECRET not configured")
         raise HTTPException(
             status_code=401,
@@ -103,7 +107,7 @@ def validate_test_auth(test_secret: str, user_id: str) -> str:
         )
 
     # Validate the secret
-    if test_secret != TEST_AUTH_SECRET:
+    if test_secret != settings.test_auth_secret:
         logger.warning("Test auth failed - invalid secret")
         raise HTTPException(
             status_code=401,
@@ -129,7 +133,7 @@ def validate_api_key(api_key: str) -> str:
     - Simple: "sk_test_abc123" -> returns "admin"
     - With user: "sk_test_abc123:user_12345" -> returns "user_12345"
     """
-    valid_keys = [k.strip() for k in os.getenv("API_KEYS", "").split(",") if k.strip()]
+    valid_keys = settings.api_keys_list
 
     if not valid_keys:
         logger.warning("No API keys configured (API_KEYS env var empty)")
@@ -182,7 +186,7 @@ def validate_mobile_jwt(token: str) -> str:
     try:
         payload = jwt.decode(
             token,
-            MOBILE_JWT_SECRET,
+            settings.jwt_secret,
             algorithms=[MOBILE_JWT_ALGORITHM],
             issuer=MOBILE_JWT_ISSUER,
             audience=MOBILE_JWT_AUDIENCE,
