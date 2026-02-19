@@ -3,6 +3,7 @@ OpenAI client wrapper for exercise selection.
 
 Part of AMA-462: Implement ProgramGenerator Service
 Part of AMA-423: Add AIRequestContext to All AI Call Sites for Full Observability
+AMA-422: Migrated to AIClientFactory with Helicone support
 
 Provides the OpenAIExerciseSelector class for LLM-powered exercise selection.
 """
@@ -17,6 +18,7 @@ from typing import Optional
 
 from openai import AsyncOpenAI, RateLimitError
 
+from backend.ai import AIClientFactory, AIRequestContext
 from services.llm.prompts import (
     EXERCISE_SELECTION_SYSTEM_PROMPT,
     build_exercise_selection_prompt,
@@ -26,12 +28,6 @@ from services.llm.schemas import (
     ExerciseSelectionRequest,
     ExerciseSelectionResponse,
 )
-
-# Import AIRequestContext for observability (AMA-423)
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-from shared.ai_context import AIRequestContext
 
 logger = logging.getLogger(__name__)
 
@@ -73,21 +69,30 @@ class OpenAIExerciseSelector:
 
     def __init__(
         self,
-        api_key: str,
         model: str = DEFAULT_MODEL,
         cache_max_size: int = CACHE_MAX_SIZE,
         cache_ttl_seconds: int = CACHE_TTL_SECONDS,
+        user_id: Optional[str] = None,
     ):
         """
         Initialize the exercise selector.
 
+        Note: The api_key parameter was removed. The API key is obtained from
+        settings via AIClientFactory. This change was made in AMA-422.
+
         Args:
-            api_key: OpenAI API key
             model: Model to use (default: gpt-4o-mini)
             cache_max_size: Maximum number of cached responses (default: 500)
             cache_ttl_seconds: Cache TTL in seconds (default: 3600)
+            user_id: Optional user ID for tracking/observability
         """
-        self._client = AsyncOpenAI(api_key=api_key)
+        # Create context for Helicone tracking
+        context = AIRequestContext(
+            user_id=user_id,
+            feature_name="exercise_selection",
+            custom_properties={"model": model},
+        )
+        self._client = AIClientFactory.create_openai_client(context=context)
         self._model = model
         self._cache: dict[str, CacheEntry] = {}
         self._cache_max_size = cache_max_size
@@ -129,7 +134,7 @@ class OpenAIExerciseSelector:
         """
         # Store context for use in _call_llm
         self._current_context = context
-        
+
         # Check cache
         cache_key = self._cache_key(request)
         if use_cache:

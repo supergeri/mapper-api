@@ -29,4 +29,3 @@ def normalize(text: str) -> str:
             words[i] = DICT["plural_to_singular"][w]
 
     return " ".join(words).strip()
-

@@ -27,4 +27,3 @@ def canonicalize(cir: CIR, resolver=lambda _norm: None):
             ex.canonical_name = result["canonical"] if result["status"] != "unknown" else None
 
     return cir
-

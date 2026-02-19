@@ -53,4 +53,3 @@ def classify(raw_name: str, accept=0.85, review=0.60):
     else: status = "unknown"
 
     return {"canonical": canonical, "score": score, "status": status, "alternates": ranked}
-

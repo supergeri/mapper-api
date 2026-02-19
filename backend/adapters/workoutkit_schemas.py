@@ -84,4 +84,3 @@ class WKPlanDTO(BaseModel):
     sportType: Literal["running", "cycling", "strengthTraining"]
     intervals: List[WKIntervalDTO]
     schedule: Optional[Schedule] = None
-

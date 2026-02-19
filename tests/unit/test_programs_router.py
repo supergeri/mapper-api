@@ -95,7 +95,7 @@ class TestCreateProgram:
     def test_create_program_success(self, client):
         """Creating a program with valid data returns 200."""
         mock_program = mock_program_data()
-        
+
         with patch("backend.database.create_program", return_value=mock_program):
             response = client.post("/programs", json={
                 "name": "Test Program",
@@ -103,7 +103,7 @@ class TestCreateProgram:
                 "color": "#FF0000",
                 "icon": "💪"
             })
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -117,12 +117,12 @@ class TestCreateProgram:
         mock_program["description"] = None
         mock_program["color"] = None
         mock_program["icon"] = None
-        
+
         with patch("backend.database.create_program", return_value=mock_program):
             response = client.post("/programs", json={
                 "name": "Minimal Program"
             })
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -134,7 +134,7 @@ class TestCreateProgram:
             response = client.post("/programs", json={
                 "name": "Test Program"
             })
-            
+
             assert response.status_code == 400
 
     def test_create_program_empty_name(self, client):
@@ -144,7 +144,7 @@ class TestCreateProgram:
             response = client.post("/programs", json={
                 "name": ""
             })
-            
+
             assert response.status_code == 400
 
     def test_create_program_missing_name(self, client):
@@ -152,7 +152,7 @@ class TestCreateProgram:
         response = client.post("/programs", json={
             "description": "Test description"
         })
-        
+
         assert response.status_code == 422
 
     def test_create_program_invalid_color_format(self, client):
@@ -163,20 +163,20 @@ class TestCreateProgram:
                 "name": "Test Program",
                 "color": "not-a-color"
             })
-            
+
             assert response.status_code == 400
 
     def test_create_program_valid_hex_color(self, client):
         """Creating a program with valid hex color returns 200."""
         mock_program = mock_program_data()
         mock_program["color"] = "#ABCDEF"
-        
+
         with patch("backend.database.create_program", return_value=mock_program):
             response = client.post("/programs", json={
                 "name": "Test Program",
                 "color": "#ABCDEF"
             })
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -188,7 +188,7 @@ class TestCreateProgram:
             response = client.post("/programs", json={
                 "name": long_name
             })
-            
+
             assert response.status_code == 400
 
 
@@ -204,10 +204,10 @@ class TestListPrograms:
     def test_list_programs_success(self, client):
         """Listing programs returns 200 with program list."""
         mock_programs = [mock_program_data(), mock_program_data("prog-456")]
-        
+
         with patch("backend.database.get_programs", return_value=mock_programs):
             response = client.get("/programs")
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -218,7 +218,7 @@ class TestListPrograms:
         """Listing programs when none exist returns empty list."""
         with patch("backend.database.get_programs", return_value=[]):
             response = client.get("/programs")
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -228,10 +228,10 @@ class TestListPrograms:
     def test_list_programs_with_inactive(self, client):
         """Listing programs with include_inactive=True returns all programs."""
         mock_programs = [mock_program_data(), mock_program_data("prog-456")]
-        
+
         with patch("backend.database.get_programs", return_value=mock_programs):
             response = client.get("/programs?include_inactive=true")
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -250,10 +250,10 @@ class TestGetProgram:
     def test_get_program_success(self, client):
         """Getting a program by ID returns 200 with program data."""
         mock_program = mock_program_data()
-        
+
         with patch("backend.database.get_program", return_value=mock_program):
             response = client.get("/programs/prog-123")
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -263,7 +263,7 @@ class TestGetProgram:
         """Getting a non-existent program returns 404."""
         with patch("backend.database.get_program", return_value=None):
             response = client.get("/programs/nonexistent")
-            
+
             assert response.status_code == 404
 
     def test_cannot_access_other_users_program(self, client):
@@ -272,7 +272,7 @@ class TestGetProgram:
         # Database query filters by profile_id, so it returns None
         with patch("backend.database.get_program", return_value=None):
             response = client.get("/programs/prog-123")
-            
+
             # Should return 404 because the program doesn't belong to this user
             assert response.status_code == 404
 
@@ -290,12 +290,12 @@ class TestUpdateProgram:
         """Updating a program returns 200 with updated program."""
         updated_program = mock_program_data()
         updated_program["name"] = "Updated Name"
-        
+
         with patch("backend.database.update_program", return_value=updated_program):
             response = client.patch("/programs/prog-123", json={
                 "name": "Updated Name"
             })
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -308,7 +308,7 @@ class TestUpdateProgram:
             response = client.patch("/programs/prog-123", json={
                 "name": "New Name"
             })
-            
+
             assert response.status_code == 400
 
     def test_cannot_update_other_users_program(self, client):
@@ -317,7 +317,7 @@ class TestUpdateProgram:
             response = client.patch("/programs/prog-123", json={
                 "name": "Hacked Name"
             })
-            
+
             # Should return 400 because the program doesn't belong to this user
             assert response.status_code == 400
 
@@ -335,7 +335,7 @@ class TestDeleteProgram:
         """Deleting a program returns 200."""
         with patch("backend.database.delete_program", return_value=True):
             response = client.delete("/programs/prog-123")
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -345,7 +345,7 @@ class TestDeleteProgram:
         """Deleting a program when database fails returns 400."""
         with patch("backend.database.delete_program", return_value=False):
             response = client.delete("/programs/prog-123")
-            
+
             assert response.status_code == 400
 
 
@@ -361,13 +361,13 @@ class TestAddToProgram:
     def test_add_workout_to_program_success(self, client):
         """Adding a workout to a program returns 200."""
         mock_member = mock_member_data()
-        
+
         with patch("backend.database.add_workout_to_program", return_value=mock_member):
             response = client.post("/programs/prog-123/members", json={
                 "workout_id": "workout-456",
                 "day_order": 1
             })
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -379,13 +379,13 @@ class TestAddToProgram:
         mock_member = mock_member_data()
         mock_member["workout_id"] = None
         mock_member["follow_along_id"] = "fa-789"
-        
+
         with patch("backend.database.add_workout_to_program", return_value=mock_member):
             response = client.post("/programs/prog-123/members", json={
                 "follow_along_id": "fa-789",
                 "day_order": 2
             })
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -397,7 +397,7 @@ class TestAddToProgram:
             response = client.post("/programs/prog-123/members", json={
                 "workout_id": "workout-456"
             })
-            
+
             assert response.status_code == 400
 
     def test_add_to_program_requires_workout_or_follow_along(self, client):
@@ -406,7 +406,7 @@ class TestAddToProgram:
             response = client.post("/programs/prog-123/members", json={
                 "day_order": 1
             })
-            
+
             assert response.status_code == 400
 
 
@@ -423,7 +423,7 @@ class TestRemoveFromProgram:
         """Removing a member from a program returns 200."""
         with patch("backend.database.remove_workout_from_program", return_value=True):
             response = client.delete("/programs/prog-123/members/member-123")
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -433,5 +433,5 @@ class TestRemoveFromProgram:
         """Removing a member when database fails returns 400."""
         with patch("backend.database.remove_workout_from_program", return_value=False):
             response = client.delete("/programs/prog-123/members/member-123")
-            
+
             assert response.status_code == 400

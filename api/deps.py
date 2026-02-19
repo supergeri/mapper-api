@@ -609,7 +609,7 @@ def create_program(profile_id: str, name: str, description: str = None, color: s
     return _create_program(profile_id, name, description, color, icon)
 
 
-def update_program(program_id: str, profile_id: str, name: str = None, description: str = None, 
+def update_program(program_id: str, profile_id: str, name: str = None, description: str = None,
                    color: str = None, icon: str = None, is_active: bool = None,
                    current_day_index: int = None):
     """
@@ -632,7 +632,7 @@ def delete_program(program_id: str, profile_id: str):
     return _delete_program(program_id, profile_id)
 
 
-def add_workout_to_program(program_id: str, profile_id: str, workout_id: str = None, 
+def add_workout_to_program(program_id: str, profile_id: str, workout_id: str = None,
                            follow_along_id: str = None, day_order: int = None):
     """
     Add a workout to a program.

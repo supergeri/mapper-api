@@ -40,7 +40,7 @@ def exercise_to_step(exercise: dict, default_rest_sec: Optional[int] = None) -> 
     rest_sec = exercise.get("rest_sec") or default_rest_sec
     distance_m = exercise.get("distance_m")
     distance_range = exercise.get("distance_range")
-    
+
     # Get mapped exercise name (use Garmin mapping for reps steps)
     garmin_name, _, _ = map_exercise_to_garmin(
         ex_name,
@@ -53,7 +53,7 @@ def exercise_to_step(exercise: dict, default_rest_sec: Optional[int] = None) -> 
     # For reps steps, use Garmin name if available; for time/distance steps, use clean name
     garmin_exercise_name = garmin_name if garmin_name else clean_name
     display_name = clean_name  # Use original name for iOS display (AMA-243)
-    
+
     # Check for "EACH SIDE" pattern and extract reps if present
     each_side_match = re.search(r'X\s*(\d+)\s+EACH\s+SIDE', ex_name, re.IGNORECASE)
     if each_side_match and reps is None:
@@ -64,7 +64,7 @@ def exercise_to_step(exercise: dict, default_rest_sec: Optional[int] = None) -> 
             reps = int(reps_from_name) * 2  # Both sides
         else:
             reps = 10  # Default for "EACH SIDE" without number
-    
+
     # Priority: time > distance > reps
     if duration_sec is not None:
         return TimeStep(
@@ -92,7 +92,7 @@ def exercise_to_step(exercise: dict, default_rest_sec: Optional[int] = None) -> 
                 meters=avg_dist,
                 target=display_name or None  # Exercise name for iOS display (AMA-243)
             )
-    
+
     # Default to reps if available, otherwise use time-based
     if reps is not None:
         return RepsStep(
@@ -374,4 +374,3 @@ def to_workoutkit(blocks_json: dict) -> WKPlanDTO:
         intervals=intervals,
         schedule=schedule
     )
-

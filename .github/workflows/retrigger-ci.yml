@@ -1,0 +1,23 @@
+name: Auto Retry Failed CI (Joshua PRs)
+
+on:
+  workflow_run:
+    workflows: ["CI", "PR CI (Impacted)", "Validate Linear Ticket"]
+    types: [completed]
+
+jobs:
+  retry:
+    if: |
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.run_attempt == 1
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+
+    steps:
+      - name: Re-run failed jobs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh run rerun ${{ github.event.workflow_run.id }} --failed --repo ${{ github.repository }}

@@ -40,22 +40,22 @@ class TestIntegration:
                 }
             ]
         }
-        
+
         # Step 1: Convert to CIR
         cir = to_cir(ingest)
         assert isinstance(cir, CIR)
         assert len(cir.workout.blocks[0].items) == 3
-        
+
         # Step 2: Canonicalize
         cir = canonicalize(cir)
         assert cir.workout.blocks[0].items[0].canonical_name is not None
         assert cir.workout.blocks[0].items[1].canonical_name is not None
         assert cir.workout.blocks[0].items[2].canonical_name is not None
-        
+
         # Step 3: Convert to Garmin YAML
         yaml_str = to_garmin_yaml(cir)
         assert isinstance(yaml_str, str)
-        
+
         # Validate YAML can be parsed
         doc = yaml.safe_load(yaml_str)
         assert "workout" in doc
@@ -65,27 +65,27 @@ class TestIntegration:
     def test_pipeline_with_sample_file(self):
         """Test pipeline using the sample OCR JSON file."""
         import pathlib
-        
+
         sample_file = pathlib.Path(__file__).parents[1] / "sample" / "ocr.json"
-        
+
         if sample_file.exists():
             with open(sample_file) as f:
                 ingest = json.load(f)
-            
+
             # Run full pipeline
             cir = to_cir(ingest)
             cir = canonicalize(cir)
             yaml_str = to_garmin_yaml(cir)
-            
+
             # Validate output
             assert len(yaml_str) > 0
             doc = yaml.safe_load(yaml_str)
             assert "workout" in doc
-            
+
             # Verify exercises were canonicalized
             canonical_names = [
-                ex.canonical_name 
-                for block in cir.workout.blocks 
+                ex.canonical_name
+                for block in cir.workout.blocks
                 for ex in block.items
             ]
             assert all(name is not None for name in canonical_names)
@@ -102,14 +102,14 @@ class TestIntegration:
                 }
             ]
         }
-        
+
         cir = to_cir(ingest)
         cir = canonicalize(cir)
-        
+
         # Should not crash even with unknown exercise
         yaml_str = to_garmin_yaml(cir)
         doc = yaml.safe_load(yaml_str)
-        
+
         assert "workout" in doc
         assert len(doc["workout"]["steps"]) > 0
         # Should have custom exercise name
@@ -124,17 +124,16 @@ class TestIntegration:
             "tags": ["tag1", "tag2"],
             "exercises": [{"name": "Exercise 1"}]
         }
-        
+
         cir = to_cir(ingest)
         assert cir.workout.title == "Custom Title"
         assert cir.workout.notes == "Test notes"
         assert cir.workout.tags == ["tag1", "tag2"]
-        
+
         cir = canonicalize(cir)
         assert cir.workout.title == "Custom Title"
-        
+
         yaml_str = to_garmin_yaml(cir)
         doc = yaml.safe_load(yaml_str)
         assert doc["workout"]["name"] == "Custom Title"
         assert doc["workout"]["notes"] == "Test notes"
-

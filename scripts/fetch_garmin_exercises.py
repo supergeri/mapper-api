@@ -62,11 +62,11 @@ def build_mapping_dictionary(exercises_data, output_file=None):
     if not exercises_data:
         print("No exercises to process")
         return {}
-    
+
     # Group by normalized name patterns
     mapping = {}
     exercise_names = []
-    
+
     # Handle nested structure: {categories: {CATEGORY: {exercises: {NAME: {...}}}}}
     if isinstance(exercises_data, dict) and 'categories' in exercises_data:
         categories = exercises_data['categories']
@@ -76,12 +76,12 @@ def build_mapping_dictionary(exercises_data, output_file=None):
                 for ex_key, ex_data in exercises.items():
                     # Exercise key is like "AB_TWIST", convert to readable name
                     ex_name = ex_key.replace('_', ' ').title()
-                    
+
                     exercise_names.append(ex_name)
-                    
+
                     # Create normalized key for matching
                     normalized = normalize_exercise_name(ex_name)
-                    
+
                     # Store mapping
                     if normalized not in mapping:
                         mapping[normalized] = {
@@ -103,14 +103,14 @@ def build_mapping_dictionary(exercises_data, output_file=None):
                         'data': ex
                     }
                     exercise_names.append(name)
-    
+
     print(f"Built mapping with {len(mapping)} unique exercise patterns")
-    
+
     if output_file:
         # Save to YAML
         output_path = ROOT / output_file
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Format for our use case - create a searchable mapping
         garmin_mapping = {}
         for norm, data in sorted(mapping.items()):
@@ -118,11 +118,11 @@ def build_mapping_dictionary(exercises_data, output_file=None):
                 'name': data['name'],
                 'category': data.get('category', 'Unknown')
             }
-        
+
         with open(output_path, 'w') as f:
             yaml.dump(garmin_mapping, f, sort_keys=True, default_flow_style=False)
         print(f"Saved mapping to {output_path}")
-    
+
     return mapping
 
 
@@ -131,10 +131,10 @@ def main():
     exercises = fetch_exercises()
     if exercises:
         mapping = build_mapping_dictionary(
-            exercises, 
+            exercises,
             output_file="shared/dictionaries/garmin_exercises_raw.yaml"
         )
-        
+
         # Save simple list
         list_path = ROOT / "shared/dictionaries/garmin_exercise_names.txt"
         # Extract names from mapping
@@ -142,7 +142,7 @@ def main():
         with open(list_path, 'w') as f:
             f.write('\n'.join(sorted(set(names))))
         print(f"Saved {len(set(names))} unique exercise names to {list_path}")
-    
+
     types = fetch_exercise_types()
     if types:
         types_path = ROOT / "shared/dictionaries/garmin_exercise_types.yaml"
@@ -153,4 +153,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

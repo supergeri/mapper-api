@@ -16,10 +16,10 @@ Usage:
     def test_yaml_export(workout_data):
         # Load input fixture
         workout = load_fixture("workouts/simple.json")
-        
+
         # Process and export
         output = to_garmin_yaml(workout)
-        
+
         # Compare against expected output
         assert_golden(output, "exports/yaml/simple_workout.yaml")
 

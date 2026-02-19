@@ -5,7 +5,7 @@ Part of AMA-378: Create api/routers skeleton and wiring
 Updated in AMA-380: Move export endpoints from mapping.py
 Updated in AMA-394: Add export endpoint using ExportWorkoutUseCase
 Updated in AMA-357: Move /map/* endpoints to mapping.py
-Updated in AMA-358: Move /map/to-workoutkit, /map/to-zwo, /map/to-fit, 
+Updated in AMA-358: Move /map/to-workoutkit, /map/to-zwo, /map/to-fit,
                    /map/fit-metadata, /map/preview-steps endpoints here
 
 This router contains endpoints for:

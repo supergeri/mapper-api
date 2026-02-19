@@ -15,10 +15,10 @@ class TestDiffEngineEdgeCases:
         session_b = Session('b', 'b', {
             'exercises': ['C', 'A', 'B']
         })
-        
+
         engine = DiffEngine()
         result = engine.compute_diff(session_a, session_b)
-        
+
         assert result.identical is False
         assert any(d.diff_type == 'reordered' for d in result.differences)
 
@@ -30,10 +30,10 @@ class TestDiffEngineEdgeCases:
         session_b = Session('b', 'b', {
             'user': {'name': 'John', 'age': 30}
         })
-        
+
         engine = DiffEngine()
         result = engine.compute_diff(session_a, session_b)
-        
+
         assert result.identical is False
         assert any(d.path == 'user.age' and d.diff_type == 'changed' for d in result.differences)
 
@@ -45,10 +45,10 @@ class TestDiffEngineEdgeCases:
         session_b = Session('b', 'b', {
             'distance': 1000.000000002
         })
-        
+
         engine = DiffEngine()
         result = engine.compute_diff(session_a, session_b)
-        
+
         # These should be considered equal (within epsilon)
         assert result.identical is True
 
@@ -60,10 +60,10 @@ class TestDiffEngineEdgeCases:
         session_b = Session('b', 'b', {
             'distance': 2000.0
         })
-        
+
         engine = DiffEngine()
         result = engine.compute_diff(session_a, session_b)
-        
+
         # These should be considered different
         assert result.identical is False
         assert any(d.diff_type == 'changed' for d in result.differences)
@@ -76,10 +76,10 @@ class TestDiffEngineEdgeCases:
         session_b = Session('b', 'b', {
             # 'exercises' field is missing entirely
         })
-        
+
         engine = DiffEngine()
         result = engine.compute_diff(session_a, session_b)
-        
+
         # Empty array should be detected as a difference vs missing field
         assert result.identical is False
         assert any(d.path == 'exercises' for d in result.differences)
@@ -102,10 +102,10 @@ class TestDiffEngineEdgeCases:
                 ]
             }
         })
-        
+
         engine = DiffEngine()
         result = engine.compute_diff(session_a, session_b)
-        
+
         assert result.identical is False
         # Should detect the change in the nested structure
         assert len(result.differences) > 0
@@ -118,10 +118,10 @@ class TestDiffEngineEdgeCases:
         session_b = Session('b', 'b', {
             'data': [1, 'two', 3.0, True]
         })
-        
+
         engine = DiffEngine()
         result = engine.compute_diff(session_a, session_b)
-        
+
         # Identical mixed-type arrays should be equal
         assert result.identical is True
 
@@ -133,14 +133,14 @@ class TestDiffEngineEdgeCases:
                 return "custom"
             def __repr__(self):
                 return "custom_repr"
-        
+
         session_a = Session('a', 'a', {
             'items': [1, 2]
         })
         session_b = Session('b', 'b', {
             'items': [1, 2]
         })
-        
+
         engine = DiffEngine()
         # Should not raise an error - safe_str should handle non-stringifiable objects
         result = engine.compute_diff(session_a, session_b)

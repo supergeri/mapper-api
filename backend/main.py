@@ -102,7 +102,7 @@ def _configure_cors(app: FastAPI) -> None:
     # Add production domains from environment if configured
     production_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
     trusted_origins.extend([origin.strip() for origin in production_origins if origin.strip()])
-    
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=trusted_origins,

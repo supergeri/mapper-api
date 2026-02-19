@@ -53,5 +53,3 @@ class TestNormalize:
         """Test that whitespace-only strings return empty string."""
         assert normalize("   ") == ""
         assert normalize("\t\n") == ""
-
-

@@ -62,11 +62,10 @@ Add `blocks_json` wrapper:
 
 ## Quick Summary:
 
-✅ **Step 2 (Validate) and Step 4 (Process) use the SAME JSON**  
+✅ **Step 2 (Validate) and Step 4 (Process) use the SAME JSON**
 ✅ **Step 3 (Suggest) uses a DIFFERENT, smaller JSON** (just exercise name)
 
 ## Example Files:
 
 - `test_week7_full.json` - Your original blocks JSON
 - `test_week7_api_payload.json` - Already wrapped correctly (use for Steps 2 & 4)
-

@@ -23,13 +23,13 @@ class TestLLMClassification:
     def test_ambiguous_content_needs_llm(self):
         """Ambiguous content should return None from keyword filter (needs LLM)."""
         classifier = ContentClassifier()
-        
+
         # Test with ambiguous content
         category, confidence, keywords, reason = classifier._keyword_filter(
             title="My Active Lifestyle Journey",
             description="Movement and activities throughout the day",
         )
-        
+
         # This should be ambiguous and need LLM
         assert category == ContentCategory.UNCERTAIN
 
@@ -41,7 +41,7 @@ class TestEndToEndClassification:
     def test_classify_with_clear_workout_keywords(self):
         """Clear workout content should be classified without LLM."""
         classifier = ContentClassifier()
-        
+
         import asyncio
         result = asyncio.get_event_loop().run_until_complete(
             classifier.classify(
@@ -51,7 +51,7 @@ class TestEndToEndClassification:
                 description="Full body cardio and strength training",
             )
         )
-        
+
         assert result.category == ContentCategory.WORKOUT
         assert result.confidence == ClassificationConfidence.HIGH
 
@@ -59,7 +59,7 @@ class TestEndToEndClassification:
     def test_classify_with_clear_non_workout_keywords(self):
         """Clear non-workout content should be classified without LLM."""
         classifier = ContentClassifier()
-        
+
         import asyncio
         result = asyncio.get_event_loop().run_until_complete(
             classifier.classify(
@@ -69,6 +69,6 @@ class TestEndToEndClassification:
                 description="Official music video vevo",
             )
         )
-        
+
         assert result.category == ContentCategory.NON_WORKOUT
         assert result.confidence == ClassificationConfidence.HIGH

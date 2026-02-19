@@ -32,11 +32,11 @@ def run_full_conversion(input_file):
     print("API TEST - FULL CONVERSION WORKFLOW")
     print("=" * 80)
     print()
-    
+
     # Load JSON
     with open(input_file, 'r') as f:
         data = json.load(f)
-    
+
     # Extract exercises
     exercises = []
     for block in data.get("blocks", []):
@@ -45,62 +45,62 @@ def run_full_conversion(input_file):
         for superset in block.get("supersets", []):
             for ex in superset.get("exercises", []):
                 exercises.append(ex.get("name", ""))
-    
+
     print(f"Found {len(exercises)} exercises to test")
     print()
-    
+
     # Test each exercise with suggestion API
     print("=" * 80)
     print("TESTING EXERCISE SUGGESTIONS")
     print("=" * 80)
     print()
-    
+
     problem_exercises = []
-    
+
     for ex_name in exercises:
         if not ex_name:
             continue
-        
+
         print(f"Testing: {ex_name}")
         try:
             suggestions = run_exercise_suggestions(ex_name)
-            
+
             best_match = suggestions.get("best_match")
             if best_match:
                 print(f"  ✓ Best match: {best_match['name']} (score: {best_match['score']:.2f})")
             else:
                 print(f"  ✗ No match found")
-            
+
             if suggestions.get("category"):
                 print(f"  Category: {suggestions['category']}")
-            
+
             similar_count = len(suggestions.get("similar_exercises", []))
             by_type_count = len(suggestions.get("exercises_by_type", []))
-            
+
             if similar_count > 0:
                 print(f"  Similar exercises: {similar_count} found")
                 print(f"    Top 3: {[e['name'] for e in suggestions['similar_exercises'][:3]]}")
-            
+
             if by_type_count > 0:
                 print(f"  Exercises by type: {by_type_count} found")
                 print(f"    Top 3: {[e['name'] for e in suggestions['exercises_by_type'][:3]]}")
-            
+
             if suggestions.get("needs_user_search"):
                 print(f"  ⚠ Needs manual search")
                 problem_exercises.append((ex_name, suggestions))
-            
+
             print()
-            
+
         except Exception as e:
             print(f"  ✗ Error: {e}")
             print()
-    
+
     if problem_exercises:
         print("=" * 80)
         print("EXERCISES NEEDING USER ATTENTION")
         print("=" * 80)
         print()
-        
+
         for ex_name, suggestions in problem_exercises:
             print(f"Exercise: {ex_name}")
             if suggestions.get("similar_exercises"):
@@ -112,7 +112,7 @@ def run_full_conversion(input_file):
                 for alt in suggestions["exercises_by_type"][:10]:
                     print(f"    - {alt['name']}")
             print()
-    
+
     # Note: The blocks to YAML conversion would need a separate endpoint
     # For now, showing how to use the suggestion API
     print("=" * 80)
@@ -132,7 +132,6 @@ if __name__ == "__main__":
         print(f"✗ Server not running at {BASE_URL}")
         print("Start server with: uvicorn backend.app:app --reload")
         sys.exit(1)
-    
+
     input_file = sys.argv[1] if len(sys.argv) > 1 else "test_week7_full.json"
     run_full_conversion(input_file)
-
