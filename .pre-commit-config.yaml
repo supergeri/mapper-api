@@ -1,6 +1,54 @@
-# Pre-commit hooks configuration
+# Pre-commit hooks configuration for AMA-669
 # Install with: pip install pre-commit && pre-commit install
 repos:
+  # Security: detect-secrets
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: ^(.secrets.baseline|requirements.txt|requirements-dev.txt)
+
+  # Shell Scripts: shellcheck
+  - repo: https://github.com/ludeeus/action-shellcheck
+    rev: 0.0.0
+    hooks:
+      - id: shellcheck
+        args: ['-S', 'error']
+
+  # JavaScript/TypeScript: oxlint and oxfmt (if package.json exists)
+  - repo: https://github.com/oxsecurity/megalinter
+    rev: v7.3.0
+    hooks:
+      - id: oxlint
+        args: ['-j', '2']
+        types: [javascript, jsx, typescript, tsx]
+      - id: oxfmt
+        types: [javascript, jsx, typescript, tsx]
+
+  # GitHub Actions: actionlint and zizmor
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.4
+    hooks:
+      - id: actionlint
+  - repo: https://github.com/rhysd/zizmor
+    rev: v0.3.0
+    hooks:
+      - id: zizmor
+        args: ['--severity', 'medium']
+
+  # File Hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb', '500']
+      - id: check-merge-conflict
+
+  # Local: pytest (existing)
   - repo: local
     hooks:
       - id: pytest
@@ -10,17 +58,3 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [commit]
-
-  # actionlint - Static analysis for GitHub Actions workflow YAML
-  - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.11
-    hooks:
-      - id: actionlint
-        types: [yaml]
-
-  # zizmor - Security audit for GitHub Actions
-  - repo: https://github.com/zizmorcore/zizmor-action
-    rev: v0.5.0
-    hooks:
-      - id: zizmor
-        args: ["--min-severity", "medium"]
