@@ -6,13 +6,11 @@ on:
 
 jobs:
   code-review:
-    # Only run for PRs by openclawjoshua-eng
-    if: github.event.pull_request.user.login == 'openclawjoshua-eng' && !github.event.pull_request.draft
+    if: "!github.event.pull_request.draft"
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
-      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -40,9 +38,9 @@ jobs:
               }
             }
 
-      - uses: anthropics/claude-code-action@v1.0.8
+      - uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           use_sticky_comment: true
           claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*)"'
@@ -77,8 +75,8 @@ jobs:
             A numbered checklist of EXACTLY what the developer needs to do, in order.
             Be specific — include file names, line numbers, and what to change.
             For example:
-            1. In `api/routers/sync.py:690`, add `user_id: str = Depends(get_current_user)` parameter
-            2. In `api/routers/sync.py:291`, replace `return {"success": False, ...}` with `raise HTTPException(status_code=404, detail="Workout not found")`
+            1. In `api/routers/sync.py:42`, add `user_id: str = Depends(get_current_user)` parameter
+            2. In `api/routers/sync.py:100`, replace bare `except:` with `except ValueError as e:`
             3. Push your changes — CI and code review will re-run automatically
 
             If there are no issues, just say: "No action needed — this PR is ready to merge."
