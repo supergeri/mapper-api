@@ -1,4 +1,4 @@
-name: Auto Merge (Joshua PRs)
+name: Auto Merge
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
 
 jobs:
   auto-merge:
-    if: github.event.pull_request.user.login == 'openclawjoshua-eng' && !github.event.pull_request.draft
+    if: contains(fromJSON('["openclawjoshua-eng","supergeri"]'), github.event.pull_request.user.login) && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     permissions:
       contents: write
