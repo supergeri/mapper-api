@@ -25,7 +25,7 @@ import base64
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile, status
 from fastapi import File as FastAPIFile
 
 from api.deps import get_current_user
@@ -81,11 +81,20 @@ async def bulk_import_detect(
 
     Returns detected items with confidence scores and any parsing errors.
     """
-    return await bulk_import_service.detect_items(
-        profile_id=request.profile_id,
-        source_type=request.source_type,
-        sources=request.sources,
-    )
+    try:
+        return await bulk_import_service.detect_items(
+            profile_id=request.profile_id,
+            source_type=request.source_type,
+            sources=request.sources,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error detecting workout items: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to detect workout items",
+        )
 
 
 @router.post(
@@ -119,11 +128,20 @@ async def bulk_import_detect_file(
     # Encode as base64 with filename prefix for the parser
     base64_content = f"{filename}:{base64.b64encode(content).decode('utf-8')}"
 
-    return await bulk_import_service.detect_items(
-        profile_id=profile_id,
-        source_type="file",
-        sources=[base64_content],
-    )
+    try:
+        return await bulk_import_service.detect_items(
+            profile_id=profile_id,
+            source_type="file",
+            sources=[base64_content],
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error detecting from file: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to detect workout items from file",
+        )
 
 
 @router.post(
@@ -165,11 +183,20 @@ async def bulk_import_detect_urls(
             detail="No URLs provided"
         )
 
-    return await bulk_import_service.detect_items(
-        profile_id=profile_id,
-        source_type="urls",
-        sources=url_list,
-    )
+    try:
+        return await bulk_import_service.detect_items(
+            profile_id=profile_id,
+            source_type="urls",
+            sources=url_list,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error detecting from URLs: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to detect workout items from URLs",
+        )
 
 
 @router.post(
@@ -221,11 +248,20 @@ async def bulk_import_detect_images(
             "filename": file.filename or "image.jpg",
         })
 
-    return await bulk_import_service.detect_items(
-        profile_id=profile_id,
-        source_type="images",
-        sources=image_sources,
-    )
+    try:
+        return await bulk_import_service.detect_items(
+            profile_id=profile_id,
+            source_type="images",
+            sources=image_sources,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error detecting from images: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to detect workout items from images",
+        )
 
 
 # ============================================================================
@@ -255,11 +291,20 @@ async def bulk_import_map(
         ColumnMapping(**m) if isinstance(m, dict) else m
         for m in request.column_mappings
     ]
-    return await bulk_import_service.apply_column_mappings(
-        job_id=request.job_id,
-        profile_id=request.profile_id,
-        column_mappings=column_mappings,
-    )
+    try:
+        return await bulk_import_service.apply_column_mappings(
+            job_id=request.job_id,
+            profile_id=request.profile_id,
+            column_mappings=column_mappings,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error applying column mappings: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to apply column mappings",
+        )
 
 
 # ============================================================================
@@ -285,11 +330,20 @@ async def bulk_import_match(
     Uses fuzzy matching to find Garmin equivalents for exercise names.
     Returns confidence scores and suggestions for ambiguous matches.
     """
-    return await bulk_import_service.match_exercises(
-        job_id=request.job_id,
-        profile_id=request.profile_id,
-        user_mappings=request.user_mappings,
-    )
+    try:
+        return await bulk_import_service.match_exercises(
+            job_id=request.job_id,
+            profile_id=request.profile_id,
+            user_mappings=request.user_mappings,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error matching exercises: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to match exercises",
+        )
 
 
 # ============================================================================
@@ -315,11 +369,20 @@ async def bulk_import_preview(
     Shows final workout structures, validation issues,
     and statistics before committing the import.
     """
-    return await bulk_import_service.generate_preview(
-        job_id=request.job_id,
-        profile_id=request.profile_id,
-        selected_ids=request.selected_ids,
-    )
+    try:
+        return await bulk_import_service.generate_preview(
+            job_id=request.job_id,
+            profile_id=request.profile_id,
+            selected_ids=request.selected_ids,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating preview: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate preview",
+        )
 
 
 # ============================================================================
@@ -345,14 +408,23 @@ async def bulk_import_execute(
     In async_mode (default), starts a background job and returns immediately.
     Use GET /import/status/{job_id} to track progress.
     """
-    return await bulk_import_service.execute_import(
-        job_id=request.job_id,
-        profile_id=request.profile_id,
-        workout_ids=request.workout_ids,
-        device=request.device,
-        async_mode=request.async_mode,
-        allow_override=request.allow_override,
-    )
+    try:
+        return await bulk_import_service.execute_import(
+            job_id=request.job_id,
+            profile_id=request.profile_id,
+            workout_ids=request.workout_ids,
+            device=request.device,
+            async_mode=request.async_mode,
+            allow_override=request.allow_override,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error executing import: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to execute import",
+        )
 
 
 # ============================================================================
@@ -377,10 +449,19 @@ async def bulk_import_status(
     Returns progress percentage, current item being processed,
     and results for completed items.
     """
-    return await bulk_import_service.get_import_status(
-        job_id=job_id,
-        profile_id=profile_id,
-    )
+    try:
+        return await bulk_import_service.get_import_status(
+            job_id=job_id,
+            profile_id=profile_id,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting import status: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get import status",
+        )
 
 
 @router.post(
@@ -400,10 +481,19 @@ async def bulk_import_cancel(
     Only works for jobs with status 'running'.
     Completed imports cannot be cancelled.
     """
-    success = await bulk_import_service.cancel_import(
-        job_id=job_id,
-        profile_id=profile_id,
-    )
+    try:
+        success = await bulk_import_service.cancel_import(
+            job_id=job_id,
+            profile_id=profile_id,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling import: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to cancel import",
+        )
     return {
         "success": success,
         "message": "Import cancelled" if success else "Failed to cancel import",
