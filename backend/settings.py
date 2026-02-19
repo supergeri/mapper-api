@@ -168,6 +168,18 @@ class Settings(BaseSettings):
     )
 
     # -------------------------------------------------------------------------
+    # Helicone - AI Observability Platform (AMA-422)
+    # -------------------------------------------------------------------------
+    helicone_enabled: bool = Field(
+        default=False,
+        description="Enable Helicone AI observability proxy",
+    )
+    helicone_api_key: Optional[str] = Field(
+        default=None,
+        description="Helicone API key for AI request tracking",
+    )
+
+    # -------------------------------------------------------------------------
     # External Services - Content Classification (AMA-171)
     # -------------------------------------------------------------------------
     content_classifier_model: str = Field(
