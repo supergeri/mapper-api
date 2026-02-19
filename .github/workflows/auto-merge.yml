@@ -16,5 +16,11 @@ jobs:
       - name: Enable auto-merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
-          gh pr merge --auto --squash "${{ github.event.pull_request.html_url }}"
+          # Validate PR URL to prevent template injection
+          if [[ ! "$PR_URL" =~ ^https://github.com/[^/]+/[^/]+/pull/[0-9]+$ ]]; then
+            echo "Error: Invalid PR URL"
+            exit 1
+          fi
+          gh pr merge --auto --squash "$PR_URL"

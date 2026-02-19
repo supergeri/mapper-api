@@ -129,7 +129,7 @@ class OpenAIExerciseSelector:
         """
         # Store context for use in _call_llm
         self._current_context = context
-        
+
         # Check cache
         cache_key = self._cache_key(request)
         if use_cache:

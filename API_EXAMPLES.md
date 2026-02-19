@@ -85,4 +85,3 @@ Get all exercises of the same type (e.g., all squats, all push-ups).
 - `exercises_by_type`: All exercises of the same movement type
 - `category`: Detected exercise category (squat, press, pull, etc.)
 - `needs_user_search`: `true` if no good matches found and user should search manually
-

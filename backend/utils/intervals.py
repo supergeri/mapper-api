@@ -8,13 +8,13 @@ from typing import Any
 def calculate_intervals_duration(intervals: list) -> int:
     """
     Calculate total duration in seconds from intervals list.
-    
+
     Recursively processes nested intervals (repeat blocks) and handles
     different interval types (time, reps, warmup, cooldown, distance).
-    
+
     Args:
         intervals: List of interval dictionaries
-        
+
     Returns:
         Total duration in seconds
     """
@@ -42,12 +42,12 @@ def calculate_intervals_duration(intervals: list) -> int:
 def convert_exercise_to_interval(exercise: dict) -> dict:
     """
     Convert a workout exercise to iOS/Android companion interval format.
-    
+
     Handles both rep-based and time-based exercises, including sets and rest times.
-    
+
     Args:
         exercise: Exercise data dictionary
-        
+
     Returns:
         Interval dictionary in companion app format
     """
@@ -57,7 +57,7 @@ def convert_exercise_to_interval(exercise: dict) -> dict:
     duration_sec = exercise.get("duration_sec")
     rest_sec = exercise.get("rest_sec", 60)
     follow_along_url = exercise.get("followAlongUrl")
-    
+
     # Determine load string
     load_parts = []
     if exercise.get("load"):
@@ -65,25 +65,25 @@ def convert_exercise_to_interval(exercise: dict) -> dict:
     if sets and sets > 1:
         load_parts.append(f"{sets} sets")
     load_str = " + ".join(load_parts) if load_parts else None
-    
+
     # Build the interval
     interval: dict[str, Any] = {
         "name": name,
         "kind": "reps" if reps else "time",
     }
-    
+
     if reps:
         interval["reps"] = reps
         if rest_sec:
             interval["restSec"] = rest_sec
-    
+
     if duration_sec:
         interval["seconds"] = duration_sec
-    
+
     if load_str:
         interval["load"] = load_str
-    
+
     if follow_along_url:
         interval["followAlongUrl"] = follow_along_url
-    
+
     return interval

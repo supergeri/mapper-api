@@ -13,9 +13,9 @@ class TestCanonicalize:
         block = Block(items=[exercise])
         workout = Workout(title="Test", blocks=[block])
         cir = CIR(workout=workout)
-        
+
         result = canonicalize(cir)
-        
+
         assert result.workout.blocks[0].items[0].canonical_name is not None
 
     def test_canonicalize_with_known_exercises(self):
@@ -28,9 +28,9 @@ class TestCanonicalize:
         block = Block(items=exercises)
         workout = Workout(title="Test", blocks=[block])
         cir = CIR(workout=workout)
-        
+
         result = canonicalize(cir)
-        
+
         # All should have canonical names set
         for ex in result.workout.blocks[0].items:
             assert ex.canonical_name is not None
@@ -41,14 +41,14 @@ class TestCanonicalize:
         block = Block(items=[exercise])
         workout = Workout(title="Test", blocks=[block])
         cir = CIR(workout=workout)
-        
+
         def resolver(norm):
             if norm == "some exercise":
                 return "custom_canonical"
             return None
-        
+
         result = canonicalize(cir, resolver=resolver)
-        
+
         assert result.workout.blocks[0].items[0].canonical_name == "custom_canonical"
 
     def test_canonicalize_multiple_blocks(self):
@@ -57,9 +57,9 @@ class TestCanonicalize:
         block2 = Block(items=[Exercise(name="push ups")])
         workout = Workout(title="Test", blocks=[block1, block2])
         cir = CIR(workout=workout)
-        
+
         result = canonicalize(cir)
-        
+
         assert len(result.workout.blocks) == 2
         assert result.workout.blocks[0].items[0].canonical_name is not None
         assert result.workout.blocks[1].items[0].canonical_name is not None
@@ -70,12 +70,12 @@ class TestCanonicalize:
         block = Block(items=[exercise])
         workout = Workout(title="Test", blocks=[block])
         cir = CIR(workout=workout)
-        
+
         result = canonicalize(cir)
-        
+
         # Should return CIR (not crash), canonical_name might be None
         assert isinstance(result, CIR)
-        
+
         canonical_name = result.workout.blocks[0].items[0].canonical_name
         # May be None if score is too low, or may have a fallback match
         assert canonical_name is None or isinstance(canonical_name, str)
@@ -86,11 +86,9 @@ class TestCanonicalize:
         block = Block(items=[exercise])
         workout = Workout(title="Test", blocks=[block])
         cir = CIR(workout=workout)
-        
+
         result = canonicalize(cir)
-        
+
         # Should modify in place, so result is same object
         assert result is cir
         assert result.workout.blocks[0].items[0].canonical_name is not None
-
-

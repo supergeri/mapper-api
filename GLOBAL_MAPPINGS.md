@@ -19,7 +19,7 @@ The global mapping popularity system tracks which Garmin exercises users have ch
 The mapping system now uses this priority order:
 
 1. **User mappings** (personal preferences) - Highest priority
-2. **Global popular mappings** (crowd-sourced) - NEW! 
+2. **Global popular mappings** (crowd-sourced) - NEW!
 3. Manual mappings in code
 4. Fuzzy matching against Garmin database
 5. Canonical matching
@@ -163,4 +163,3 @@ popular_mappings:
 - Personal mappings always take priority over popular mappings
 - Popular mappings are only used if they're reasonably similar to the input (validated by fuzzy matching)
 - The system respects user privacy - only mapping choices are recorded, not user identities
-

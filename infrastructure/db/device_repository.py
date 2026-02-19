@@ -231,13 +231,13 @@ class SupabaseDeviceRepository:
                 # Fix 4: Add type assertions for first_name and last_name
                 first_name = clerk_profile.get("first_name")
                 last_name = clerk_profile.get("last_name")
-                
+
                 # Ensure they are strings (or None)
                 if first_name is not None and not isinstance(first_name, str):
                     first_name = str(first_name) if first_name else None
                 if last_name is not None and not isinstance(last_name, str):
                     last_name = str(last_name) if last_name else None
-                
+
                 # Build name from first_name and last_name
                 name = None
                 if first_name or last_name:

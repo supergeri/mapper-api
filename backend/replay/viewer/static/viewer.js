@@ -1,12 +1,12 @@
 /**
  * Trace Viewer - Interactive Pipeline Visualization
- * 
+ *
  * A lightweight JSON diff library is bundled inline.
  */
 
 (function() {
     'use strict';
-    
+
     // ============== State ==============
     let sessions = [];
     let selectedSession = null;
@@ -15,7 +15,7 @@
     let compareMode = false;
     let compareSession = null;
     let showIgnored = true;
-    
+
     // ============== DOM Elements ==============
     const sessionsList = document.getElementById('sessions-list');
     const sessionSearch = document.getElementById('session-search');
@@ -25,26 +25,26 @@
     const compareBtn = document.getElementById('compare-btn');
     const exportDiffBtn = document.getElementById('export-diff');
     const showIgnoredToggle = document.getElementById('show-ignored');
-    
+
     // ============== Initialization ==============
     async function init() {
         await loadSessions();
         setupEventListeners();
     }
-    
+
     function setupEventListeners() {
         // Refresh button
         refreshBtn.addEventListener('click', loadSessions);
-        
+
         // Search
         sessionSearch.addEventListener('input', filterSessions);
-        
+
         // Compare button
         compareBtn.addEventListener('click', toggleCompareMode);
-        
+
         // Export button
         exportDiffBtn.addEventListener('click', exportDiffAsMarkdown);
-        
+
         // Show ignored toggle
         showIgnoredToggle.addEventListener('change', (e) => {
             showIgnored = e.target.checked;
@@ -53,7 +53,7 @@
             }
         });
     }
-    
+
     // ============== API Calls ==============
     async function loadSessions() {
         try {
@@ -65,7 +65,7 @@
             sessionsList.innerHTML = '<div class="loading">Failed to load sessions</div>';
         }
     }
-    
+
     async function loadSession(sessionName) {
         try {
             const response = await fetch(`/api/session/${sessionName}`);
@@ -75,7 +75,7 @@
             return null;
         }
     }
-    
+
     async function loadDiff(sessionA, sessionB) {
         try {
             const response = await fetch(`/api/diff/${sessionA}/${sessionB}`);
@@ -85,16 +85,16 @@
             return null;
         }
     }
-    
+
     // ============== Rendering ==============
     function renderSessionsList(sessionsToRender) {
         if (sessionsToRender.length === 0) {
             sessionsList.innerHTML = '<div class="loading">No sessions found</div>';
             return;
         }
-        
+
         sessionsList.innerHTML = sessionsToRender.map(session => `
-            <div class="session-item ${selectedSession === session.name ? 'selected' : ''}" 
+            <div class="session-item ${selectedSession === session.name ? 'selected' : ''}"
                  data-session="${session.name}">
                 <div class="session-name">${escapeHtml(session.name)}</div>
                 <div class="session-meta">
@@ -103,28 +103,28 @@
                 </div>
             </div>
         `).join('');
-        
+
         // Add click handlers
         sessionsList.querySelectorAll('.session-item').forEach(item => {
             item.addEventListener('click', () => selectSession(item.dataset.session));
         });
     }
-    
+
     function filterSessions() {
         const query = sessionSearch.value.toLowerCase();
         const filtered = sessions.filter(s => s.name.toLowerCase().includes(query));
         renderSessionsList(filtered);
     }
-    
+
     async function selectSession(sessionName) {
         selectedSession = sessionName;
         selectedNodeIndex = null;
         selectedArrowIndex = null;
-        
+
         // Update UI
         renderSessionsList(sessions);
         compareBtn.disabled = !compareMode;
-        
+
         // Load session data
         const session = await loadSession(sessionName);
         if (session) {
@@ -132,10 +132,10 @@
             renderDetailPanel(null);
         }
     }
-    
+
     function renderTimeline(session) {
         const hops = session.hops || [];
-        
+
         if (hops.length === 0) {
             timeline.innerHTML = `
                 <div class="empty-state">
@@ -144,14 +144,14 @@
             `;
             return;
         }
-        
+
         let html = '<div class="timeline-nodes">';
-        
+
         hops.forEach((hop, index) => {
             const status = hop.success ? 'success' : 'error';
             const statusLabel = hop.success ? '✓' : '✗';
             const stageName = hop.stage || `Hop ${hop.hop_number || index + 1}`;
-            
+
             // Determine node color based on diff status (if in compare mode)
             let colorClass = '';
             if (compareSession && index < hops.length - 1) {
@@ -159,15 +159,15 @@
                 // For now, we'll default to green
                 colorClass = 'green';
             }
-            
+
             html += `
-                <div class="pipeline-node ${colorClass} ${selectedNodeIndex === index ? 'selected' : ''}" 
+                <div class="pipeline-node ${colorClass} ${selectedNodeIndex === index ? 'selected' : ''}"
                      data-index="${index}">
                     <span class="node-label">${escapeHtml(stageName)}</span>
                     <span class="node-status ${status}">${statusLabel}</span>
                 </div>
             `;
-            
+
             // Add arrow between nodes (except for last)
             if (index < hops.length - 1) {
                 let arrowClass = '';
@@ -175,15 +175,15 @@
                     arrowClass = 'has-diff'; // Could be more sophisticated
                 }
                 html += `
-                    <div class="node-arrow ${arrowClass} ${selectedArrowIndex === index ? 'selected' : ''}" 
+                    <div class="node-arrow ${arrowClass} ${selectedArrowIndex === index ? 'selected' : ''}"
                          data-index="${index}"></div>
                 `;
             }
         });
-        
+
         html += '</div>';
         timeline.innerHTML = html;
-        
+
         // Add click handlers
         timeline.querySelectorAll('.pipeline-node').forEach(node => {
             node.addEventListener('click', () => {
@@ -193,7 +193,7 @@
                 showNodeDetails(session, selectedNodeIndex);
             });
         });
-        
+
         timeline.querySelectorAll('.node-arrow').forEach(arrow => {
             arrow.addEventListener('click', () => {
                 selectedArrowIndex = parseInt(arrow.dataset.index);
@@ -203,18 +203,18 @@
             });
         });
     }
-    
+
     function showNodeDetails(session, nodeIndex) {
         const hops = session.hops || [];
         const hop = hops[nodeIndex];
-        
+
         if (!hop) return;
-        
+
         const beforeJson = JSON.stringify(hop.before || {}, null, 2);
         const afterJson = JSON.stringify(hop.after || {}, null, 2);
-        
+
         const stageName = hop.stage || `Hop ${hop.hop_number || nodeIndex + 1}`;
-        
+
         detailPanel.innerHTML = `
             <div class="detail-content">
                 <div class="detail-json">
@@ -228,20 +228,20 @@
             </div>
         `;
     }
-    
+
     async function showArrowDetails(session, arrowIndex) {
         const hops = session.hops || [];
-        
+
         if (arrowIndex >= hops.length - 1) return;
-        
+
         const fromHop = hops[arrowIndex];
         const toHop = hops[arrowIndex + 1];
         const sessionA = selectedSession;
-        
+
         // For now, we compare consecutive hops within the same session
         // Or we could compare with another session in compare mode
         let diffData;
-        
+
         if (compareSession) {
             // Compare hops across sessions
             diffData = await loadDiff(selectedSession, compareSession);
@@ -252,14 +252,14 @@
             // Instead, compute inline diff
             diffData = computeInlineDiff(fromHop.after || {}, toHop.before || {});
         }
-        
+
         renderDiffDetails(diffData);
     }
-    
+
     function computeInlineDiff(dataA, dataB) {
         const differences = [];
         diffRecursive(dataA, dataB, '', differences);
-        
+
         return {
             identical: differences.length === 0,
             differences: differences.map(d => ({
@@ -270,7 +270,7 @@
             }))
         };
     }
-    
+
     function diffRecursive(a, b, path, differences) {
         // Handle null/undefined
         if (a === null && b === null) return;
@@ -278,13 +278,13 @@
             differences.push({ path, type: 'changed', valueA: a, valueB: b });
             return;
         }
-        
+
         // Type mismatch
         if (typeof a !== typeof b) {
             differences.push({ path, type: 'changed', valueA: a, valueB: b });
             return;
         }
-        
+
         // Handle objects
         if (typeof a === 'object' && !Array.isArray(a)) {
             const allKeys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
@@ -300,7 +300,7 @@
             }
             return;
         }
-        
+
         // Handle arrays
         if (Array.isArray(a)) {
             if (a.length !== b.length) {
@@ -312,19 +312,19 @@
             }
             return;
         }
-        
+
         // Simple values
         if (a !== b) {
             differences.push({ path, type: 'changed', valueA: a, valueB: b });
         }
     }
-    
+
     async function renderDiffDetails(diffData) {
         if (!diffData) {
             detailPanel.innerHTML = '<div class="empty-state"><p>No diff data available</p></div>';
             return;
         }
-        
+
         if (diffData.identical) {
             detailPanel.innerHTML = `
                 <div class="empty-state">
@@ -333,7 +333,7 @@
             `;
             return;
         }
-        
+
         const diffItemsHtml = diffData.differences.map(diff => `
             <div class="diff-item ${diff.type}">
                 <div class="diff-path">${escapeHtml(diff.path)}</div>
@@ -343,7 +343,7 @@
                 </div>
             </div>
         `).join('');
-        
+
         detailPanel.innerHTML = `
             <div class="diff-list">
                 <div class="json-header" style="padding: 12px; background: var(--bg-tertiary); margin-bottom: 12px; border-radius: 6px;">
@@ -352,10 +352,10 @@
                 ${diffItemsHtml}
             </div>
         `;
-        
+
         exportDiffBtn.disabled = false;
     }
-    
+
     function renderDetailPanel(content) {
         if (!content) {
             detailPanel.innerHTML = '<div class="empty-state"><p>Click on a node or arrow to see details</p></div>';
@@ -364,11 +364,11 @@
         }
         detailPanel.innerHTML = content;
     }
-    
+
     // ============== Compare Mode ==============
     function toggleCompareMode() {
         compareMode = !compareMode;
-        
+
         if (!compareMode) {
             compareSession = null;
             compareBtn.textContent = 'Compare Selected';
@@ -379,9 +379,9 @@
             compareBtn.classList.remove('btn-secondary');
             compareBtn.classList.add('btn-primary');
         }
-        
+
         compareBtn.disabled = !compareMode;
-        
+
         // If now in compare mode and we have a session selected, prompt for second
         if (compareMode && selectedSession) {
             // Add visual indicator to sessions list
@@ -389,7 +389,7 @@
         } else {
             sessionsList.classList.remove('compare-mode');
         }
-        
+
         // Re-render timeline if session is selected
         if (selectedSession) {
             loadSession(selectedSession).then(session => {
@@ -397,15 +397,15 @@
             });
         }
     }
-    
+
     // ============== Export ==============
     function exportDiffAsMarkdown() {
         if (!selectedSession || !compareSession) return;
-        
+
         // Generate markdown
         let markdown = `# Diff: ${selectedSession} vs ${compareSession}\n\n`;
         markdown += `Generated by Trace Viewer\n\n`;
-        
+
         const diffElements = detailPanel.querySelectorAll('.diff-item');
         if (diffElements.length === 0) {
             markdown += 'No differences found.\n';
@@ -413,9 +413,9 @@
             diffElements.forEach(item => {
                 const path = item.querySelector('.diff-path').textContent;
                 const values = item.querySelectorAll('.diff-value');
-                
+
                 markdown += `## ${path}\n\n`;
-                
+
                 if (values[0]) {
                     markdown += `- **From**: \`${values[0].textContent}\`\n`;
                 }
@@ -425,7 +425,7 @@
                 markdown += '\n';
             });
         }
-        
+
         // Download as file
         const blob = new Blob([markdown], { type: 'text/markdown' });
         const url = URL.createObjectURL(blob);
@@ -435,7 +435,7 @@
         a.click();
         URL.revokeObjectURL(url);
     }
-    
+
     // ============== Utilities ==============
     function escapeHtml(text) {
         if (text === null || text === undefined) return '';
@@ -443,7 +443,7 @@
         div.textContent = String(text);
         return div.innerHTML;
     }
-    
+
     // ============== Start ==============
     init();
 })();

@@ -1,26 +1,62 @@
-# Pre-commit hooks configuration
+# Pre-commit hooks configuration for AMA-669
 # Install with: pip install pre-commit && pre-commit install
 repos:
-  - repo: local
+  # Security: detect-secrets
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
     hooks:
-      - id: pytest
-        name: Run pytest
-        entry: pytest
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [commit]
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: ^(.secrets.baseline|requirements.txt|requirements-dev.txt)
 
-  # actionlint - Static analysis for GitHub Actions workflow YAML
+  # Shell Scripts: shellcheck
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        types: [bash]
+        exclude: ^run_tests\.sh$
+
+  # JavaScript/TypeScript: eslint and prettier (if needed)
+  # Removed oxlint/oxfmt from megalinter - using standard Node.js linters instead
+  # - repo: https://github.com/oxsecurity/megalinter
+  #   rev: v7.3.0
+  #   hooks:
+  #     - id: oxlint
+  #       args: ['-j', '2']
+  #       types: [javascript, jsx, typescript, tsx]
+  #     - id: oxfmt
+  #       types: [javascript, jsx, typescript, tsx]
+
+  # GitHub Actions: actionlint and zizmor
   - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.11
+    rev: v1.7.4
     hooks:
       - id: actionlint
-        types: [yaml]
-
-  # zizmor - Security audit for GitHub Actions
-  - repo: https://github.com/zizmorcore/zizmor-action
-    rev: v0.5.0
+  - repo: https://github.com/woodruffw/zizmor
+    rev: v0.3.0
     hooks:
       - id: zizmor
-        args: ["--min-severity", "medium"]
+
+  # File Hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb', '500']
+      - id: check-merge-conflict
+
+  # Note: pytest hook removed - requires dependencies not available in pre-commit environment
+  # pytest should be run via CI test job instead
+  # - repo: local
+  #   hooks:
+  #     - id: pytest
+  #       name: Run pytest
+  #       entry: pytest
+  #       language: system
+  #       pass_filenames: false
+  #       always_run: true
+  #       stages: [commit]

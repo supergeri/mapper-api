@@ -11,5 +11,3 @@ echo "Starting pytest-watch... Tests will run automatically on file changes."
 echo "Press Ctrl+C to stop."
 echo ""
 ptw -- -v --tb=short
-
-

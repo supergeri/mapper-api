@@ -18,7 +18,7 @@ class TestMatch:
         """Test that suggest respects top_k parameter."""
         results = suggest("bench press", top_k=3)
         assert len(results) <= 3
-        
+
         results = suggest("bench press", top_k=1)
         assert len(results) == 1
 
@@ -81,13 +81,11 @@ class TestMatch:
         # Test with abbreviation
         results1 = suggest("db bench")
         assert len(results1) > 0
-        
+
         # Test with full name
         results2 = suggest("dumbbell bench press")
         assert len(results2) > 0
-        
+
         # Test with different formatting
         results3 = suggest("push-ups")
         assert len(results3) > 0
-
-

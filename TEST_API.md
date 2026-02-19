@@ -92,4 +92,3 @@ Expected: Returns all squat variations.
 - ✅ Exercise by type: "SOME TYPE OF SQUAT" → shows all squats
 - ✅ Unknown exercise: "UNKNOWN EXERCISE XYZ" → needs_user_search: true
 - ✅ Partial match: "HAND RELEASE PUSH UPS" → shows push-up variants
-

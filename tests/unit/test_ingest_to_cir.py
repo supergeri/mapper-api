@@ -19,9 +19,9 @@ class TestIngestToCIR:
                 }
             ]
         }
-        
+
         result = to_cir(ingest)
-        
+
         assert isinstance(result, CIR)
         assert result.workout.title == "Test Workout"
         assert len(result.workout.blocks) == 1
@@ -33,9 +33,9 @@ class TestIngestToCIR:
         ingest = {
             "exercises": []
         }
-        
+
         result = to_cir(ingest)
-        
+
         assert result.workout.title == "Imported Workout"
 
     def test_all_exercise_fields(self):
@@ -54,9 +54,9 @@ class TestIngestToCIR:
                 }
             ]
         }
-        
+
         result = to_cir(ingest)
-        
+
         ex = result.workout.blocks[0].items[0]
         assert ex.name == "Test Exercise"
         assert ex.sets == 3
@@ -76,9 +76,9 @@ class TestIngestToCIR:
                 {"name": "Exercise 3", "sets": 5}
             ]
         }
-        
+
         result = to_cir(ingest)
-        
+
         assert len(result.workout.blocks[0].items) == 3
         assert result.workout.blocks[0].items[0].name == "Exercise 1"
         assert result.workout.blocks[0].items[1].name == "Exercise 2"
@@ -91,9 +91,9 @@ class TestIngestToCIR:
                 {"name": "Exercise"}
             ]
         }
-        
+
         result = to_cir(ingest)
-        
+
         ex = result.workout.blocks[0].items[0]
         assert ex.name == "Exercise"
         assert ex.sets is None
@@ -110,9 +110,9 @@ class TestIngestToCIR:
             "tags": ["chest", "push"],
             "exercises": []
         }
-        
+
         result = to_cir(ingest)
-        
+
         assert result.workout.title == "My Workout"
         assert result.workout.notes == "Test notes"
         assert result.workout.tags == ["chest", "push"]
@@ -482,5 +482,3 @@ class TestDetectCircuitGroups:
         assert result.workout.blocks[0].type == "superset"
         assert result.workout.blocks[0].rounds == 4
         assert len(result.workout.blocks[0].items) == 2
-
-

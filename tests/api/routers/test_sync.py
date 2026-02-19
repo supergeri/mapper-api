@@ -5,7 +5,7 @@ Part of AMA-590: Write unit tests for sync router
 
 Tests all endpoints in api/routers/sync.py:
 - iOS Companion App endpoints (push, pending)
-- Android Companion App endpoints (push, pending)  
+- Android Companion App endpoints (push, pending)
 - Garmin sync endpoint
 - Sync Queue endpoints (queue, pending, confirm, failed, status)
 - Helper functions (calculate_intervals_duration, convert_exercise_to_interval, _transform_workout_to_companion)
@@ -79,10 +79,10 @@ def app():
     """Create test app with mocked dependencies."""
     settings = Settings(environment="test", _env_file=None)
     test_app = create_app(settings=settings)
-    
+
     async def mock_get_current_user():
         return TEST_USER_ID
-    
+
     test_app.dependency_overrides[get_current_user] = mock_get_current_user
     return test_app
 
@@ -288,12 +288,12 @@ class TestIOSCompanionEndpoints:
         mock_run.side_effect = [sample_workout_record, None, None]
         mock_update.return_value = True
         mock_queue.return_value = {"status": "pending", "queued_at": "2024-01-01T00:00:00Z"}
-        
+
         response = client.post(
             f"/workouts/{TEST_WORKOUT_ID}/push/ios-companion",
             json={}
         )
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
@@ -306,12 +306,12 @@ class TestIOSCompanionEndpoints:
     ):
         """Return 404 when workout not found."""
         mock_run.return_value = None
-        
+
         response = client.post(
             f"/workouts/{TEST_WORKOUT_ID}/push/ios-companion",
             json={}
         )
-        
+
         assert response.status_code == 404
 
     @pytest.mark.unit
@@ -328,9 +328,9 @@ class TestIOSCompanionEndpoints:
                 "created_at": "2024-01-01T00:00:00Z",
             }
         ]
-        
+
         response = client.get("/ios-companion/pending")
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
@@ -343,9 +343,9 @@ class TestIOSCompanionEndpoints:
     ):
         """Return empty list when no pending workouts."""
         mock_run.return_value = []
-        
+
         response = client.get("/ios-companion/pending")
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["count"] == 0
@@ -370,12 +370,12 @@ class TestAndroidCompanionEndpoints:
         mock_run.side_effect = [sample_workout_record, None, None]
         mock_update.return_value = True
         mock_queue.return_value = {"status": "pending", "queued_at": "2024-01-01T00:00:00Z"}
-        
+
         response = client.post(
             f"/workouts/{TEST_WORKOUT_ID}/push/android-companion",
             json={}
         )
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
@@ -395,9 +395,9 @@ class TestAndroidCompanionEndpoints:
                 "created_at": "2024-01-01T00:00:00Z",
             }
         ]
-        
+
         response = client.get("/android-companion/pending")
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
@@ -419,11 +419,11 @@ class TestGarminSyncEndpoint:
         mock_client = MagicMock()
         mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client_class.return_value.__aexit__ = AsyncMock(return_value=False)
-        
+
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
         mock_client.post = AsyncMock(return_value=mock_response)
-        
+
         payload = {
             "blocks_json": {
                 "blocks": [
@@ -436,9 +436,9 @@ class TestGarminSyncEndpoint:
             },
             "workout_title": "Test Garmin Workout",
         }
-        
+
         response = client.post("/workout/sync/garmin", json=payload)
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
@@ -450,11 +450,11 @@ class TestGarminSyncEndpoint:
         mock_client = MagicMock()
         mock_client_class.return_value.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client_class.return_value.__aexit__ = AsyncMock(return_value=False)
-        
+
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
         mock_client.post = AsyncMock(return_value=mock_response)
-        
+
         payload = {
             "blocks_json": {
                 "blocks": [
@@ -468,7 +468,7 @@ class TestGarminSyncEndpoint:
             "workout_title": "Scheduled Workout",
             "schedule_date": "2024-12-25",
         }
-        
+
         response = client.post("/workout/sync/garmin", json=payload)
         assert response.status_code == 200
         assert mock_client.post.call_count == 2
@@ -485,7 +485,7 @@ class TestGarminSyncDisabled:
             "blocks_json": {"blocks": [{"exercises": [{"name": "Push-ups", "reps": 10}]}]},
             "workout_title": "Test Workout",
         }
-        
+
         response = client.post("/workout/sync/garmin", json=payload)
         assert response.status_code == 503
 
@@ -506,17 +506,17 @@ class TestSyncQueueEndpoints:
 
     @pytest.mark.unit
     def test_queue_sync_success(
-        self, mock_run, mock_get, mock_queue, mock_pending, 
+        self, mock_run, mock_get, mock_queue, mock_pending,
         mock_confirm, mock_failed, mock_status, client, sample_workout_record
     ):
         """Successfully queue workout for sync."""
         mock_run.side_effect = [sample_workout_record, {"status": "pending", "queued_at": "2024-01-01T00:00:00Z"}]
-        
+
         response = client.post(
             f"/workouts/{TEST_WORKOUT_ID}/sync",
             json={"device_type": "ios", "device_id": TEST_DEVICE_ID}
         )
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
@@ -552,9 +552,9 @@ class TestSyncQueueEndpoints:
                 }
             }
         ]
-        
+
         response = client.get("/sync/pending?device_type=ios")
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
@@ -579,7 +579,7 @@ class TestSyncQueueEndpoints:
             "status": "synced",
             "synced_at": "2024-01-01T00:00:00Z"
         }
-        
+
         response = client.post(
             "/sync/confirm",
             json={
@@ -588,7 +588,7 @@ class TestSyncQueueEndpoints:
                 "device_id": TEST_DEVICE_ID
             }
         )
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
@@ -604,7 +604,7 @@ class TestSyncQueueEndpoints:
             "status": "failed",
             "failed_at": "2024-01-01T00:00:00Z"
         }
-        
+
         response = client.post(
             "/sync/failed",
             json={
@@ -614,7 +614,7 @@ class TestSyncQueueEndpoints:
                 "device_id": TEST_DEVICE_ID
             }
         )
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
@@ -634,9 +634,9 @@ class TestSyncQueueEndpoints:
                 "garmin": None
             }
         ]
-        
+
         response = client.get(f"/workouts/{TEST_WORKOUT_ID}/sync-status")
-        
+
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
@@ -654,7 +654,7 @@ class TestDeviceTypeEnum:
     def test_device_type_values(self):
         """DeviceType enum has correct values."""
         from api.routers.sync import DeviceType
-        
+
         assert DeviceType.IOS.value == "ios"
         assert DeviceType.ANDROID.value == "android"
         assert DeviceType.GARMIN.value == "garmin"
@@ -663,7 +663,7 @@ class TestDeviceTypeEnum:
     def test_device_type_from_string(self):
         """Can create DeviceType from string."""
         from api.routers.sync import DeviceType
-        
+
         assert DeviceType("ios") == DeviceType.IOS
         assert DeviceType("android") == DeviceType.ANDROID
         assert DeviceType("garmin") == DeviceType.GARMIN
@@ -681,7 +681,7 @@ class TestSyncRouterConfiguration:
         """All expected endpoints should be registered."""
         openapi = app.openapi()
         paths = openapi.get("paths", {})
-        
+
         expected_endpoints = [
             "/workouts/{workout_id}/push/ios-companion",
             "/ios-companion/pending",
@@ -694,7 +694,7 @@ class TestSyncRouterConfiguration:
             "/sync/failed",
             "/workouts/{workout_id}/sync-status",
         ]
-        
+
         for endpoint in expected_endpoints:
             assert endpoint in paths, f"Missing endpoint: {endpoint}"
 
@@ -711,12 +711,12 @@ class TestErrorHandling:
         """Handle database error during iOS push."""
         with patch("api.routers.sync.run_in_threadpool") as mock_run:
             mock_run.side_effect = Exception("Database connection failed")
-            
+
             response = client.post(
                 f"/workouts/{TEST_WORKOUT_ID}/push/ios-companion",
                 json={}
             )
-            
+
             assert response.status_code == 500
 
     @pytest.mark.unit
@@ -724,9 +724,9 @@ class TestErrorHandling:
         """Handle database error when getting pending workouts."""
         with patch("api.routers.sync.run_in_threadpool") as mock_run:
             mock_run.side_effect = Exception("Query failed")
-            
+
             response = client.get("/ios-companion/pending")
-            
+
             assert response.status_code == 500
 
 
@@ -742,7 +742,7 @@ class TestSyncRouterIntegration:
     def test_full_sync_workflow(self, client):
         """Test complete sync workflow: queue -> pending -> confirm."""
         workout_id = "workflow-test-123"
-        
+
         # Step 1: Queue workout for sync
         with patch("api.routers.sync.run_in_threadpool") as mock_run:
             mock_run.side_effect = [
@@ -756,13 +756,13 @@ class TestSyncRouterIntegration:
                     "queued_at": "2024-01-01T00:00:00Z"
                 }
             ]
-            
+
             response = client.post(
                 f"/workouts/{workout_id}/sync",
                 json={"device_type": "ios", "device_id": "device-1"}
             )
             assert response.status_code == 200
-        
+
         # Step 2: Get pending syncs
         with patch("api.routers.sync.run_in_threadpool") as mock_run:
             mock_run.return_value = [
@@ -777,7 +777,7 @@ class TestSyncRouterIntegration:
                     }
                 }
             ]
-            
+
             response = client.get("/sync/pending?device_type=ios&device_id=device-1")
             assert response.status_code == 200
             data = response.json()

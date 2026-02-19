@@ -108,7 +108,7 @@ class SyncToGarminRequest(BaseModel):
     blocks_json: dict = Field(description="Workout blocks structure with exercises and supersets")
     workout_title: str = Field(min_length=1, max_length=256, description="Workout title")
     schedule_date: Optional[str] = Field(None, description="Schedule date in YYYY-MM-DD format")
-    
+
     @field_validator('schedule_date')
     @classmethod
     def validate_schedule_date(cls, v):
@@ -120,7 +120,7 @@ class SyncToGarminRequest(BaseModel):
         except ValueError:
             raise ValueError('schedule_date must be in YYYY-MM-DD format (e.g., 2026-02-13)')
         return v
-    
+
     @field_validator('blocks_json')
     @classmethod
     def validate_blocks_json(cls, v):
@@ -164,20 +164,20 @@ async def _transform_workout_to_companion(
 ) -> dict:
     """
     Transform workout data to companion app interval format (iOS/Android).
-    
+
     Extracts common transformation logic shared by iOS and Android endpoints.
     Handles: intervals, warmup/cooldown, reps, durations, load calculation, step building.
-    
+
     ISSUE 1 FIX (AMA-589): DRY Violation - Extract Duplicate iOS/Android Code
     This helper eliminates ~180 lines of identical transformation logic.
-    
+
     Args:
         workout_data: Workout structure with blocks and exercises
         workout_title: Name/title for the workout
-        
+
     Returns:
         Dictionary with keys: id, name, sport, duration, source, sourceUrl, intervals
-        
+
     Raises:
         ValueError: If workout data structure is invalid
         TypeError: If required fields are missing or wrong type
@@ -186,22 +186,22 @@ async def _transform_workout_to_companion(
         # Detect sport type from workout structure
         blocks = workout_data.get("blocks", [])
         sport = "strength"  # Default
-        
+
         for block in blocks:
             structure = block.get("structure", "")
             if structure in ["tabata", "hiit", "circuit", "emom", "amrap"]:
                 sport = "cardio"
                 break
-        
+
         # Build intervals from blocks
         intervals = []
         total_duration = 0
-        
+
         for block in blocks:
             exercises = block.get("exercises", [])
             rounds = block.get("rounds", 1) or 1
             rest_between_rounds = block.get("rest_between_rounds_sec") or block.get("rest_between_sec", 60)
-            
+
             # Warmup block
             if block.get("label", "").lower() in ["warmup", "warm up", "warm-up"]:
                 warmup_duration = sum(
@@ -214,7 +214,7 @@ async def _transform_workout_to_companion(
                 })
                 total_duration += warmup_duration
                 continue
-            
+
             # Cooldown block
             if block.get("label", "").lower() in ["cooldown", "cool down", "cool-down"]:
                 cooldown_duration = sum(
@@ -227,20 +227,20 @@ async def _transform_workout_to_companion(
                 })
                 total_duration += cooldown_duration
                 continue
-            
+
             # Create repeat block if rounds > 1
             if rounds > 1:
                 inner_intervals = []
                 for exercise in exercises:
                     inner_interval = convert_exercise_to_interval(exercise)
                     inner_intervals.append(inner_interval)
-                
+
                 intervals.append({
                     "kind": "repeat",
                     "reps": rounds,
                     "intervals": inner_intervals
                 })
-                
+
                 # Calculate duration for repeat
                 inner_duration = sum(
                     (e.get("duration_sec", 0) or 0) + (e.get("rest_sec", 0) or 0)
@@ -253,7 +253,7 @@ async def _transform_workout_to_companion(
                     interval = convert_exercise_to_interval(exercise)
                     intervals.append(interval)
                     total_duration += (exercise.get("duration_sec", 0) or 0) + (exercise.get("rest_sec", 0) or 0)
-        
+
         # Create payload for companion app (iOS or Android will add their wrapper)
         return {
             "id": None,  # Will be set by caller
@@ -264,7 +264,7 @@ async def _transform_workout_to_companion(
             "sourceUrl": None,
             "intervals": intervals
         }
-    
+
     except (ValueError, KeyError, AttributeError, TypeError) as e:
         logger.error(f"Failed to transform workout to companion format: {e}", exc_info=True)
         raise ValueError(f"Invalid workout data structure: {str(e)}")
@@ -287,20 +287,20 @@ async def push_workout_to_ios_companion_endpoint(
 ):
     """
     Push a regular (blocks-based) workout to iOS Companion App.
-    
+
     Transforms the workout structure into the iOS app's interval format
     and queues it for sync. This endpoint is for workouts created through
     the standard workflow, not follow-along workouts ingested from Instagram.
-    
+
     Args:
         workout_id: Workout identifier
         request: Push request (legacy userId field deprecated)
         user_id: Authenticated user ID from JWT
         export_queue: ExportQueue for managing background export jobs (AMA-612)
-        
+
     Returns:
         Success response with task_id and queued status
-        
+
     ISSUE 1 FIX (AMA-589): Uses shared helper function _transform_workout_to_companion
     """
     try:
@@ -308,10 +308,10 @@ async def push_workout_to_ios_companion_endpoint(
         workout_record = await run_in_threadpool(get_workout, workout_id, user_id)
         if not workout_record:
             raise HTTPException(status_code=404, detail="Workout not found")
-        
+
         workout_data = workout_record.get("workout_data", {})
         title = workout_record.get("title") or workout_data.get("title", "Workout")
-        
+
         # Use shared helper function to transform to companion format
         payload = await _transform_workout_to_companion(workout_data, title)
         payload["id"] = workout_id
@@ -350,16 +350,16 @@ async def get_ios_companion_pending_endpoint(
 ):
     """
     Get workouts pending sync to iOS Companion App.
-    
+
     Called by the iOS Companion App to discover workouts ready for sync to Apple Watch.
     Returns workouts where ios_companion_synced_at is set, ordered by most recently pushed.
     By default excludes completed workouts.
-    
+
     Args:
         user_id: Authenticated user ID from JWT
         limit: Maximum number of workouts to return (1-100)
         exclude_completed: Whether to exclude completed workouts
-        
+
     Returns:
         List of pending iOS Companion workouts with interval data
     """
@@ -436,20 +436,20 @@ async def push_workout_to_android_companion_endpoint(
 ):
     """
     Push a regular (blocks-based) workout to Android Companion App.
-    
+
     Transforms the workout structure into the Android app's interval format
     and queues it for sync. This endpoint is for workouts created through
     the standard workflow, not follow-along workouts.
-    
+
     Args:
         workout_id: Workout identifier
         request: Push request (legacy userId field deprecated)
         user_id: Authenticated user ID from JWT
         export_queue: ExportQueue for managing background export jobs (AMA-612)
-        
+
     Returns:
         Success response with task_id and queued status
-        
+
     ISSUE 1 FIX (AMA-589): Uses shared helper function _transform_workout_to_companion
     """
     try:
@@ -499,17 +499,17 @@ async def get_android_companion_pending_endpoint(
 ):
     """
     Get workouts pending sync to Android Companion App.
-    
+
     Called by the Android Companion App to discover workouts ready for sync
     to Wear OS/Health Connect watches. Returns workouts where
     android_companion_synced_at is set, ordered by most recently pushed.
     By default excludes completed workouts.
-    
+
     Args:
         user_id: Authenticated user ID from JWT
         limit: Maximum number of workouts to return (1-100)
         exclude_completed: Whether to exclude completed workouts
-        
+
     Returns:
         List of pending Android Companion workouts with interval data
     """
@@ -583,30 +583,30 @@ async def sync_workout_to_garmin(
 ):
     """
     Sync a regular workout to Garmin Connect via garmin-sync-api.
-    
+
     Uses the same exercise mapping pipeline as the YAML export
     (map_exercise_to_garmin + add_category_to_exercise_name), so
     Garmin receives valid exercise names instead of generic steps.
-    
+
     Respects GARMIN_UNOFFICIAL_SYNC_ENABLED environment flag.
     Requires GARMIN_EMAIL and GARMIN_PASSWORD environment variables.
-    
+
     SECURITY NOTE (ISSUE 2 - AMA-589):
     ⚠️  Uses shared service account Garmin credentials (GARMIN_EMAIL/PASSWORD env vars).
     All users share the same Garmin account for sync operations.
     This is a temporary MVP solution. For production, implement per-user OAuth
     or encrypted credential storage with per-user API keys.
-    
+
     Args:
         request: SyncToGarminRequest with:
             - blocks_json: Workout structure with blocks and exercises (validated)
             - workout_title: Name for the Garmin workout (1-256 chars)
             - schedule_date: Optional date to schedule workout (YYYY-MM-DD format)
         user_id: Authenticated user ID from JWT
-            
+
     Returns:
         Success/error response with Garmin workout ID if successful
-        
+
     Raises:
         HTTPException 400: Invalid request data (missing/malformed blocks_json)
         HTTPException 422: Invalid workout data structure (transformation failed)
@@ -765,7 +765,7 @@ async def sync_workout_to_garmin(
                 schedule_response.raise_for_status()
 
         logger.info(f"Synced workout to Garmin: {workout_title}")
-        
+
         return {
             "success": True,
             "status": "success",
@@ -800,12 +800,12 @@ async def queue_workout_sync_endpoint(
     pending workouts and confirm download to mark as 'synced'.
 
     This replaces the immediate 'synced' status from the old push endpoints.
-    
+
     Args:
         workout_id: Workout identifier
         request: Queue sync request with device type and optional device ID
         user_id: Authenticated user ID from JWT
-        
+
     Returns:
         Success response with queue status and timestamp
     """
@@ -847,12 +847,12 @@ async def get_pending_syncs_endpoint(
 
     Called by mobile apps to discover workouts queued for download.
     Returns full workout data including intervals, in the order they were queued.
-    
+
     Args:
         device_type: Type of device (ios, android, or garmin)
         device_id: Optional device identifier for multi-device support
         user_id: Authenticated user ID from JWT
-        
+
     Returns:
         List of pending workouts with full interval data
     """
@@ -938,11 +938,11 @@ async def confirm_sync_endpoint(
 
     Called by mobile apps after successfully downloading a workout.
     Updates the sync status from 'pending' to 'synced'.
-    
+
     Args:
         request: Confirm sync request with workout and device info
         user_id: Authenticated user ID from JWT
-        
+
     Returns:
         Success response with sync status and timestamp
     """
@@ -977,11 +977,11 @@ async def report_sync_failed_endpoint(
 
     Called by mobile apps when download fails.
     Updates the sync status from 'pending' to 'failed' with error message.
-    
+
     Args:
         request: Failed sync report with workout, device, and error info
         user_id: Authenticated user ID from JWT
-        
+
     Returns:
         Success response with failed sync status and timestamp
     """
@@ -1016,11 +1016,11 @@ async def get_workout_sync_status_endpoint(
     Get sync status for a workout across all device types (AMA-307).
 
     Returns the current sync status (pending/synced/failed) for iOS, Android, and Garmin.
-    
+
     Args:
         workout_id: Workout identifier
         user_id: Authenticated user ID from JWT
-        
+
     Returns:
         Sync status across all device types
     """

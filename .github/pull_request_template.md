@@ -1,7 +1,7 @@
 ## Summary
 <!-- 2-5 bullets describing: problem, why it matters, what changed, scope boundaries -->
 
-- 
+-
 
 ## Change Type
 <!-- Check all that apply -->
@@ -45,13 +45,13 @@ If Yes, address the following:
 <!-- Required: Document what you personally verified -->
 
 **Scenarios personally verified:**
-- 
+-
 
 **Edge cases checked:**
-- 
+-
 
 **Areas NOT verified:**
-- 
+-
 
 ## Evidence
 <!-- At least one required -->

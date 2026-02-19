@@ -46,4 +46,3 @@ echo "------------------------------------"
 echo "curl -X POST \"${SERVER}/map/blocks-to-hyrox\" \\"
 echo "  -H \"Content-Type: application/json\" \\"
 echo "  -d '{\"blocks_json\": '$(cat test_week7_full.json | jq -c .)'}'"
-

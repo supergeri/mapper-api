@@ -11,4 +11,3 @@ plural_to_singular:
   presses: press
 
 stopwords: ["with","and","on","machine","the"]
-

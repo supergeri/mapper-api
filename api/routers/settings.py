@@ -84,11 +84,11 @@ class SettingsUpdateResponse(BaseModel):
 def get_settings_file_path() -> pathlib.Path:
     """
     Get the path to the user defaults settings file.
-    
+
     IMPORTANT: This path must match the one used by load_user_defaults()
     in backend.adapters.blocks_to_hyrox_yaml:
         ROOT / "shared/settings/user_defaults.yaml"
-    
+
     Both endpoints (GET/PUT) use this to ensure consistency.
 
     Returns:
@@ -104,7 +104,7 @@ def save_user_defaults(settings_dict: dict) -> None:
 
     Uses tempfile + os.replace() to ensure atomicity and prevent
     race conditions from partial writes during concurrent requests.
-    
+
     Path consistency: Uses get_settings_file_path() to write to the same
     location that load_user_defaults() reads from.
 
@@ -177,7 +177,7 @@ def get_defaults(current_user=Depends(get_current_user)) -> UserSettingsResponse
     The current_user parameter gates access to this endpoint; actual settings
     are stored at shared/settings/user_defaults.yaml for simplicity.
     If per-user settings are needed in the future, update implementation.
-    
+
     Path consistency: Uses load_user_defaults() from backend.adapters which
     reads from the same path as get_settings_file_path() used in PUT endpoint.
 
@@ -219,7 +219,7 @@ def update_defaults(
     Note: Authentication is required but settings are global (not per-user).
     The current_user parameter gates access to this endpoint; actual settings
     are stored at shared/settings/user_defaults.yaml for simplicity.
-    
+
     Path consistency: Uses get_settings_file_path() to write to the same
     location that load_user_defaults() (used in GET endpoint) reads from.
     Both resolve to ROOT / "shared/settings/user_defaults.yaml".

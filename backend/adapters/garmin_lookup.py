@@ -5,7 +5,7 @@ Copy this file + garmin_exercises.json to your project.
 
 Usage:
     from garmin_lookup import GarminExerciseLookup
-    
+
     lookup = GarminExerciseLookup("path/to/garmin_exercises.json")
     result = lookup.find("DB Bench Press")
     # Returns: {"category_id": 0, "category_name": "Bench Press", ...}
@@ -21,10 +21,10 @@ class GarminExerciseLookup:
     def __init__(self, data_path=None):
         if data_path is None:
             data_path = Path(__file__).parent / "garmin_exercises.json"
-        
+
         with open(data_path) as f:
             data = json.load(f)
-        
+
         self.categories = data["categories"]
         self.exercises = data["exercises"]
         self.keywords = data.get("keywords", {}).get("en", {})
@@ -56,7 +56,7 @@ class GarminExerciseLookup:
         self.category_ids = {
             v["name"]: v["id"] for v in self.categories.values()
         }
-    
+
     def normalize(self, name):
         """Normalize exercise name for matching."""
         name = name.lower().strip()
@@ -84,11 +84,11 @@ class GarminExerciseLookup:
         name = re.sub(r'^[\d.]+\s*(m|km)\s+', '', name, flags=re.IGNORECASE)
 
         return name.strip()
-    
+
     def find(self, exercise_name, lang="en"):
         """
         Find the best matching Garmin category for an exercise name.
-        
+
         Returns dict with:
             - category_id: FIT SDK category ID
             - category_key: Garmin category key (e.g. PUSH_UP)
@@ -153,17 +153,17 @@ class GarminExerciseLookup:
                     "input": exercise_name,
                     "normalized": normalized
                 }
-        
+
         # 3. Try fuzzy matching against exercises
         best_match = None
         best_ratio = 0.0
-        
+
         for ex_name, ex_info in self.exercises.items():
             ratio = SequenceMatcher(None, normalized, ex_name).ratio()
             if ratio > best_ratio and ratio > 0.6:
                 best_ratio = ratio
                 best_match = ex_info
-        
+
         if best_match:
             result = best_match.copy()
             result["match_type"] = "fuzzy"
@@ -171,7 +171,7 @@ class GarminExerciseLookup:
             result["input"] = exercise_name
             result["normalized"] = normalized
             return result
-        
+
         # 4. Default fallback
         return {
             "category_id": 5,  # Core
@@ -183,7 +183,7 @@ class GarminExerciseLookup:
             "input": exercise_name,
             "normalized": normalized
         }
-    
+
     def get_category_id(self, category_name):
         """Get category ID by name."""
         return self.category_ids.get(category_name, 5)  # Default to Core
@@ -192,7 +192,7 @@ class GarminExerciseLookup:
 # Quick test
 if __name__ == "__main__":
     lookup = GarminExerciseLookup()
-    
+
     tests = [
         "Push Ups",
         "DB Bench Press",
@@ -203,7 +203,7 @@ if __name__ == "__main__":
         "Plank",
         "B2: Cable Face Pulls x12 each side",
     ]
-    
+
     print(f"{'Input':<40} {'Category':<20} {'Match Type'}")
     print("-" * 75)
     for test in tests:

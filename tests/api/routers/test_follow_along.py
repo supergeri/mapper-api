@@ -117,10 +117,10 @@ def app():
     """Create test app with mocked dependencies."""
     settings = Settings(environment="test", _env_file=None)
     test_app = create_app(settings=settings)
-    
+
     async def mock_get_current_user():
         return TEST_USER_ID
-    
+
     test_app.dependency_overrides[get_current_user] = mock_get_current_user
     return test_app
 
@@ -252,7 +252,7 @@ class TestCreateFollowAlong:
         assert data["followAlongWorkout"] is not None
         assert data["followAlongWorkout"]["title"] == "Test Follow-Along Workout"
         mock_save.assert_called_once()
-        
+
         # Validate step transformation
         steps = data["followAlongWorkout"].get("steps", [])
         if steps:
@@ -1047,10 +1047,10 @@ class TestAuthenticationAndAuthorization:
         """Test that create endpoint requires authentication."""
         # Override auth to return None/raise error
         app = client.app
-        
+
         async def mock_no_auth():
             raise HTTPException(status_code=401, detail="Unauthorized")
-        
+
         app.dependency_overrides[get_current_user] = mock_no_auth
 
         request_data = {
