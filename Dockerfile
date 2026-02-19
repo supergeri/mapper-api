@@ -16,4 +16,4 @@ EXPOSE 8001
 # The package is mounted at /amakaflow-fitfiletool via docker-compose
 
 # Run the FastAPI application (AMA-377: use main module entry point)
-CMD ["sh", "-c", "pip install -e /amakaflow-fitfiletool 2>/dev/null || true; uvicorn backend.app:app --host 0.0.0.0 --port 8001 --reload"]
+CMD ["sh", "-c", "pip install -e /amakaflow-fitfiletool 2>/dev/null || true; uvicorn backend.main:app --host 0.0.0.0 --port 8001 --reload"]

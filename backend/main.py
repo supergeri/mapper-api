@@ -188,3 +188,14 @@ def _log_feature_flags(settings: Settings) -> None:
 # Default app instance for uvicorn
 # This allows: uvicorn backend.main:app --reload
 app = create_app()
+
+
+if __name__ == "__main__":
+    """Entry point for running the server with: python -m backend.main"""
+    import uvicorn
+    uvicorn.run(
+        "backend.main:app",
+        host="0.0.0.0",
+        port=8001,
+        reload=True,
+    )
