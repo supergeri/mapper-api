@@ -5,5 +5,5 @@ popular_mappings:
   front squat:
     Dumbbell Front Squat: 3
   test exercise:
-    Bench Press: 15
+    Bench Press: 5
 note: Global exercise mapping popularity. Tracks how many users have chosen each mapping.
