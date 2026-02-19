@@ -1,0 +1,142 @@
+name: Validate Linear Ticket
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  validate-ticket:
+    if: ${{ github.event.pull_request.user.login == 'openclawjoshua-eng' }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Extract ticket and validate
+        id: validate
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          # Extract AMA-NNN from branch name (e.g. feature/AMA-668-some-title → AMA-668)
+          TICKET_ID=$(echo "$BRANCH" | grep -oE 'AMA-[0-9]+' | head -1)
+
+          if [[ -z "$TICKET_ID" ]]; then
+            echo "No AMA-NNN found in branch '$BRANCH' — skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          TICKET_NUMBER=$(echo "$TICKET_ID" | grep -oE '[0-9]+')
+          echo "ticket_id=$TICKET_ID" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+          # Fetch ticket description from Linear GraphQL API
+          QUERY=$(jq -n --argjson num "$TICKET_NUMBER" \
+            '{"query": "{ issues(filter: { number: { eq: \($num) } }) { nodes { identifier description } } }"}')
+
+          RESPONSE=$(curl -sf -X POST https://api.linear.app/graphql \
+            -H "Authorization: $LINEAR_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$QUERY")
+
+          DESCRIPTION=$(echo "$RESPONSE" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          data_block = data.get('data') or {}
+          nodes = data_block.get('issues', {}).get('nodes', [])
+          print(nodes[0]['description'] if nodes else '')
+          ")
+
+          if [[ -z "$DESCRIPTION" ]]; then
+            echo "Could not fetch $TICKET_ID from Linear — skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          FAILURES=""
+
+          # Check 1: Repo specified
+          if ! echo "$DESCRIPTION" | grep -qi "## Repo:"; then
+            FAILURES="${FAILURES}\n- Missing \`## Repo:\` — specify which repository"
+          fi
+
+          # Check 2: Explicit file paths
+          if ! echo "$DESCRIPTION" | grep -qE '(src|app|api|lib|test|spec)/|\*\*File:\*\*'; then
+            FAILURES="${FAILURES}\n- Missing explicit file paths — add \`**File:**\` entries"
+          fi
+
+          # Check 3: Acceptance criteria section
+          if ! echo "$DESCRIPTION" | grep -qi "## Acceptance Criteria"; then
+            FAILURES="${FAILURES}\n- Missing \`## Acceptance Criteria\` section"
+          fi
+
+          # Check 4: Checkboxes
+          if ! echo "$DESCRIPTION" | grep -qF '- [ ]'; then
+            FAILURES="${FAILURES}\n- Acceptance criteria has no \`- [ ]\` checkboxes"
+          fi
+
+          # Check 5: Test command
+          if ! echo "$DESCRIPTION" | grep -qE '(pytest|gradlew|npm test|yarn test|cargo test|go test|jest)'; then
+            FAILURES="${FAILURES}\n- Missing test command (pytest / gradlew / npm test / etc.)"
+          fi
+
+          if [[ -n "$FAILURES" ]]; then
+            echo "has_failures=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "failures<<FAILURES_EOF"
+              printf "%b" "$FAILURES"
+              echo "FAILURES_EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "has_failures=false" >> "$GITHUB_OUTPUT"
+            echo "failures=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post result comment
+        if: steps.validate.outputs.skip != 'true'
+        uses: actions/github-script@60a0d83039f74b59f9e1b65e43b5b3a0f8b28a1f  # v7.0.1
+        env:
+          TICKET_ID: ${{ steps.validate.outputs.ticket_id }}
+          HAS_FAILURES: ${{ steps.validate.outputs.has_failures }}
+          FAILURES: ${{ steps.validate.outputs.failures }}
+        with:
+          script: |
+            const marker = '<!-- ticket-validator -->';
+            const ticketId = process.env.TICKET_ID;
+            const hasFail = process.env.HAS_FAILURES === 'true';
+
+            const failures = hasFail ? (process.env.FAILURES || '').trim() : '';
+
+            const body = hasFail
+              ? `${marker}\n## ❌ Ticket Validation Failed\n\nThe linked Linear ticket **${ticketId}** is missing required sections. Joshua cannot reliably implement this without complete specs.\n\n**Missing:**\n${failures}\n\n**Fix:** Update the ticket in Linear, then re-push to re-run this check.`
+              : `${marker}\n## ✅ Ticket Validated\n\n**${ticketId}** has all required sections: repo, file paths, acceptance criteria, checkboxes, and test command.`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            }
+
+            if (hasFail) {
+              core.setFailed(`Ticket ${ticketId} is missing required sections — see PR comment for details.`);
+            }
