@@ -97,7 +97,7 @@ After checking suggestions, you can either:
 - Search Garmin manually if `needs_user_search: true`
 
 ### Step 4: Process workout (after review)
-**Endpoint:** `POST /workflow/process` (defaults to auto-proceed)  
+**Endpoint:** `POST /workflow/process` (defaults to auto-proceed)
 **Or:** `POST /workflow/process-with-review` (requires manual review)
 
 **IMPORTANT:** Use your **ORIGINAL blocks JSON** (same as Step 2), NOT the validation result!
@@ -105,7 +105,7 @@ After checking suggestions, you can either:
 **Request:**
 ```json
 {
-  "blocks_json": { 
+  "blocks_json": {
     "title": "Imported Workout",
     "source": "image:week7.png",
     "blocks": [ ... your original blocks ... ]
@@ -124,7 +124,7 @@ After checking suggestions, you can either:
 }
 ```
 
-**Default behavior:** `auto_proceed=true` - Automatically uses best matches  
+**Default behavior:** `auto_proceed=true` - Automatically uses best matches
 **Strict mode:** Use `/workflow/process-with-review` if you want to block unmapped exercises
 
 ### Alternative: Direct conversion (automatic - recommended)
@@ -241,4 +241,3 @@ Re-validate or proceed with auto_proceed=true
     ↓
 Generate YAML
 ```
-

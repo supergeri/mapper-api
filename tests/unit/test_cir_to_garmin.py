@@ -17,9 +17,9 @@ class TestCIRToGarmin:
             reps=10,
             rest_seconds=60
         )
-        
+
         result = step_from_ex(ex)
-        
+
         assert result["type"] == "exercise"
         assert result["exerciseName"] == "Dumbbell Bench Press"
         assert result["sets"] == 3
@@ -35,9 +35,9 @@ class TestCIRToGarmin:
             reps=10,
             rest_seconds=60
         )
-        
+
         result = step_from_ex(ex)
-        
+
         assert result["type"] == "exercise"
         assert "Custom: unknown_exercise" in result["exerciseName"]
         assert result["sets"] == 3
@@ -53,9 +53,9 @@ class TestCIRToGarmin:
             reps=10,
             rest_seconds=60
         )
-        
+
         result = step_from_ex(ex)
-        
+
         assert "Custom: Original Name" in result["exerciseName"]
 
     def test_step_from_ex_incline_modifier(self):
@@ -67,9 +67,9 @@ class TestCIRToGarmin:
             reps=12,
             modifiers=["incline"]
         )
-        
+
         result = step_from_ex(ex)
-        
+
         assert result["position"] == "Incline"
 
     def test_to_garmin_yaml_straight_block(self):
@@ -81,10 +81,10 @@ class TestCIRToGarmin:
         block = Block(type="straight", rounds=1, items=exercises)
         workout = Workout(title="Test Workout", blocks=[block])
         cir = CIR(workout=workout)
-        
+
         yaml_str = to_garmin_yaml(cir)
         doc = yaml.safe_load(yaml_str)
-        
+
         assert "workout" in doc
         assert doc["workout"]["name"] == "Test Workout"
         assert doc["workout"]["sport"] == "strength"
@@ -100,10 +100,10 @@ class TestCIRToGarmin:
         block = Block(type="circuit", rounds=3, items=exercises)
         workout = Workout(title="Circuit Workout", blocks=[block])
         cir = CIR(workout=workout)
-        
+
         yaml_str = to_garmin_yaml(cir)
         doc = yaml.safe_load(yaml_str)
-        
+
         assert len(doc["workout"]["steps"]) == 1
         assert doc["workout"]["steps"][0]["type"] == "circuit"
         assert doc["workout"]["steps"][0]["rounds"] == 3
@@ -118,10 +118,10 @@ class TestCIRToGarmin:
         block = Block(type="superset", rounds=2, items=exercises)
         workout = Workout(title="Superset Workout", blocks=[block])
         cir = CIR(workout=workout)
-        
+
         yaml_str = to_garmin_yaml(cir)
         doc = yaml.safe_load(yaml_str)
-        
+
         assert doc["workout"]["steps"][0]["type"] == "circuit"
         assert doc["workout"]["steps"][0]["rounds"] == 2
 
@@ -130,10 +130,10 @@ class TestCIRToGarmin:
         block = Block(items=[Exercise(name="Exercise 1")])
         workout = Workout(title="Test", notes="Test notes", blocks=[block])
         cir = CIR(workout=workout)
-        
+
         yaml_str = to_garmin_yaml(cir)
         doc = yaml.safe_load(yaml_str)
-        
+
         assert doc["workout"]["notes"] == "Test notes"
 
     def test_to_garmin_yaml_no_notes(self):
@@ -141,10 +141,8 @@ class TestCIRToGarmin:
         block = Block(items=[Exercise(name="Exercise 1")])
         workout = Workout(title="Test", blocks=[block])
         cir = CIR(workout=workout)
-        
+
         yaml_str = to_garmin_yaml(cir)
         doc = yaml.safe_load(yaml_str)
-        
+
         assert doc["workout"]["notes"] is None
-
-

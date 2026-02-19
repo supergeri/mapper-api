@@ -31,7 +31,7 @@ Testing:
 """
 
 from functools import lru_cache
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from fastapi import Depends, Header
 from supabase import Client, create_client
@@ -92,6 +92,7 @@ from application.use_cases import (
     ExportWorkoutUseCase,
     SaveWorkoutUseCase,
     PatchWorkoutUseCase,
+    GetWorkoutUseCase,
 )
 
 
@@ -491,6 +492,23 @@ def get_save_workout_use_case(
     return SaveWorkoutUseCase(workout_repo=workout_repo)
 
 
+def get_get_workout_use_case(
+    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+) -> GetWorkoutUseCase:
+    """
+    Get GetWorkoutUseCase with injected dependencies.
+
+    Part of AMA-370: Refactor routers to call use-cases
+
+    Args:
+        workout_repo: Workout repository (injected)
+
+    Returns:
+        GetWorkoutUseCase: Use case for getting workouts
+    """
+    return GetWorkoutUseCase(workout_repo=workout_repo)
+
+
 def get_patch_workout_use_case(
     workout_repo: WorkoutRepository = Depends(get_workout_repo),
 ) -> PatchWorkoutUseCase:
@@ -544,6 +562,371 @@ def get_map_workout_use_case(
         user_mapping_repo=user_mapping_repo,
         workout_repo=workout_repo,
     )
+
+
+# =============================================================================
+# Program Providers (AMA-365)
+# =============================================================================
+
+
+def get_programs(
+    profile_id: str,
+    include_inactive: bool = False,
+):
+    """
+    Get all programs for a user.
+
+    Part of AMA-365: Create FastAPI deps providers
+
+    Args:
+        profile_id: User profile ID (injected via Depends)
+        include_inactive: Include inactive programs
+
+    Returns:
+        List of program records
+    """
+    from backend.database import get_programs as _get_programs
+    return _get_programs(profile_id, include_inactive)
+
+
+def get_program(program_id: str, profile_id: str):
+    """
+    Get a single program by ID.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import get_program as _get_program
+    return _get_program(program_id, profile_id)
+
+
+def create_program(profile_id: str, name: str, description: str = None, color: str = None, icon: str = None):
+    """
+    Create a new workout program.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import create_program as _create_program
+    return _create_program(profile_id, name, description, color, icon)
+
+
+def update_program(program_id: str, profile_id: str, name: str = None, description: str = None,
+                   color: str = None, icon: str = None, is_active: bool = None,
+                   current_day_index: int = None):
+    """
+    Update a workout program.
+
+    Part of AMA-365: Create FastAPI deps providers
+    Updated: AMA-351 - Add current_day_index parameter
+    """
+    from backend.database import update_program as _update_program
+    return _update_program(program_id, profile_id, name, description, color, icon, current_day_index, is_active)
+
+
+def delete_program(program_id: str, profile_id: str):
+    """
+    Delete a workout program.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import delete_program as _delete_program
+    return _delete_program(program_id, profile_id)
+
+
+def add_workout_to_program(program_id: str, profile_id: str, workout_id: str = None,
+                           follow_along_id: str = None, day_order: int = None):
+    """
+    Add a workout to a program.
+
+    Part of AMA-365: Create FastAPI deps providers
+    Updated: AMA-351 - Add follow_along_id and day_order parameters
+    """
+    from backend.database import add_workout_to_program as _add
+    return _add(program_id, profile_id, workout_id, follow_along_id, day_order)
+
+
+def remove_workout_from_program(member_id: str, profile_id: str):
+    """
+, profile_id:    Remove a workout from a program.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import remove_workout_from_program as _remove
+    return _remove(member_id, profile_id)
+
+
+# =============================================================================
+# Tag Providers (AMA-365)
+# =============================================================================
+
+
+def get_user_tags(profile_id: str) -> List[Dict[str, Any]]:
+    """
+    Get all tags for a user.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import get_user_tags as _get_user_tags
+    return _get_user_tags(profile_id)
+
+
+def create_user_tag(profile_id: str, name: str, color: str = None) -> Optional[Dict[str, Any]]:
+    """
+    Create a new user tag.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import create_user_tag as _create_user_tag
+    return _create_user_tag(profile_id, name, color)
+
+
+def delete_user_tag(tag_id: str, profile_id: str) -> bool:
+    """
+    Delete a user tag.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import delete_user_tag as _delete_user_tag
+    return _delete_user_tag(tag_id, profile_id)
+
+
+# =============================================================================
+# Account Providers (AMA-365)
+# =============================================================================
+
+
+def get_account_deletion_preview(profile_id: str):
+    """
+    Get a preview of all user data that will be deleted.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import get_account_deletion_preview as _get
+    return _get(profile_id)
+
+
+def delete_user_account(profile_id: str):
+    """
+    Delete user account and all associated data.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import delete_user_account as _delete
+    return _delete(profile_id)
+
+
+# =============================================================================
+# Sync Providers (AMA-365)
+# =============================================================================
+
+
+def get_workout(workout_id: str, profile_id: str):
+    """
+    Get a workout by ID.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import get_workout as _get
+    return _get(workout_id, profile_id)
+
+
+def update_workout_ios_companion_sync(workout_id: str, profile_id: str):
+    """
+    Mark a workout as synced to iOS companion.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import update_workout_ios_companion_sync as _update
+    return _update(workout_id, profile_id)
+
+
+def update_workout_android_companion_sync(workout_id: str, profile_id: str):
+    """
+    Mark a workout as synced to Android companion.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import update_workout_android_companion_sync as _update
+    return _update(workout_id, profile_id)
+
+
+def get_ios_companion_pending_workouts(profile_id: str):
+    """
+    Get pending workouts for iOS companion.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import get_ios_companion_pending_workouts as _get
+    return _get(profile_id)
+
+
+def get_android_companion_pending_workouts(profile_id: str):
+    """
+    Get pending workouts for Android companion.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import get_android_companion_pending_workouts as _get
+    return _get(profile_id)
+
+
+def queue_workout_sync(workout_id: str, profile_id: str, platform: str):
+    """
+    Queue a workout for sync.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import queue_workout_sync as _queue
+    return _queue(workout_id, profile_id, platform)
+
+
+def get_pending_syncs(profile_id: str, platform: str = None):
+    """
+    Get pending syncs for a user.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import get_pending_syncs as _get
+    return _get(profile_id, platform)
+
+
+def confirm_sync(sync_id: str, profile_id: str):
+    """
+    Confirm a sync was completed.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import confirm_sync as _confirm
+    return _confirm(sync_id, profile_id)
+
+
+def report_sync_failed(sync_id: str, profile_id: str, error: str = None):
+    """
+    Report a sync failure.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import report_sync_failed as _report
+    return _report(sync_id, profile_id, error)
+
+
+def get_workout_sync_status(workout_id: str, user_id: str):
+    """
+    Get sync status for a workout.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import get_workout_sync_status as _get
+    return _get(workout_id, user_id)
+
+
+# =============================================================================
+# Follow-Along Providers (AMA-365)
+# =============================================================================
+
+
+def save_follow_along_workout(
+    user_id: str,
+    source: str,
+    source_url: str,
+    title: str,
+    description: Optional[str] = None,
+    video_duration_sec: Optional[int] = None,
+    thumbnail_url: Optional[str] = None,
+    video_proxy_url: Optional[str] = None,
+    steps: Optional[List[Dict[str, Any]]] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Save a follow-along workout.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import save_follow_along_workout as _save
+    return _save(
+        user_id=user_id,
+        source=source,
+        source_url=source_url,
+        title=title,
+        description=description,
+        video_duration_sec=video_duration_sec,
+        thumbnail_url=thumbnail_url,
+        video_proxy_url=video_proxy_url,
+        steps=steps
+    )
+
+
+def get_follow_along_workouts(user_id: str) -> List[Dict[str, Any]]:
+    """
+    Get follow-along workouts for a user.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import get_follow_along_workouts as _get
+    return _get(user_id)
+
+
+def get_follow_along_workout(workout_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get a follow-along workout by ID.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import get_follow_along_workout as _get
+    return _get(workout_id, user_id)
+
+
+def update_follow_along_garmin_sync(workout_id: str, user_id: str, garmin_workout_id: str) -> bool:
+    """
+    Update Garmin sync status for follow-along workout.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import update_follow_along_garmin_sync as _update
+    return _update(workout_id, user_id, garmin_workout_id)
+
+
+def update_follow_along_apple_watch_sync(workout_id: str, user_id: str) -> bool:
+    """
+    Update Apple Watch sync status for follow-along workout.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import update_follow_along_apple_watch_sync as _update
+    return _update(workout_id, user_id)
+
+
+def update_follow_along_ios_companion_sync(workout_id: str, user_id: str) -> bool:
+    """
+    Update iOS companion sync status for follow-along workout.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import update_follow_along_ios_companion_sync as _update
+    return _update(workout_id, user_id)
+
+
+def delete_follow_along_workout(workout_id: str, user_id: str) -> bool:
+    """
+    Delete a follow-along workout.
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import delete_follow_along_workout as _delete
+    return _delete(workout_id, user_id)
+
+
+# =============================================================================
+# Health Providers (AMA-365)
+# =============================================================================
+
+
+def reset_user_data(profile_id: str):
+    """
+    Reset all user data (for testing).
+
+    Part of AMA-365: Create FastAPI deps providers
+    """
+    from backend.database import reset_user_data as _reset
+    return _reset(profile_id)
 
 
 # =============================================================================
@@ -648,9 +1031,46 @@ __all__ = [
     "get_embedding_service",
     # Use Cases
     "get_save_workout_use_case",
+    "get_get_workout_use_case",
     "get_export_workout_use_case",
     "get_map_workout_use_case",
     "get_patch_workout_use_case",
+    # Program Providers (AMA-365)
+    "get_programs",
+    "get_program",
+    "create_program",
+    "update_program",
+    "delete_program",
+    "add_workout_to_program",
+    "remove_workout_from_program",
+    # Tag Providers (AMA-365)
+    "get_user_tags",
+    "create_user_tag",
+    "delete_user_tag",
+    # Account Providers (AMA-365)
+    "get_account_deletion_preview",
+    "delete_user_account",
+    # Sync Providers (AMA-365)
+    "get_workout",
+    "update_workout_ios_companion_sync",
+    "update_workout_android_companion_sync",
+    "get_ios_companion_pending_workouts",
+    "get_android_companion_pending_workouts",
+    "queue_workout_sync",
+    "get_pending_syncs",
+    "confirm_sync",
+    "report_sync_failed",
+    "get_workout_sync_status",
+    # Follow-Along Providers (AMA-365)
+    "save_follow_along_workout",
+    "get_follow_along_workouts",
+    "get_follow_along_workout",
+    "update_follow_along_garmin_sync",
+    "update_follow_along_apple_watch_sync",
+    "update_follow_along_ios_companion_sync",
+    "delete_follow_along_workout",
+    # Health Providers (AMA-365)
+    "reset_user_data",
     # Authentication
     "get_current_user",
     "get_optional_user",

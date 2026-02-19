@@ -201,7 +201,7 @@ class ImageParser:
                 }
                 if vision_model:
                     data["vision_model"] = vision_model
-                
+
                 # Pass AI context metadata for observability (AMA-423)
                 if context:
                     context_data = context.to_dict()
@@ -283,7 +283,7 @@ class ImageParser:
                 files = {
                     "file": (filename, image_data, cls._get_content_type(filename))
                 }
-                
+
                 data = {}
                 # Pass AI context metadata for observability (AMA-423)
                 if context:

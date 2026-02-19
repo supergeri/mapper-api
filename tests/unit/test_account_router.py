@@ -74,11 +74,11 @@ class TestDeletionPreview:
             "strava_connection": True,
             "garmin_connection": False,
         }
-        
+
         with patch("api.routers.account.get_account_deletion_preview", return_value=mock_preview):
             resp = account_client.get("/account/deletion-preview")
             assert resp.status_code == 200
-            
+
             data = resp.json()
             assert data["workouts"] == 5
             assert data["workout_completions"] == 10
@@ -105,11 +105,11 @@ class TestDeletionPreview:
             "strava_connection": False,
             "garmin_connection": False,
         }
-        
+
         with patch("api.routers.account.get_account_deletion_preview", return_value=mock_preview):
             resp = account_client.get("/account/deletion-preview")
             assert resp.status_code == 200
-            
+
             data = resp.json()
             # All counts should be zero/false
             assert data["workouts"] == 0
@@ -120,7 +120,7 @@ class TestDeletionPreview:
     def test_deletion_preview_returns_error(self, account_client):
         """GET /account/deletion-preview should handle database errors."""
         mock_preview = {"error": "Database not available"}
-        
+
         with patch("api.routers.account.get_account_deletion_preview", return_value=mock_preview):
             resp = account_client.get("/account/deletion-preview")
             assert resp.status_code == 500
@@ -146,11 +146,11 @@ class TestDeleteAccount:
                 "tags": 8,
             }
         }
-        
+
         with patch("api.routers.account.delete_user_account", return_value=mock_result):
             resp = account_client.delete("/account")
             assert resp.status_code == 200
-            
+
             data = resp.json()
             assert data["success"] is True
             assert "deleted" in data
@@ -158,14 +158,14 @@ class TestDeleteAccount:
     def test_delete_account_returns_error(self, account_client):
         """DELETE /account should handle deletion failures."""
         mock_result = {"success": False, "error": "Failed to delete account"}
-        
+
         with patch("api.routers.account.delete_user_account", return_value=mock_result):
             resp = account_client.delete("/account")
             assert resp.status_code == 500
 
     def test_delete_account_returns_500_on_exception(self, account_client):
         """DELETE /account should return 500 when exception occurs."""
-        
+
         with patch("api.routers.account.delete_user_account", side_effect=Exception("Database error")):
             resp = account_client.delete("/account")
             assert resp.status_code == 500

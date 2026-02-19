@@ -1,0 +1,20 @@
+settings:
+  deleteSameNameWorkout: true
+workouts:
+  hyroxintervaltraining:
+  - warmup:
+      cardio: lap
+  - repeat(8):
+    - 'Ski Moguls [category: CARDIO]': Ski Erg (chosen as exact match)
+    - 'Burpee [category: TOTAL_BODY]': x10
+    - 'Box Jump [category: PLYO]': x12
+    - 'Row [category: ROW]': Rowing (chosen as exact match)
+    - 'Wall Ball [category: SQUAT]': x20
+    - 'Kettlebell Swing [category: HIP_RAISE]': x24
+    - 'Burpee [category: TOTAL_BODY]': x10
+    - 'Band Assisted Pull Up [category: PULL_UP]': Pull-Up x10 (chosen as closest
+        match)
+schedulePlan:
+  start_from: 'NORMALIZED_DATE'
+  workouts:
+  - hyroxintervaltraining

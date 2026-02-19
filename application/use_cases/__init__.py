@@ -70,6 +70,12 @@ from application.use_cases.export_workout import (
     ExportWorkoutResult,
     ExportWorkoutUseCase,
 )
+from application.use_cases.get_workout import (
+    GetWorkoutUseCase,
+    GetWorkoutResult,
+    ListWorkoutsResult,
+    GetIncomingWorkoutsResult,
+)
 from application.use_cases.map_workout import MapWorkoutResult, MapWorkoutUseCase
 from application.use_cases.save_workout import (
     SaveWorkoutResult,
@@ -90,6 +96,11 @@ __all__ = [
     "ExportWorkoutUseCase",
     "ExportWorkoutResult",
     "ExportFormat",
+    # GetWorkout
+    "GetWorkoutUseCase",
+    "GetWorkoutResult",
+    "ListWorkoutsResult",
+    "GetIncomingWorkoutsResult",
     # SaveWorkout
     "SaveWorkoutUseCase",
     "SaveWorkoutResult",

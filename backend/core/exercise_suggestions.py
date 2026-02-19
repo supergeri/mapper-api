@@ -17,12 +17,12 @@ def find_similar_exercises(exercise_name: str, limit: int = 10, min_score: int =
     exercises = load_garmin_exercises()
     if not exercises:
         return []
-    
+
     normalized_input = normalize(exercise_name)
-    
+
     # Get popularity data for this exercise
     popular_mappings = {garmin: count for garmin, count in get_popular_mappings(exercise_name, limit=50)}
-    
+
     # Get top matches
     results = process.extract(
         normalized_input,
@@ -30,14 +30,14 @@ def find_similar_exercises(exercise_name: str, limit: int = 10, min_score: int =
         scorer=fuzz.token_set_ratio,
         limit=limit * 2  # Get more to filter
     )
-    
+
     suggestions = []
     seen_names = set()
-    
+
     for matched_normalized, score, idx in results:
         if score < min_score:
             continue
-            
+
         # Find original exercise name
         for ex in exercises:
             if normalize(ex) == matched_normalized and ex not in seen_names:
@@ -53,10 +53,10 @@ def find_similar_exercises(exercise_name: str, limit: int = 10, min_score: int =
                 if len(suggestions) >= limit:
                     break
                 break
-    
+
     # Sort by popularity first (if any), then by score
     suggestions.sort(key=lambda x: (-x["popularity"], -x["score"]))
-    
+
     return suggestions
 
 
@@ -69,32 +69,32 @@ def find_exercises_by_type(exercise_name: str, limit: int = 20) -> List[Dict]:
     exercises = load_garmin_exercises()
     if not exercises:
         return []
-    
+
     normalized_input = normalize(exercise_name)
-    
+
     # Get popularity data for this exercise
     popular_mappings = {garmin: count for garmin, count in get_popular_mappings(exercise_name, limit=100)}
-    
+
     # Extract key movement words
     movement_keywords = [
         "squat", "press", "push", "pull", "row", "curl", "flye", "extension",
         "deadlift", "lunge", "plank", "crunch", "situp", "burpee", "jump",
         "swing", "carry", "drag", "pullup", "chinup", "dip", "raise", "shrug"
     ]
-    
+
     # Find which keywords match
     matched_keywords = [kw for kw in movement_keywords if kw in normalized_input]
-    
+
     if not matched_keywords:
         # Fallback: use the whole normalized input as keyword
         matched_keywords = [normalized_input]
-    
+
     suggestions = []
     seen_names = set()
-    
+
     for ex in exercises:
         ex_normalized = normalize(ex)
-        
+
         # Check if exercise contains any of the matched keywords
         for keyword in matched_keywords:
             if keyword in ex_normalized:
@@ -112,13 +112,13 @@ def find_exercises_by_type(exercise_name: str, limit: int = 20) -> List[Dict]:
                     })
                     seen_names.add(ex)
                     break
-        
+
         if len(suggestions) >= limit:
             break
-    
+
     # Sort by popularity first (if any), then by score
     suggestions.sort(key=lambda x: (-x["popularity"], -x["score"]))
-    
+
     return suggestions[:limit]
 
 
@@ -132,7 +132,7 @@ def categorize_exercise(exercise_name: str) -> Optional[str]:
     original_lower = exercise_name.lower()
     normalized = normalize(exercise_name).lower()
     combined = f"{original_lower} {normalized}"
-    
+
     # Order matters - more specific first
     categories = [
         ("push_up", ["push up", "pushup", "push-up", "hand release push"]),
@@ -153,11 +153,11 @@ def categorize_exercise(exercise_name: str) -> Optional[str]:
         ("crunch", ["crunch", "situp", "sit up", "ab", "abdominal"]),
         ("raise", ["raise", "lateral raise"]),
     ]
-    
+
     for category, keywords in categories:
         if any(kw in combined for kw in keywords):
             return category
-    
+
     return None
 
 
@@ -170,10 +170,10 @@ def suggest_alternatives(exercise_name: str, include_similar_types: bool = True)
     # Check if there's a popular choice
     from backend.core.global_mappings import get_most_popular_mapping
     popular_mapping = get_most_popular_mapping(exercise_name)
-    
+
     # Try to find exact match first
     best_match, best_score = find_garmin_exercise(exercise_name, threshold=70)
-    
+
     # If there's a popular choice, boost it as the best match if it's reasonably similar
     if popular_mapping:
         popular_name, popular_count = popular_mapping
@@ -186,14 +186,14 @@ def suggest_alternatives(exercise_name: str, include_similar_types: bool = True)
             # No good fuzzy match, but we have a popular choice - use it
             best_match = popular_name
             best_score = min(0.85, 0.6 + (popular_count * 0.05))  # Scale confidence by popularity
-    
+
     # Determine popularity for best match
     best_match_popularity = 0
     if popular_mapping and best_match:
         popular_name, popular_count = popular_mapping
         if normalize(best_match) == normalize(popular_name):
             best_match_popularity = popular_count
-    
+
     result = {
         "input": exercise_name,
         "best_match": {
@@ -209,18 +209,18 @@ def suggest_alternatives(exercise_name: str, include_similar_types: bool = True)
         "category": None,
         "needs_user_search": False
     }
-    
+
     # Always get suggestions for user review, but prioritize if no good match
     category = categorize_exercise(exercise_name)
     result["category"] = category
-    
+
     # Get similar exercises (always show alternatives)
     result["similar_exercises"] = find_similar_exercises(exercise_name, limit=10, min_score=50)
-    
+
     # Get exercises by type if requested
     if include_similar_types and category:
         result["exercises_by_type"] = find_exercises_by_type(exercise_name, limit=15)
-    
+
     # If no good match and no suggestions, flag for user search
     if not best_match or best_score < 0.7:
         if not result["similar_exercises"] and not result["exercises_by_type"]:
@@ -228,6 +228,5 @@ def suggest_alternatives(exercise_name: str, include_similar_types: bool = True)
         elif best_score < 0.5:
             # Low confidence match - suggest user reviews alternatives
             result["needs_user_search"] = True
-    
-    return result
 
+    return result

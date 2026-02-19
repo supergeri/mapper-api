@@ -1,0 +1,30 @@
+name: Validate Workflows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/**
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/**
+
+jobs:
+  # Validate GitHub Actions workflows with actionlint and zizmor
+  validate-workflows:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run actionlint
+        uses: rhysd/actionlint@v1.7.11
+        with:
+          glob: '.github/workflows/**/*.{yml,yaml}'
+
+      - name: Run zizmor security audit
+        uses: zizmorcore/zizmor-action@v0.5.0
+        with:
+          min_severity: medium

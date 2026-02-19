@@ -318,13 +318,13 @@ async def get_mobile_profile_endpoint(
     user_profile_repo: UserProfileRepository = Depends(get_user_profile_repo),
 ):
     """
-    Get current user's profile for mobile apps (AMA-268, AMA-269).
+    Get current user's profile for mobile apps (AMA-268, AMA-269, AMA-276).
 
     Returns the authenticated user's profile information.
     Fetches from Clerk API for accurate data, with database fallback.
     Supports both JWT authentication and X-Test-Auth for E2E testing.
     """
-    # Try Clerk API first for most accurate profile data (AMA-269)
+    # Try Clerk API first for most accurate profile data (AMA-269, AMA-276)
     clerk_profile = fetch_clerk_profile(user_id)
     if clerk_profile:
         # Combine first_name + last_name for name field
@@ -345,13 +345,17 @@ async def get_mobile_profile_endpoint(
             }
         }
 
-    # Fallback to database profile
-    db_profile = user_profile_repo.get_profile(user_id)
-    if db_profile:
-        return {
-            "success": True,
-            "profile": db_profile
-        }
+    # Fallback to database profile (only if Clerk fails)
+    try:
+        db_profile = user_profile_repo.get_profile(user_id)
+        if db_profile:
+            return {
+                "success": True,
+                "profile": db_profile
+            }
+    except Exception as e:
+        logger.error(f"Database profile fetch failed: {e}")
+        pass
 
     # Return minimal profile if neither source has data
     return {

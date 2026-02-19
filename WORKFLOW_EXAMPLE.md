@@ -118,4 +118,3 @@ curl -X POST "http://localhost:8000/exercise/suggest" \
    - `/workflow/validate` - Check mapping quality
    - `/workflow/process` - Validate + convert
    - `/exercise/suggest` - Get alternatives for specific exercise
-

@@ -74,10 +74,10 @@ class TestListTags:
     def test_list_tags_success(self, client):
         """Listing tags returns 200 with tag list."""
         mock_tags = [mock_tag_data(), mock_tag_data("tag-456")]
-        
+
         with patch("api.routers.tags.get_user_tags", return_value=mock_tags):
             response = client.get(f"/tags?profile_id={TEST_USER_ID}")
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -88,7 +88,7 @@ class TestListTags:
         """Listing tags when none exist returns empty list."""
         with patch("api.routers.tags.get_user_tags", return_value=[]):
             response = client.get(f"/tags?profile_id={TEST_USER_ID}")
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -98,7 +98,7 @@ class TestListTags:
     def test_list_tags_requires_profile_id(self, client):
         """Listing tags without profile_id returns 422."""
         response = client.get("/tags")
-        
+
         assert response.status_code == 422
 
 
@@ -114,14 +114,14 @@ class TestCreateTag:
     def test_create_tag_success(self, client):
         """Creating a tag with valid data returns 200."""
         mock_tag = mock_tag_data()
-        
+
         with patch("api.routers.tags.create_user_tag", return_value=mock_tag):
             response = client.post("/tags", json={
                 "profile_id": TEST_USER_ID,
                 "name": "Test Tag",
                 "color": "#00FF00"
             })
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -133,13 +133,13 @@ class TestCreateTag:
         mock_tag = mock_tag_data()
         mock_tag["name"] = "Minimal Tag"
         mock_tag["color"] = None
-        
+
         with patch("api.routers.tags.create_user_tag", return_value=mock_tag):
             response = client.post("/tags", json={
                 "profile_id": TEST_USER_ID,
                 "name": "Minimal Tag"
             })
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -153,7 +153,7 @@ class TestCreateTag:
                 "profile_id": TEST_USER_ID,
                 "name": "Test Tag"
             })
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is False
@@ -166,7 +166,7 @@ class TestCreateTag:
                 "profile_id": TEST_USER_ID,
                 "name": "Existing Tag"
             })
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is False
@@ -179,7 +179,7 @@ class TestCreateTag:
                 "profile_id": TEST_USER_ID,
                 "name": ""
             })
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is False
@@ -190,7 +190,7 @@ class TestCreateTag:
             "profile_id": TEST_USER_ID,
             "color": "#00FF00"
         })
-        
+
         assert response.status_code == 422
 
     def test_create_tag_missing_profile_id(self, client):
@@ -198,7 +198,7 @@ class TestCreateTag:
         response = client.post("/tags", json={
             "name": "Test Tag"
         })
-        
+
         assert response.status_code == 422
 
     def test_create_tag_invalid_color_format(self, client):
@@ -210,7 +210,7 @@ class TestCreateTag:
                 "name": "Test Tag",
                 "color": "not-a-color"
             })
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is False
@@ -219,14 +219,14 @@ class TestCreateTag:
         """Creating a tag with valid hex color returns 200."""
         mock_tag = mock_tag_data()
         mock_tag["color"] = "#ABCDEF"
-        
+
         with patch("api.routers.tags.create_user_tag", return_value=mock_tag):
             response = client.post("/tags", json={
                 "profile_id": TEST_USER_ID,
                 "name": "Test Tag",
                 "color": "#ABCDEF"
             })
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -239,7 +239,7 @@ class TestCreateTag:
                 "profile_id": TEST_USER_ID,
                 "name": long_name
             })
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is False
@@ -248,13 +248,13 @@ class TestCreateTag:
         """Creating a tag with special characters returns 200."""
         mock_tag = mock_tag_data()
         mock_tag["name"] = "Tag with émoji 🎉"
-        
+
         with patch("api.routers.tags.create_user_tag", return_value=mock_tag):
             response = client.post("/tags", json={
                 "profile_id": TEST_USER_ID,
                 "name": "Tag with émoji 🎉"
             })
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -273,7 +273,7 @@ class TestDeleteTag:
         """Deleting a tag returns 200."""
         with patch("api.routers.tags.delete_user_tag", return_value=True):
             response = client.delete(f"/tags/tag-123?profile_id={TEST_USER_ID}")
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
@@ -284,7 +284,7 @@ class TestDeleteTag:
         # Tags router returns 200 with success: False (not HTTP error)
         with patch("api.routers.tags.delete_user_tag", return_value=False):
             response = client.delete(f"/tags/tag-123?profile_id={TEST_USER_ID}")
-            
+
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is False
@@ -293,7 +293,7 @@ class TestDeleteTag:
     def test_delete_tag_requires_profile_id(self, client):
         """Deleting a tag without profile_id returns 422."""
         response = client.delete("/tags/tag-123")
-        
+
         assert response.status_code == 422
 
     def test_cannot_modify_other_users_tag(self, client):
@@ -302,7 +302,7 @@ class TestDeleteTag:
         # Database query filters by profile_id, so it returns False
         with patch("api.routers.tags.delete_user_tag", return_value=False):
             response = client.delete(f"/tags/tag-123?profile_id={OTHER_USER_ID}")
-            
+
             # Should return 200 with success: False because the tag doesn't belong to this user
             assert response.status_code == 200
             data = response.json()

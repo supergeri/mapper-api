@@ -79,10 +79,10 @@ def parse_exercise_name(ex_name: str) -> tuple[str, str, str]:
     original = ex_name
     # Remove prefix like "A1;", "A1:", "B1:", etc.
     ex_name = re.sub(r'^[A-Z]\d+[:\s;]+', '', ex_name, flags=re.IGNORECASE).strip()
-    
+
     reps_desc = ""
     original_desc = ""
-    
+
     # Try to extract X10, X8 pattern at the end with "EACH SIDE"
     match = re.search(r'\s+X\s*(\d+)\s+EACH\s+SIDE$', ex_name, re.IGNORECASE)
     if match:
@@ -94,23 +94,23 @@ def parse_exercise_name(ex_name: str) -> tuple[str, str, str]:
             desc_name = parts[-1].strip()
         else:
             desc_name = base_name
-        
+
         # Remove equipment prefixes
         desc_name = re.sub(r'^(KB|DB|OB|TRX)\s+', '', desc_name, flags=re.IGNORECASE).strip()
-        
+
         # Title case
         words = desc_name.split()
         desc_name = ' '.join(w.capitalize() for w in words)
         desc_name = desc_name.replace(' Into ', ' into ')
         original_desc = f"{desc_name} x{match.group(1)} each side"
         return base_name, reps_desc, original_desc
-    
+
     # Try to extract X10, X8 pattern at the end
     match = re.search(r'\s+X\s*(\d+)$', ex_name, re.IGNORECASE)
     if match:
         reps_desc = f"x{match.group(1)}"
         base_name = ex_name[:match.start()].strip()
-        
+
         # Extract core exercise name (remove equipment prefixes like CABLE/BAND, KB, DB, etc.)
         # Split by common separators and take the main part
         parts = re.split(r'[/:]', base_name)
@@ -119,10 +119,10 @@ def parse_exercise_name(ex_name: str) -> tuple[str, str, str]:
             desc_name = parts[-1].strip()
         else:
             desc_name = base_name
-        
+
         # Use the full base_name for description to preserve KB/DB/etc prefixes
         desc_name = base_name
-        
+
         # Title case with proper capitalization (first letter uppercase, rest lowercase)
         words = desc_name.split()
         desc_name = ' '.join(w.capitalize() for w in words)
@@ -130,7 +130,7 @@ def parse_exercise_name(ex_name: str) -> tuple[str, str, str]:
         desc_name = desc_name.replace(' Into ', ' into ')
         original_desc = f"{desc_name} x{match.group(1)}"
         return base_name, reps_desc, original_desc
-    
+
     # Check for Xi2 pattern
     match = re.search(r'\s+Xi(\d+)$', ex_name, re.IGNORECASE)
     if match:
@@ -139,7 +139,7 @@ def parse_exercise_name(ex_name: str) -> tuple[str, str, str]:
         desc_name = base_name.replace('/', ' ').title()
         original_desc = f"{desc_name} x{match.group(1)}"
         return base_name, reps_desc, original_desc
-    
+
     # Check for distance pattern like "200M SKI" or "100 m KB Farmers (32/24kg)"
     distance_match = re.search(r'(\d+)\s*[Mm]\s+(.+)', ex_name, re.IGNORECASE)
     if distance_match:
@@ -149,7 +149,7 @@ def parse_exercise_name(ex_name: str) -> tuple[str, str, str]:
         base_name = re.sub(r'\s*\([^)]+\)\s*$', '', base_name, flags=re.IGNORECASE).strip()
         original_desc = distance
         return base_name, "", original_desc
-    
+
     return ex_name, "", ""
 
 
@@ -210,7 +210,7 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
 
     base_name, reps_desc, original_desc = parse_exercise_name(ex_name)
     clean_name = clean_exercise_name(base_name)
-    
+
     # Manual mappings based on the example - check these first
     mappings = {
         "cable/band straight arm pull down": "30-degree Lat Pull-down",
@@ -320,10 +320,10 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
         "chest-supported row": "Chest-Supported Dumbbell Row",
         "chest supported row": "Chest-Supported Dumbbell Row",
     }
-    
+
     normalized = normalize(clean_name).lower()
     garmin_name = None
-    
+
     # 1. Check user mappings first (highest priority)
     if use_user_mappings:
         user_mapped = get_user_mapping(clean_name)
@@ -331,7 +331,7 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
             garmin_name = user_mapped
             # User mapping found - skip to description building
             # (will build description below)
-    
+
     # 2. Check global popular mappings (crowd-sourced choices)
     if not garmin_name:
         from backend.core.global_mappings import get_most_popular_mapping
@@ -342,15 +342,15 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
             mapping_info["confidence"] = min(0.95, 0.7 + (popularity_count * 0.05))  # Boost confidence based on popularity
             mapping_info["method"] = f"popular_choice_{popularity_count}_users"
             mapping_info["popularity_count"] = popularity_count  # Store for easier access
-    
+
     # 3. Try exact or substring matches in mappings
     if not garmin_name:
         # Sort by length (longest first) for better matches - longest matches first
         sorted_mappings = sorted(mappings.items(), key=lambda x: len(x[0]), reverse=True)
-        
+
         best_match = None
         best_match_length = 0
-        
+
         for key, value in sorted_mappings:
             # Exact match
             if normalized == key:
@@ -364,13 +364,13 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
                 if len(key) > best_match_length:
                     best_match = value
                     best_match_length = len(key)
-        
+
         if best_match and not garmin_name:
             garmin_name = best_match
             mapping_info["source"] = "manual_mapping"
             mapping_info["confidence"] = 0.95
             mapping_info["method"] = "substring_match"
-    
+
     # Fallback 1: try fuzzy matching against Garmin exercise database
     # Uses new exercise_name_matcher with alias matching + normalization
     # Threshold 40 (0.40) matches unmapped threshold - only use matches >= 0.40 confidence
@@ -380,7 +380,7 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
             mapping_info["source"] = "garmin_database"
             mapping_info["confidence"] = confidence
             mapping_info["method"] = "fuzzy_match"
-    
+
     # Fallback 2: try canonical matching
     if not garmin_name:
         result = classify(clean_name)
@@ -392,14 +392,14 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
                 mapping_info["source"] = "canonical_mapping"
                 mapping_info["confidence"] = result.get("score", 0.8)
                 mapping_info["method"] = "canonical_match"
-    
+
     # Final fallback
     if not garmin_name:
         garmin_name = clean_name.replace('/', ' ').title()
         mapping_info["source"] = "fallback"
         mapping_info["confidence"] = 0.0
         mapping_info["method"] = "title_case_fallback"
-    
+
     # Build description - format to match expected output
     # For some exercises, just use reps. For others, use full name.
     # Rules based on expected output:
@@ -407,18 +407,18 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
     # - "KB RDL Into Goblet Squat" - keep KB, keep RDL
     # - "KB Bottoms Up Press" - keep KB
     # - "8 reps" for DB Incline Bench Press - just reps, no name
-    
+
     if original_desc:
         # Extract the exercise name part
         desc_name = base_name.replace('/', ' ').strip()
-        
+
         # Special handling: remove CABLE/BAND prefix for "Straight Arm Pull down"
         if 'straight arm pull down' in normalized or 'cable' in normalized or 'band' in normalized:
             desc_name = re.sub(r'^(CABLE/BAND|CABLE|BAND)\s+', '', desc_name, flags=re.IGNORECASE).strip()
             desc_name = re.sub(r'^(STRAIGHT ARM)\s+', 'Straight Arm ', desc_name, flags=re.IGNORECASE)
             # Fix "Down" to "down" (lowercase)
             desc_name = desc_name.replace(' Down', ' down')
-        
+
         # Special handling: for DB Incline Bench Press, just use reps (no name)
         if 'incline bench press' in normalized and 'db' in normalized and ex_reps is not None:
             description = f"{ex_reps} reps"
@@ -430,9 +430,9 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
             desc_name = desc_name.replace(' Kb ', ' KB ').replace(' Db ', ' DB ').replace(' Ob ', ' OB ')
             # Fix double spaces
             desc_name = re.sub(r'\s+', ' ', desc_name).strip()
-            
+
             # Combine with reps
-    
+
     # Final fallback - check confidence threshold
     final_confidence = mapping_info.get("confidence", 0.0)
     if not garmin_name or final_confidence < 0.40:
@@ -444,7 +444,7 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
                 mapping_info["confidence"] = confidence
                 mapping_info["method"] = "fuzzy_match_mapped_name"
                 final_confidence = confidence
-        
+
         # If still no match or confidence too low, use generic fallback with warning
         if not garmin_name or final_confidence < 0.40:
             garmin_name = clean_name.replace('/', ' ').title()
@@ -455,8 +455,8 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
                 "GARMIN_EXPORT_FALLBACK generic step used for %r (original=%r mapped=%r candidates=%r conf=%r)",
                 ex_name, ex_name, mapped_name, candidate_names, final_confidence
             )
-    
-        
+
+
         if ex_distance_m:
             desc_parts.append(f"{ex_distance_m}m")
         elif ex_reps is not None:
@@ -470,16 +470,16 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
                 desc_parts.append(f"{name_part} {reps_desc}")
             else:
                 desc_parts.append(reps_desc)
-        
+
         description = " ".join(desc_parts) if desc_parts else ""
-    
+
     # Build the description to include original exercise name with details
     # Format: "lap | Original Exercise Name x5 (chosen as closest match)"
-    
+
     # Generate simple mapping reason for notes
     source = mapping_info.get("source")
     method = mapping_info.get("method", "")
-    
+
     if source == "user_mapping":
         mapping_reason = "chosen from your saved preferences"
     elif source == "popular_mapping":
@@ -504,21 +504,21 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
         mapping_reason = "used name as-is (no match found)"
     else:
         mapping_reason = "chosen automatically"
-    
+
     mapping_info["reason"] = mapping_reason
     mapping_info["garmin_name"] = garmin_name
-    
+
     # Build description from original exercise name with details
     original_with_details = ex_name.strip()
     # Clean up the original name but keep reps/details
     # Remove prefixes like "A1:", "B2:", etc.
     original_with_details = re.sub(r'^[A-Z]\d+[:\s;]+', '', original_with_details, flags=re.IGNORECASE)
     original_with_details = original_with_details.strip()
-    
+
     # Check if reps are already in the name (like "X10", "x5", etc.)
     has_reps_in_name = bool(re.search(r'[Xx]\d+', original_with_details))
     has_reps_word = bool(re.search(r'\d+\s+reps?', original_with_details, re.IGNORECASE))
-    
+
     # Check if the rep number from ex_reps is already represented in the name
     rep_number_already_in_name = False
     if ex_reps is not None:
@@ -533,14 +533,14 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
             if re.search(pattern, original_with_details, re.IGNORECASE):
                 rep_number_already_in_name = True
                 break
-    
+
     # Only add reps if they're not already in the name and we have rep info
     if not has_reps_in_name and not has_reps_word and not rep_number_already_in_name:
         if ex_reps is not None:
             original_with_details = f"{original_with_details} x{ex_reps}"
         elif reps_desc and reps_desc.lower() not in original_with_details.lower():
             original_with_details = f"{original_with_details} {reps_desc}"
-    
+
     # Format as "lap | original name (reason)"
     # Always include description for rep-based exercises
     if original_with_details:
@@ -548,7 +548,7 @@ def map_exercise_to_garmin(ex_name: str, ex_reps=None, ex_distance_m=None, use_u
     else:
         # Fallback if we don't have original name - use garmin name
         final_description = mapping_reason
-    
+
     return garmin_name, final_description, mapping_info
 
 
@@ -568,7 +568,7 @@ def workout_name_from_title(title: str) -> str:
     if match:
         week_num = match.group(1)
         return f"fullhyroxweek{week_num}"
-    
+
     # Fallback: lowercase, remove special chars
     name = re.sub(r'[^a-z0-9]', '', title.lower())
     return name or "workout"
@@ -580,7 +580,7 @@ def to_hyrox_yaml(blocks_json: dict) -> str:
     """
     settings = {"deleteSameNameWorkout": True}
     workouts = {}
-    
+
     workout_name = workout_name_from_title(blocks_json.get("title", "Workout"))
     workout_steps = []
 
@@ -650,15 +650,15 @@ def to_hyrox_yaml(blocks_json: dict) -> str:
             warmup_reps = ex.get("warmup_reps")
 
             garmin_name, description, mapping_info = map_exercise_to_garmin(ex_name, ex_reps=reps, ex_distance_m=None)  # Ignore distance
-            
+
             # Add category to exercise name
             garmin_name_with_category = add_category_to_exercise_name(garmin_name)
-            
+
             # Store mapping info for notes
             if not hasattr(to_hyrox_yaml, '_mapping_notes'):
                 to_hyrox_yaml._mapping_notes = []
             to_hyrox_yaml._mapping_notes.append(mapping_info)
-            
+
             ex_entry = {}
             # Handle time-based exercises with sets (interval training)
             # Time-based exercises should NOT include mapping reason (per Strength Workout Guide)
@@ -769,14 +769,14 @@ def to_hyrox_yaml(blocks_json: dict) -> str:
                 exercises_list.append({"rest": "lap"})
             elif ex_rest_type == 'timed' and ex_rest_sec and ex_rest_sec > 0:
                 exercises_list.append({"rest": f"{ex_rest_sec}s"})
-        
+
         # Process supersets - combine all supersets in a block into one repeat
         all_block_exercises = []
         rest_between_sec = block.get("rest_between_sec")
-        
+
         for superset_idx, superset in enumerate(block.get("supersets", [])):
             exercises = []
-            
+
             for ex in superset.get("exercises", []):
                 ex_name = ex.get("name", "")
                 sets = ex.get("sets")
@@ -790,15 +790,15 @@ def to_hyrox_yaml(blocks_json: dict) -> str:
                 warmup_reps = ex.get("warmup_reps")
 
                 garmin_name, description, mapping_info = map_exercise_to_garmin(ex_name, ex_reps=reps, ex_distance_m=None)  # Ignore distance
-                
+
                 # Add category to exercise name
                 garmin_name_with_category = add_category_to_exercise_name(garmin_name)
-                
+
                 # Store mapping info for notes
                 if not hasattr(to_hyrox_yaml, '_mapping_notes'):
                     to_hyrox_yaml._mapping_notes = []
                 to_hyrox_yaml._mapping_notes.append(mapping_info)
-                
+
                 # Build exercise entry - always default to "lap" instead of distance
                 ex_entry = {}
                 reason = mapping_info.get('reason', '')
@@ -884,7 +884,7 @@ def to_hyrox_yaml(blocks_json: dict) -> str:
 
             # Add exercises from this superset to the block
             all_block_exercises.extend(exercises)
-            
+
             # Add rest between supersets (use block's rest_between_sec)
             # Don't add rest after the last superset
             if superset_idx < len(block.get("supersets", [])) - 1:
@@ -892,18 +892,18 @@ def to_hyrox_yaml(blocks_json: dict) -> str:
                     all_block_exercises.append({"rest": f"{rest_between_sec}s"})
                 else:
                     all_block_exercises.append({"rest": "lap"})
-        
+
         # Add final rest after all supersets in the block
         if all_block_exercises:
             all_block_exercises.append({"rest": "lap"})
-        
+
         # Create repeat block if rounds > 1, otherwise just add exercises
         if rounds > 1 and all_block_exercises:
             repeat_block = {f"repeat({rounds})": all_block_exercises}
             workout_steps.append(repeat_block)
         elif all_block_exercises:
             workout_steps.extend(all_block_exercises)
-        
+
         # Add standalone exercises if any
         if exercises_list:
             if rounds > 1:
@@ -911,29 +911,27 @@ def to_hyrox_yaml(blocks_json: dict) -> str:
                 workout_steps.append(repeat_block)
             else:
                 workout_steps.extend(exercises_list)
-    
+
     workouts[workout_name] = workout_steps
-    
+
     # Create schedule plan (default to today + 7 days)
     start_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
     schedule_plan = {
         "start_from": start_date,
         "workouts": [workout_name]
     }
-    
+
     # Build final document
     doc = {
         "settings": settings,
         "workouts": workouts,
         "schedulePlan": schedule_plan
     }
-    
+
     result = yaml.safe_dump(doc, sort_keys=False, default_flow_style=False, allow_unicode=True)
-    
+
     # Clean up
     if hasattr(to_hyrox_yaml, '_mapping_notes'):
         delattr(to_hyrox_yaml, '_mapping_notes')
-    
+
     return result
-
-

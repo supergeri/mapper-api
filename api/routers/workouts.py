@@ -31,15 +31,15 @@ from pydantic import BaseModel, Field
 
 from api.deps import (
     get_current_user,
-    get_workout_repo,
     get_save_workout_use_case,
+    get_get_workout_use_case,
     get_patch_workout_use_case,
     get_search_repo,
     get_embedding_service,
     get_export_queue,
 )
-from application.ports import WorkoutRepository, SearchRepository, EmbeddingService
-from application.use_cases import SaveWorkoutUseCase
+from application.ports import SearchRepository, EmbeddingService
+from application.use_cases import SaveWorkoutUseCase, GetWorkoutUseCase
 from application.use_cases.patch_workout import PatchWorkoutUseCase
 from domain.models.patch_operation import PatchOperation
 from backend.adapters.blocks_to_workoutkit import to_workoutkit
@@ -326,32 +326,23 @@ def save_workout_endpoint(
 @router.get("/workouts", response_model=WorkoutListResponse)
 def get_workouts_endpoint(
     user_id: str = Depends(get_current_user),
-    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+    get_workout_use_case: GetWorkoutUseCase = Depends(get_get_workout_use_case),
     device: str = Query(None, description="Filter by device"),
     is_exported: bool = Query(None, description="Filter by export status"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts"),
 ):
     """Get workouts for the authenticated user, optionally filtered by device and export status."""
-    workouts = workout_repo.get_list(
-        profile_id=user_id,
+    result = get_workout_use_case.list_workouts(
+        user_id=user_id,
         device=device,
         is_exported=is_exported,
         limit=limit,
     )
 
-    # Batch fetch sync status for all workouts to avoid N+1 queries (AMA-307)
-    workout_ids = [w.get("id") for w in workouts if w.get("id")]
-    if workout_ids:
-        sync_status_map = workout_repo.batch_get_sync_status(workout_ids, user_id)
-        for workout in workouts:
-            workout_id = workout.get("id")
-            if workout_id:
-                workout["sync_status"] = sync_status_map.get(workout_id, {"ios": None, "android": None, "garmin": None})
-
     return {
         "success": True,
-        "workouts": workouts,
-        "count": len(workouts)
+        "workouts": result.workouts,
+        "count": result.count
     }
 
 
@@ -486,7 +477,7 @@ def _matches_duration(row: dict, min_duration: Optional[int], max_duration: Opti
 @router.get("/workouts/incoming")
 def get_incoming_workouts_endpoint(
     user_id: str = Depends(get_current_user),
-    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+    get_workout_use_case: GetWorkoutUseCase = Depends(get_get_workout_use_case),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of workouts"),
 ):
     """
@@ -505,11 +496,11 @@ def get_incoming_workouts_endpoint(
     Returns:
         List of pending workouts in iOS Companion format
     """
-    workouts = workout_repo.get_incoming(user_id, limit=limit)
+    result = get_workout_use_case.get_incoming_workouts(user_id, limit=limit)
 
     # Transform each workout to iOS companion format (same as /ios-companion/pending)
     transformed = []
-    for workout_record in workouts:
+    for workout_record in result.workouts:
         workout_data = workout_record.get("workout_data", {})
         title = workout_record.get("title") or workout_data.get("title", "Workout")
 
@@ -557,23 +548,20 @@ def get_incoming_workouts_endpoint(
 def get_workout_endpoint(
     workout_id: str,
     user_id: str = Depends(get_current_user),
-    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+    get_workout_use_case: GetWorkoutUseCase = Depends(get_get_workout_use_case),
 ):
     """Get a single workout by ID."""
-    workout = workout_repo.get(workout_id, user_id)
+    result = get_workout_use_case.get_workout(workout_id, user_id)
 
-    if workout:
-        # Include sync status in response (AMA-307)
-        sync_status = workout_repo.get_sync_status(workout_id, user_id)
-        workout["sync_status"] = sync_status
+    if result.success:
         return {
             "success": True,
-            "workout": workout
+            "workout": result.workout
         }
     else:
         raise HTTPException(
             status_code=404,
-            detail={"message": "Workout not found"}
+            detail={"message": result.error}
         )
 
 
@@ -582,15 +570,15 @@ def update_workout_export_endpoint(
     workout_id: str,
     request: UpdateWorkoutExportRequest,
     user_id: str = Depends(get_current_user),
-    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+    get_workout_use_case: GetWorkoutUseCase = Depends(get_get_workout_use_case),
     export_queue: ExportQueue = Depends(get_export_queue),
 ):
     """Update workout export status after syncing to device."""
-    success = workout_repo.update_export_status(
+    success = get_workout_use_case.update_export_status(
         workout_id=workout_id,
-        profile_id=user_id,
+        user_id=user_id,
         is_exported=request.is_exported,
-        exported_to_device=request.exported_to_device
+        exported_to_device=request.exported_to_device,
     )
 
     if not success:
@@ -617,10 +605,10 @@ def update_workout_export_endpoint(
 def delete_workout_endpoint(
     workout_id: str,
     user_id: str = Depends(get_current_user),
-    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+    get_workout_use_case: GetWorkoutUseCase = Depends(get_get_workout_use_case),
 ):
     """Delete a workout."""
-    success = workout_repo.delete(workout_id, user_id)
+    success = get_workout_use_case.delete_workout(workout_id, user_id)
 
     if not success:
         raise HTTPException(
@@ -639,13 +627,13 @@ def toggle_workout_favorite_endpoint(
     workout_id: str,
     request: ToggleFavoriteRequest,
     user_id: str = Depends(get_current_user),
-    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+    get_workout_use_case: GetWorkoutUseCase = Depends(get_get_workout_use_case),
 ):
     """Toggle favorite status for a workout."""
-    result = workout_repo.toggle_favorite(
+    result = get_workout_use_case.toggle_favorite(
         workout_id=workout_id,
-        profile_id=user_id,
-        is_favorite=request.is_favorite
+        user_id=user_id,
+        is_favorite=request.is_favorite,
     )
 
     if not result:
@@ -666,13 +654,10 @@ def track_workout_usage_endpoint(
     workout_id: str,
     request: TrackUsageRequest,
     user_id: str = Depends(get_current_user),
-    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+    get_workout_use_case: GetWorkoutUseCase = Depends(get_get_workout_use_case),
 ):
     """Track that a workout was used (update last_used_at and increment times_completed)."""
-    result = workout_repo.track_usage(
-        workout_id=workout_id,
-        profile_id=user_id
-    )
+    result = get_workout_use_case.track_usage(workout_id, user_id)
 
     if not result:
         raise HTTPException(
@@ -692,13 +677,13 @@ def update_workout_tags_endpoint(
     workout_id: str,
     request: UpdateTagsRequest,
     user_id: str = Depends(get_current_user),
-    workout_repo: WorkoutRepository = Depends(get_workout_repo),
+    get_workout_use_case: GetWorkoutUseCase = Depends(get_get_workout_use_case),
 ):
     """Update tags for a workout."""
-    result = workout_repo.update_tags(
+    result = get_workout_use_case.update_tags(
         workout_id=workout_id,
-        profile_id=user_id,
-        tags=request.tags
+        user_id=user_id,
+        tags=request.tags,
     )
 
     if not result:

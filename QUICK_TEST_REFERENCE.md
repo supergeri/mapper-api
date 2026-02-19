@@ -101,4 +101,3 @@ Returns:
 5. Execute!
 
 Expected: You should get YAML output with all exercises mapped correctly.
-

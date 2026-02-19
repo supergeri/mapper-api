@@ -2371,4 +2371,3 @@ curl -X POST http://localhost:8000/map/auto-map \
   -H "Content-Type: application/json" \
   -d @test_hiit_workout.json
 ```
-

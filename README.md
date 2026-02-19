@@ -1,5 +1,7 @@
 # Workout Canonical Mapper
 
+[![Coverage](https://img.shields.io/badge/coverage-48%25-green)](https://github.com/supergeri/mapper-api/actions)
+
 A Python application that converts workout data from OCR/ingest format to canonical exercise names and exports to Garmin YAML format.
 
 ## Features
@@ -92,3 +94,17 @@ uvicorn backend.app:app --reload
 ```
 
 The server will start on `http://localhost:8000`
+
+## Database Migrations
+
+This project uses Supabase for the database. Migrations can be run against both development and staging environments using the GitHub Actions workflow.
+
+### Running Migrations via GitHub Actions
+
+1. Go to the **Actions** tab in the repository
+2. Select the **Database Migrations** workflow
+3. Click **Run workflow**
+4. Choose the target environment (`development` or `staging`)
+5. Click **Run workflow** to execute
+
+For detailed documentation, see [DATABASE.md](./DATABASE.md).

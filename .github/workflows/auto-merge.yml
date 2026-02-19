@@ -1,0 +1,26 @@
+name: Auto Merge (Joshua PRs)
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'openclawjoshua-eng' && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          # Validate PR URL to prevent template injection
+          if [[ ! "$PR_URL" =~ ^https://github.com/[^/]+/[^/]+/pull/[0-9]+$ ]]; then
+            echo "Error: Invalid PR URL"
+            exit 1
+          fi
+          gh pr merge --auto --squash "$PR_URL"

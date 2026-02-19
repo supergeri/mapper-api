@@ -11,30 +11,30 @@ from backend.adapters.blocks_to_hyrox_yaml import extract_rounds
 
 def extract_power_target(ex_name: str) -> Optional[Target]:
     """Extract power target from exercise name (FTP percentages, watt ranges, etc.).
-    
+
     Examples:
         "50% FTP" -> Target(type="power", min=0.50, max=0.50)
         "103% FTP" -> Target(type="power", min=1.03, max=1.03)
         "85-95% FTP" -> Target(type="power", min=0.85, max=0.95)
         "200-250W" -> Target(type="power", min=0.80, max=1.00)  # approximate if FTP unknown
-    
+
     Returns None if no power target found.
     """
     ex_name_lower = ex_name.lower()
-    
+
     # Pattern 1: Single FTP percentage (e.g., "50% FTP", "103% FTP")
     ftp_match = re.search(r'(\d+(?:\.\d+)?)\s*%\s*ftp', ex_name_lower)
     if ftp_match:
         pct = float(ftp_match.group(1)) / 100.0
         return Target(type="power", min=pct, max=pct)
-    
+
     # Pattern 2: FTP percentage range (e.g., "85-95% FTP", "88–95% FTP")
     ftp_range_match = re.search(r'(\d+(?:\.\d+)?)\s*[–-]\s*(\d+(?:\.\d+)?)\s*%\s*ftp', ex_name_lower)
     if ftp_range_match:
         min_pct = float(ftp_range_match.group(1)) / 100.0
         max_pct = float(ftp_range_match.group(2)) / 100.0
         return Target(type="power", min=min_pct, max=max_pct)
-    
+
     # Pattern 3: Watt range (e.g., "200-250W", "200-250 watts")
     watt_match = re.search(r'(\d+)\s*[–-]\s*(\d+)\s*w', ex_name_lower)
     if watt_match:
@@ -46,7 +46,7 @@ def extract_power_target(ex_name: str) -> Optional[Target]:
         min_pct = min_watt / estimated_ftp
         max_pct = max_watt / estimated_ftp
         return Target(type="power", min=min_pct, max=max_pct)
-    
+
     # Pattern 4: Single watt value (e.g., "200W")
     single_watt_match = re.search(r'(\d+)\s*w(?!\s*[–-])', ex_name_lower)
     if single_watt_match:
@@ -54,7 +54,7 @@ def extract_power_target(ex_name: str) -> Optional[Target]:
         estimated_ftp = 250.0
         pct = watt / estimated_ftp
         return Target(type="power", min=pct, max=pct)
-    
+
     return None
 
 
@@ -98,7 +98,7 @@ def _rpe_to_proxy(scalar: float) -> float:
 
 def _set_intensity(el, sport: str, on: bool, value: float):
     """Set intensity attribute on XML element.
-    
+
     Note: For Power, convert to percentage (0-100) for Zwift ZWO format.
     """
     if sport == "run":
@@ -111,7 +111,7 @@ def _set_intensity(el, sport: str, on: bool, value: float):
 
 def _apply_target(el, s: Step, steady: bool, sport: str = "run"):
     """Apply target intensity to XML element.
-    
+
     Note: Zwift ZWO format uses percentages (0-100) for Power, not decimals.
     So 0.50 (50% FTP) should be formatted as "50", not "0.50".
     """
@@ -203,7 +203,7 @@ def block_to_steps(block: dict, sport: str) -> List[Step]:
     is_cooldown = "cooldown" in block_label or "finisher" in block_label
 
     exercises = block.get("exercises", [])
-    
+
     # Handle blocks with structured exercises (like warmup with multiple steps)
     # Check if we have multiple exercises that should be sequential
     if len(exercises) > 1 and not time_work_sec:
@@ -215,10 +215,10 @@ def block_to_steps(block: dict, sport: str) -> List[Step]:
             if not duration_sec and time_work_sec:
                 duration_sec = time_work_sec
             rest_sec = ex.get("rest_sec") or rest_between_sec
-            
+
             # Extract power target from name
             target = extract_power_target(ex_name) or Target()
-            
+
             # Skip exercises without duration (they're just descriptions)
             if duration_sec:
                 step = Step(
@@ -227,7 +227,7 @@ def block_to_steps(block: dict, sport: str) -> List[Step]:
                     target=target
                 )
                 steps.append(step)
-                
+
                 # Add rest if specified
                 if rest_sec:
                     rest_step = Step(
@@ -236,10 +236,10 @@ def block_to_steps(block: dict, sport: str) -> List[Step]:
                         target=Target()
                     )
                     steps.append(rest_step)
-        
+
         if steps:
             return steps
-    
+
     # Handle time-based interval blocks (like "60s on, 90s off x3")
     if time_work_sec:
         if exercises:
@@ -248,7 +248,7 @@ def block_to_steps(block: dict, sport: str) -> List[Step]:
             duration_sec = ex.get("duration_sec") or time_work_sec
             rest_sec = ex.get("rest_sec") or rest_between_sec
             sets = ex.get("sets") or rounds
-            
+
             # Extract power target from name
             target = extract_power_target(ex_name) or Target()
 
@@ -263,13 +263,13 @@ def block_to_steps(block: dict, sport: str) -> List[Step]:
                     if not ex_item_duration:
                         continue  # Skip exercises without explicit duration
                     ex_item_target = extract_power_target(ex_item_name) or target
-                    
+
                     interval_steps.append(Step(
                         kind="steady",
                         duration_s=ex_item_duration,
                         target=ex_item_target
                     ))
-                
+
                 # If we have rounds > 1, repeat the sequence
                 if rounds > 1 and interval_steps:
                     for round_num in range(rounds):
@@ -292,7 +292,7 @@ def block_to_steps(block: dict, sport: str) -> List[Step]:
                         recovery_target = extract_power_target(first_ex_name) or target
                     else:
                         recovery_target = target
-                    
+
                     step = Step(
                         kind="warmup" if is_warmup else "cooldown" if is_cooldown else "steady",
                         duration_s=time_work_sec,
@@ -330,14 +330,14 @@ def block_to_steps(block: dict, sport: str) -> List[Step]:
                         recovery_target = extract_power_target(ex_name) or Target()
                         has_description_only = True
                         break
-            
+
             step = Step(
                 kind="warmup" if is_warmup else "cooldown" if is_cooldown else "steady",
                 duration_s=time_work_sec,
                 target=recovery_target
             )
             steps.append(step)
-        
+
         if steps:
             return steps
 
@@ -459,16 +459,16 @@ def block_to_steps(block: dict, sport: str) -> List[Step]:
 
 def to_zwo(blocks_json: dict, sport: Optional[str] = None) -> str:
     """Convert blocks JSON to Zwift ZWO XML format.
-    
+
     Args:
         blocks_json: The blocks JSON structure
         sport: Either "run" or "ride". If None, will attempt to auto-detect.
-    
+
     Returns:
         ZWO XML string
     """
     title = blocks_json.get("title", "Imported Workout")
-    
+
     # Auto-detect sport if not provided
     if not sport:
         sport = "run"  # Default to run
@@ -481,27 +481,27 @@ def to_zwo(blocks_json: dict, sport: Optional[str] = None) -> str:
                     break
             if sport == "ride":
                 break
-    
+
     # Convert blocks to steps
     all_steps: List[Step] = []
     for block in blocks_json.get("blocks", []):
         block_steps = block_to_steps(block, sport)
         all_steps.extend(block_steps)
-    
+
     # Create workout structure
     workout = Workout(
         sport=sport,
         name=title,
         steps=all_steps
     )
-    
+
     # Generate ZWO XML
     return export_zwo(workout)
 
 
 def export_zwo(workout: Workout) -> str:
     """Produce a Zwift .zwo string.
-    
+
     Assumptions:
       - Intensity values are 0.00–1.00 scalars where 1.00 = threshold (FTP/CP for bike; threshold pace/speed for run).
       - If target.min/max missing, fall back to 0.70 (endurance).
@@ -511,42 +511,41 @@ def export_zwo(workout: Workout) -> str:
     _add_text(zwo, "name", workout.name)
     _add_text(zwo, "sportType", "run" if workout.sport == "run" else "bike")
     _add_text(zwo, "description", f"Auto-generated from canonical JSON → ZWO")
-    
+
     w_el = SubElement(zwo, "workout")
-    
+
     for s in workout.steps:
         # Normalize duration
         dur = _duration_seconds(s)
-        
+
         if s.kind in ("steady", "warmup", "cooldown"):
             el = SubElement(w_el, "SteadyState")
             el.set("Duration", str(dur))
             _apply_target(el, s, steady=True, sport=workout.sport)
-        
+
         elif s.kind == "interval" and s.reps and s.work_s and s.rest_s:
             el = SubElement(w_el, "IntervalsT")
             el.set("Repeat", str(s.reps))
             el.set("OnDuration", str(s.work_s))
             el.set("OffDuration", str(s.rest_s))
             _apply_target(el, s, steady=False, sport=workout.sport)
-        
+
         elif s.kind == "rest":
             el = SubElement(w_el, "SteadyState")
             el.set("Duration", str(dur))
             # Rest intensity fallback
             _set_intensity(el, workout.sport, on=False, value=0.40)
-        
+
         else:
             # Fallback: 60s at 0.60
             el = SubElement(w_el, "SteadyState")
             el.set("Duration", str(dur or 60))
             _set_intensity(el, workout.sport, on=True, value=0.60)
-    
+
     # Generate XML with proper formatting
     xml_str = tostring(zwo, encoding="unicode")
-    
+
     # Add XML declaration and basic formatting
     # Note: ElementTree's tostring() doesn't pretty-print by default,
     # but TrainingPeaks should accept the XML as-is
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_str
-

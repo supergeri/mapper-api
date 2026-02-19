@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Literal, Optional
 
@@ -28,7 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from api.deps import get_current_user
-from backend.database import (
+from api.deps import (
     save_follow_along_workout,
     get_follow_along_workouts,
     get_follow_along_workout,
@@ -36,6 +37,11 @@ from backend.database import (
     update_follow_along_apple_watch_sync,
     update_follow_along_ios_companion_sync,
     delete_follow_along_workout,
+)
+from backend.services.content_classifier import (
+    classify_content,
+    ContentCategory,
+    ClassificationConfidence,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,45 +55,49 @@ router = APIRouter(
 # Uses in-memory cache with TTL for production readiness
 # For multi-instance deployments, consider database-based deduplication
 FOLLOW_ALONG_GARMIN_SYNC_CACHE: Dict[str, tuple[str, datetime]] = {}
+FOLLOW_ALONG_GARMIN_SYNC_CACHE_LOCK = threading.Lock()
 CACHE_MAX_SIZE = 1000
 CACHE_TTL_HOURS = 24
 
 
 def _cleanup_cache() -> None:
     """Remove expired entries from the cache to prevent unbounded memory growth."""
-    now = datetime.utcnow()
-    cutoff = now - timedelta(hours=CACHE_TTL_HOURS)
-    expired_keys = [
-        key for key, (_, timestamp) in FOLLOW_ALONG_GARMIN_SYNC_CACHE.items()
-        if timestamp < cutoff
-    ]
-    for key in expired_keys:
-        del FOLLOW_ALONG_GARMIN_SYNC_CACHE[key]
+    with FOLLOW_ALONG_GARMIN_SYNC_CACHE_LOCK:
+        now = datetime.utcnow()
+        cutoff = now - timedelta(hours=CACHE_TTL_HOURS)
+        expired_keys = [
+            key for key, (_, timestamp) in FOLLOW_ALONG_GARMIN_SYNC_CACHE.items()
+            if timestamp < cutoff
+        ]
+        for key in expired_keys:
+            del FOLLOW_ALONG_GARMIN_SYNC_CACHE[key]
 
 
 def _has_garmin_synced_before(workout_id: str, user_id: str) -> bool:
     """Check if this workout+user combination has been synced to Garmin recently."""
     _cleanup_cache()  # Clean expired entries before checking
     cache_key = f"{user_id}:{workout_id}"
-    return cache_key in FOLLOW_ALONG_GARMIN_SYNC_CACHE
+    with FOLLOW_ALONG_GARMIN_SYNC_CACHE_LOCK:
+        return cache_key in FOLLOW_ALONG_GARMIN_SYNC_CACHE
 
 
 def _mark_garmin_synced(workout_id: str, user_id: str, garmin_workout_id: str) -> None:
     """Mark a workout as synced to Garmin for this user."""
-    # Enforce size limit to prevent unbounded memory growth
-    if len(FOLLOW_ALONG_GARMIN_SYNC_CACHE) >= CACHE_MAX_SIZE:
-        _cleanup_cache()
-        # If still at capacity, remove oldest entries
+    with FOLLOW_ALONG_GARMIN_SYNC_CACHE_LOCK:
+        # Enforce size limit to prevent unbounded memory growth
         if len(FOLLOW_ALONG_GARMIN_SYNC_CACHE) >= CACHE_MAX_SIZE:
-            sorted_keys = sorted(
-                FOLLOW_ALONG_GARMIN_SYNC_CACHE.items(),
-                key=lambda x: x[1][1]
-            )
-            for key, _ in sorted_keys[:CACHE_MAX_SIZE // 4]:
-                del FOLLOW_ALONG_GARMIN_SYNC_CACHE[key]
-    
-    cache_key = f"{user_id}:{workout_id}"
-    FOLLOW_ALONG_GARMIN_SYNC_CACHE[cache_key] = (garmin_workout_id, datetime.utcnow())
+            _cleanup_cache()
+            # If still at capacity, remove oldest entries
+            if len(FOLLOW_ALONG_GARMIN_SYNC_CACHE) >= CACHE_MAX_SIZE:
+                sorted_keys = sorted(
+                    FOLLOW_ALONG_GARMIN_SYNC_CACHE.items(),
+                    key=lambda x: x[1][1]
+                )
+                for key, _ in sorted_keys[:CACHE_MAX_SIZE // 4]:
+                    del FOLLOW_ALONG_GARMIN_SYNC_CACHE[key]
+
+        cache_key = f"{user_id}:{workout_id}"
+        FOLLOW_ALONG_GARMIN_SYNC_CACHE[cache_key] = (garmin_workout_id, datetime.utcnow())
 
 
 # Platform type for source detection
@@ -134,7 +144,7 @@ class PushResponse(BaseModel):
 class PushToGarminRequest(BaseModel):
     """Request to push follow-along workout to Garmin."""
     garminWorkoutId: str = Field(description="Garmin workout ID")
-    
+
     @field_validator('garminWorkoutId')
     @classmethod
     def validate_garmin_workout_id(cls, v: str) -> str:
@@ -150,7 +160,7 @@ class PushToGarminRequest(BaseModel):
 class PushToAppleWatchRequest(BaseModel):
     """Request to push follow-along workout to Apple Watch."""
     appleWatchWorkoutId: str = Field(description="Apple Watch workout ID")
-    
+
     @field_validator('appleWatchWorkoutId')
     @classmethod
     def validate_apple_watch_workout_id(cls, v: str) -> str:
@@ -171,7 +181,7 @@ class CreateFollowAlongFromWorkoutRequest(BaseModel):
     """Request to create a follow-along from an existing workout."""
     workout: "WorkoutData" = Field(description="Workout data")
     sourceUrl: Optional[HttpUrl] = Field(None, description="Source video URL")
-    
+
     model_config = {"extra": "allow"}  # Allow extra fields from source
 
 
@@ -190,7 +200,7 @@ class WorkoutData(BaseModel):
     title: str
     description: Optional[str] = None
     steps: List[Dict[str, Any]] = []
-    
+
     model_config = {"extra": "allow"}  # Allow extra fields from source
 
 
@@ -286,7 +296,7 @@ def create_follow_along(
     summary="Ingest follow-along from video URL",
     description="Ingest a follow-along workout from a video URL (Instagram, YouTube, TikTok, Vimeo)",
 )
-def ingest_follow_along(
+async def ingest_follow_along(
     request: IngestFollowAlongRequest,
     user_id: str = Depends(get_current_user),
 ) -> FollowAlongWorkoutResponse:
@@ -305,6 +315,43 @@ def ingest_follow_along(
     """
     try:
         source = request.source or _detect_source_platform(str(request.sourceUrl))
+
+        # AMA-171: Content classification gate - reject non-workout content early
+        # This runs BEFORE expensive processing (transcription, parsing)
+
+        # Extract video ID from URL (simplified - use URL as ID for now)
+        # In production, you'd extract actual video ID and fetch metadata
+        video_id = str(request.sourceUrl)
+
+        # For now, we use the URL as title placeholder since we don't have metadata yet
+        # In production, you'd fetch video metadata from the platform's API
+        title = f"Video from {source}"
+
+        # Classify content (async call)
+        classification = await classify_content(
+            video_id=video_id,
+            platform=source,
+            title=title,
+            description=None,
+        )
+
+        # Reject non-workout content with helpful error
+        if classification.category == ContentCategory.NON_WORKOUT:
+            logger.warning(f"Rejected non-workout content: {request.sourceUrl} - {classification.reason}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "non_workout_content",
+                    "message": "This video does not appear to be a workout. Please submit a fitness or exercise video.",
+                    "detected_category": classification.category.value,
+                    "confidence": classification.confidence.value,
+                    "reason": classification.reason,
+                },
+            )
+
+        # Log uncertain classifications for monitoring (but allow through with flag)
+        if classification.category == ContentCategory.UNCERTAIN:
+            logger.info(f"Uncertain classification for {request.sourceUrl}: {classification.reason}")
 
         # Extract and save follow-along workout from video
         # Note: AI extraction from video metadata is not yet implemented.
@@ -551,7 +598,7 @@ def push_to_garmin(
             success=True,
             message=f"Follow-along workout {workout_id} already synced to Garmin",
         )
-    
+
     try:
         # Update Garmin sync status
         update_follow_along_garmin_sync(
@@ -559,7 +606,7 @@ def push_to_garmin(
             user_id=user_id,
             garmin_workout_id=request.garminWorkoutId,
         )
-        
+
         # Mark as synced to prevent future duplicates
         _mark_garmin_synced(workout_id, user_id, request.garminWorkoutId)
 

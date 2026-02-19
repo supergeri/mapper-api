@@ -63,4 +63,3 @@ def to_garmin_yaml(cir: CIR) -> str:
                        "notes": cir.workout.notes, "steps": steps}}
 
     return yaml.safe_dump(doc, sort_keys=False)
-

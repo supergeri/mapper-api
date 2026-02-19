@@ -1,0 +1,16 @@
+settings:
+  deleteSameNameWorkout: true
+workouts:
+  AMRAP 15 Minutes:
+    sport: hiit
+    steps:
+    - repeatUntilTime(15min):
+      - run: lap | 200m
+      - 'Burpee [category: TOTAL_BODY]': lap | Burpee (10 reps)
+      - 'Double Under [category: CARDIO]': lap | Double Under (15 reps)
+      - 'Thrusters [category: SQUAT]': lap | Thruster (10 reps)
+      - 'Band Assisted Pull Up [category: PULL_UP]': lap | Pull-Up (8 reps)
+schedulePlan:
+  start_from: 'NORMALIZED_DATE'
+  workouts:
+  - AMRAP 15 Minutes

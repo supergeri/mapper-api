@@ -180,6 +180,18 @@ class Settings(BaseSettings):
     )
 
     # -------------------------------------------------------------------------
+    # External Services - Content Classification (AMA-171)
+    # -------------------------------------------------------------------------
+    content_classifier_model: str = Field(
+        default="gpt-4o-mini",
+        description="LLM model for content classification (gpt-4o-mini or claude-haiku)",
+    )
+    content_classifier_cache_ttl: int = Field(
+        default=86400,
+        description="Cache TTL for classification results in seconds (default 24h)",
+    )
+
+    # -------------------------------------------------------------------------
     # Observability - Sentry
     # -------------------------------------------------------------------------
     sentry_dsn: Optional[str] = Field(
