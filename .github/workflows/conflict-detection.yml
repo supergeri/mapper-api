@@ -1,0 +1,68 @@
+name: Conflict Detection
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 8 * * *'  # Daily 8am UTC
+
+jobs:
+  detect-conflicts:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Comment on conflicting PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          PR_NUMBERS=$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --json number \
+            --jq '.[].number')
+
+          for PR_NUM in $PR_NUMBERS; do
+            # GitHub computes mergeability lazily — retry up to 3 times
+            MERGEABLE="unknown"
+            for attempt in 1 2 3; do
+              MERGEABLE=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUM" \
+                --jq '.mergeable // "unknown"')
+              [ "$MERGEABLE" != "unknown" ] && break
+              sleep 5
+            done
+
+            if [ "$MERGEABLE" = "false" ]; then
+              # Skip if we already commented (avoid spam)
+              ALREADY_COMMENTED=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUM/comments" \
+                --jq '[.[] | select(
+                  .user.login == "github-actions[bot]" and
+                  (.body | contains("Merge conflict detected"))
+                )] | length')
+
+              if [ "$ALREADY_COMMENTED" = "0" ]; then
+                BRANCH=$(gh pr view "$PR_NUM" \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --json headRefName \
+                  --jq '.headRefName')
+                gh pr comment "$PR_NUM" \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --body "⚠️ **Merge conflict detected**
+
+This PR (\`$BRANCH\`) has a conflict with \`main\` — likely caused by a recent merge to \`main\`.
+
+**To fix:**
+\`\`\`bash
+git fetch origin
+git rebase origin/main
+# resolve any conflicts, then:
+git push --force-with-lease
+\`\`\`
+
+_Posted automatically by conflict-detection workflow._"
+              fi
+            fi
+          done
