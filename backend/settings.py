@@ -192,6 +192,22 @@ class Settings(BaseSettings):
     )
 
     # -------------------------------------------------------------------------
+    # External Services - Instagram/Meta oEmbed (AMA-532)
+    # -------------------------------------------------------------------------
+    meta_access_token: Optional[str] = Field(
+        default=None,
+        description="Meta/Facebook access token for Instagram oEmbed API",
+    )
+    meta_app_id: Optional[str] = Field(
+        default=None,
+        description="Meta/Facebook app ID for Instagram oEmbed",
+    )
+    meta_app_secret: Optional[str] = Field(
+        default=None,
+        description="Meta/Facebook app secret for Instagram oEmbed",
+    )
+
+    # -------------------------------------------------------------------------
     # Observability - Sentry
     # -------------------------------------------------------------------------
     sentry_dsn: Optional[str] = Field(
