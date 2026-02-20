@@ -1,0 +1,60 @@
+# Labeler configuration for mapper-api
+# Maps file patterns to labels for auto-labeling PRs
+
+# Backend - Python, FastAPI, API code
+backend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.py"
+          - "api/**/*"
+          - "application/**/*"
+          - "domain/**/*"
+          - "infrastructure/**/*"
+          - "program_api/**/*"
+          - "shared/**/*"
+          - "scenarios/**/*"
+          - "scripts/**/*"
+
+# CI - GitHub Actions workflows
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/workflows/**"
+          - ".github/actions/**"
+
+# Documentation
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "*.md"
+          - "docs/**"
+          - "API_EXAMPLES.md"
+          - "DATABASE.md"
+          - "GLOBAL_MAPPINGS.md"
+          - "QUICK_TEST_REFERENCE.md"
+          - "TEST_API.md"
+          - "USER_MAPPINGS.md"
+          - "WORKFLOW.md"
+          - "WORKFLOW_EXAMPLE.md"
+          - "WORKFLOW_SIMPLE.md"
+
+# Tests
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "tests/**"
+          - "**/*test*.py"
+          - "**/*_test.py"
+          - "**/conftest.py"
+
+# Dependencies
+deps:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "requirements*.txt"
+          - "pyproject.toml"
+          - "setup.py"
+          - "setup.cfg"
+          - "poetry.lock"
+          - "Pipfile"
+          - "Dockerfile"
