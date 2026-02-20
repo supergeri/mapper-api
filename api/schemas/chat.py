@@ -28,11 +28,16 @@ class ChatStreamRequest(BaseModel):
     """Request body for POST /chat/stream."""
     session_id: Optional[str] = Field(
         default=None,
-        description="Existing session ID to resume. Null creates a new session."
+        description="Existing session ID to resume. Null creates a new session.",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-zA-Z0-9\-_]+$",
     )
     message: str = Field(
         ...,
-        description="User's message to the AI assistant"
+        description="User's message to the AI assistant",
+        min_length=1,
+        max_length=10000,
     )
     context: Optional[ChatContext] = Field(
         default=None,

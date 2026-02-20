@@ -16,8 +16,6 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, AsyncGenerator, Callable
-
-from backend.ai import AIClientFactory, AIRequestContext
 from backend.services.tool_executor import ToolExecutor
 from backend.services.tool_schemas import get_all_tool_schemas
 
@@ -90,8 +88,7 @@ class ChatService:
         session_id: Optional[str],
         message: str,
         context: Optional[Dict[str, Any]],
-        send_sse: Callable[[str, Dict[str, Any]], None],
-    ) -> str:
+    ) -> AsyncGenerator[tuple[str, Dict[str, Any]], None]:
         """
         Stream a chat response from Claude with SSE events.
 
@@ -100,10 +97,9 @@ class ChatService:
             session_id: Existing session ID or None for new session
             message: User's message
             context: Context information (current_page, selected_workout_id)
-            send_sse: Callback function to send SSE events (event_type, data)
 
-        Returns:
-            The session ID used for this conversation
+        Yields:
+            Tuple of (event_type, event_data) for SSE events
         """
         # Generate IDs
         message_id = str(uuid.uuid4())
@@ -116,10 +112,10 @@ class ChatService:
             logger.info(f"Resuming chat session: {session_id} for user: {user_id}")
 
         # Send message_start event
-        send_sse("message_start", {
+        yield "message_start", {
             "session_id": session_id,
             "message_id": message_id,
-        })
+        }
 
         # Get conversation history for context
         conversation_history = self._get_conversation_history(session_id)
@@ -149,21 +145,21 @@ class ChatService:
                         if event.delta.type == "text_delta":
                             text = event.delta.text
                             content_buffer += text
-                            send_sse("content_delta", {
+                            yield "content_delta", {
                                 "content": text,
                                 "message_id": message_id,
-                            })
+                            }
                     
                     elif event.type == "tool_use":
                         # Claude wants to use a tool
                         tool_name = event.name
                         tool_input = event.input
                         
-                        send_sse("function_call", {
+                        yield "function_call", {
                             "function_name": tool_name,
                             "parameters": tool_input,
                             "message_id": message_id,
-                        })
+                        }
                         
                         # Execute the tool
                         if self.tool_executor:
@@ -175,15 +171,15 @@ class ChatService:
                                 )
                             except Exception as e:
                                 logger.error(f"Tool execution failed: {e}")
-                                result = {"success": False, "error": str(e)}
+                                result = {"success": False, "error": "Tool execution failed"}
                         else:
                             result = {"success": False, "error": "Tool executor not configured"}
                         
-                        send_sse("function_result", {
+                        yield "function_result", {
                             "function_name": tool_name,
                             "result": result,
                             "message_id": message_id,
-                        })
+                        }
                     
                     elif event.type == "message_stop":
                         break
@@ -199,21 +195,24 @@ class ChatService:
                 error_type = "rate_limit_exceeded"
                 retry_after = 60  # Default retry after 60 seconds
             
-            send_sse("error", {
+            # Sanitize error message to avoid leaking sensitive details
+            error_message = "An error occurred while processing your request. Please try again."
+            if error_type == "rate_limit_exceeded":
+                error_message = "Rate limit exceeded. Please try again later."
+            
+            yield "error", {
                 "error_type": error_type,
-                "message": str(e),
+                "message": error_message,
                 "retry_after": retry_after,
-            })
+            }
 
         # Send message_end event
-        send_sse("message_end", {
+        yield "message_end", {
             "message_id": message_id,
-        })
+        }
 
         # Persist the conversation
         self._persist_message(session_id, user_id, message, content_buffer)
-
-        return session_id
 
     def _get_conversation_history(self, session_id: str) -> list:
         """Get conversation history for a session.

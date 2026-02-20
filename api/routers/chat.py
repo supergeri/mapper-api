@@ -93,13 +93,19 @@ async def chat_stream_endpoint(
     # Create chat service with tool executor
     # Note: In production, these would be injected via dependencies
     tool_executor = None
+    search_repo = None
+    embedding_service = None
     try:
         from api.deps import get_search_repo, get_embedding_service
         search_repo = get_search_repo()
         embedding_service = get_embedding_service()
         tool_executor = create_tool_executor(search_repo, embedding_service)
+    except ImportError as e:
+        logger.warning(f"Tool executor dependencies not available: {e}")
+    except ConnectionError as e:
+        logger.warning(f"Tool executor connection failed: {e}")
     except Exception as e:
-        logger.warning(f"Tool executor not available: {e}")
+        logger.error(f"Unexpected error initializing tool executor: {e}")
 
     chat_service = create_chat_service(tool_executor)
 
@@ -114,30 +120,28 @@ async def chat_stream_endpoint(
     async def event_stream():
         """Generate SSE events for the chat response."""
         
-        def send_sse(event_type: str, data: dict):
-            """Send an SSE event to the client."""
-            yield format_sse_event(event_type, data)
-
         # Process the chat and stream response
         try:
-            final_session_id = await chat_service.stream_chat(
+            async for event_type, event_data in chat_service.stream_chat(
                 user_id=user_id,
                 session_id=request.session_id,
                 message=request.message,
                 context=context_data,
-                send_sse=send_sse,
-            )
+            ):
+                yield format_sse_event(event_type, event_data)
             
             # Increment rate limit on success
             rate_limiter.increment_rate_limit(user_id)
             
-            logger.info(f"Chat stream completed for user {user_id}, session {final_session_id}")
+            logger.info(f"Chat stream completed for user {user_id}")
             
         except Exception as e:
             logger.error(f"Error in chat stream: {e}")
+            # Sanitize error message
+            error_message = "An error occurred while processing your request. Please try again."
             yield format_sse_event("error", {
                 "error_type": "function_failed",
-                "message": str(e),
+                "message": error_message,
             })
 
     return StreamingResponse(
