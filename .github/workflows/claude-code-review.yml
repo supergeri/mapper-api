@@ -9,14 +9,13 @@ jobs:
     if: "!github.event.pull_request.draft"
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
 
       - name: Dismiss stale reviews
         uses: actions/github-script@v7
@@ -45,7 +44,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           use_sticky_comment: true
-          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*)"'
+          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*),Bash(git fetch:*),Bash(git checkout:*),Bash(git config:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git status:*)"'
           prompt: |
             You are a senior code reviewer for a FastAPI Python backend (mapper-api).
             Your audience is a junior developer — be specific and actionable.
@@ -83,11 +82,34 @@ jobs:
 
             If there are no issues, just say: "No action needed — this PR is ready to merge."
 
+            ## Self-healing mode
+
+            If you find **Critical or Important** issues, fix them directly instead of requesting changes:
+
+            1. Get the branch: `BRANCH=$(gh pr view --json headRefName --jq .headRefName)`
+            2. Fetch and switch: `git fetch origin "$BRANCH" && git checkout "$BRANCH"`
+            3. Fix the issues in the relevant files.
+            4. Configure git identity:
+               ```
+               git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+               git config user.name "github-actions[bot]"
+               ```
+            5. Commit: `git add -A && git commit -m "fix: address review issues — <brief summary>"`
+            6. Push: `git push origin "$BRANCH"`
+            7. Submit an **APPROVE** review listing what you fixed and why.
+
+            **Only use CHANGES_REQUESTED if:**
+            - The fix requires an architectural decision you cannot make unilaterally
+            - The fix would change feature behaviour, not just implementation quality
+            - The ticket requirements are genuinely ambiguous
+
+            **For Minor/Nitpick issues only:** Post as a review COMMENT — do not fix and do not escalate.
+
             ## Submitting the review
 
             After writing your review, submit a formal PR review using the GitHub API:
-            - If there are ANY Critical issues: submit with event "REQUEST_CHANGES"
-            - If there are only Important/Minor/Nitpick issues: submit with event "COMMENT"
+            - If there are ANY Critical issues that you could not self-heal: submit with event "REQUEST_CHANGES"
+            - If there are only Important/Minor/Nitpick issues or you self-healed all issues: submit with event "APPROVE"
             - If there are no issues: submit with event "APPROVE"
 
             Use this command to submit the formal review:

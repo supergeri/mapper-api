@@ -1,0 +1,124 @@
+name: Linear Status Sync
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, reopened, closed]
+
+jobs:
+  sync-linear:
+    if: contains(github.head_ref, 'AMA-')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Sync ticket state to Linear
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          BRANCH: ${{ github.head_ref }}
+          ACTION: ${{ github.event.action }}
+          MERGED: ${{ github.event.pull_request.merged }}
+        run: |
+          if [[ -z "$LINEAR_API_KEY" ]]; then
+            echo "LINEAR_API_KEY not set — skipping"
+            exit 0
+          fi
+
+          TICKET_ID=$(echo "$BRANCH" | grep -oE 'AMA-[0-9]+' | head -1)
+          if [[ -z "$TICKET_ID" ]]; then
+            echo "No AMA-NNN in branch '$BRANCH' — skipping"
+            exit 0
+          fi
+
+          TICKET_NUMBER=$(echo "$TICKET_ID" | grep -oE '[0-9]+')
+
+          if [[ "$ACTION" == "opened" || "$ACTION" == "ready_for_review" || "$ACTION" == "reopened" ]]; then
+            TARGET_STATE="In Review"
+          elif [[ "$ACTION" == "closed" && "$MERGED" == "true" ]]; then
+            TARGET_STATE="Done"
+          elif [[ "$ACTION" == "closed" && "$MERGED" == "false" ]]; then
+            TARGET_STATE="In Progress"
+          else
+            echo "Action '$ACTION' not mapped — skipping"
+            exit 0
+          fi
+
+          echo "Ticket: $TICKET_ID | Action: $ACTION | Target: $TARGET_STATE"
+
+          ISSUE_QUERY=$(jq -n --argjson num "$TICKET_NUMBER" \
+            '{"query": "{ issues(filter: { number: { eq: \($num) } }) { nodes { id team { id } state { name } } } }"}')
+          ISSUE_RESP=$(curl -sf -X POST https://api.linear.app/graphql \
+            -H "Authorization: $LINEAR_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$ISSUE_QUERY")
+
+          ISSUE_UUID=$(echo "$ISSUE_RESP" | python3 -c "
+import sys, json; d = json.load(sys.stdin)
+nodes = d.get('data',{}).get('issues',{}).get('nodes',[])
+print(nodes[0]['id'] if nodes else '')")
+
+          TEAM_ID=$(echo "$ISSUE_RESP" | python3 -c "
+import sys, json; d = json.load(sys.stdin)
+nodes = d.get('data',{}).get('issues',{}).get('nodes',[])
+print(nodes[0]['team']['id'] if nodes else '')")
+
+          CURRENT_STATE=$(echo "$ISSUE_RESP" | python3 -c "
+import sys, json; d = json.load(sys.stdin)
+nodes = d.get('data',{}).get('issues',{}).get('nodes',[])
+print(nodes[0]['state']['name'] if nodes else '')")
+
+          if [[ -z "$ISSUE_UUID" ]]; then
+            echo "Could not find $TICKET_ID in Linear — skipping"
+            exit 0
+          fi
+
+          if [[ "$CURRENT_STATE" == "$TARGET_STATE" ]]; then
+            echo "$TICKET_ID already '$TARGET_STATE' — nothing to do"
+            exit 0
+          fi
+
+          STATES_QUERY=$(jq -n --arg teamId "$TEAM_ID" \
+            '{"query": "{ workflowStates(filter: { team: { id: { eq: \($teamId) } } }) { nodes { id name } } }"}')
+          STATES_RESP=$(curl -sf -X POST https://api.linear.app/graphql \
+            -H "Authorization: $LINEAR_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$STATES_QUERY")
+
+          echo "Available states:"
+          echo "$STATES_RESP" | python3 -c "
+import sys, json; d = json.load(sys.stdin)
+for n in d.get('data',{}).get('workflowStates',{}).get('nodes',[]):
+    print(f'  {n[\"name\"]}')"
+
+          STATE_UUID=$(echo "$STATES_RESP" | python3 -c "
+import sys, json; target = sys.argv[1]
+d = json.load(sys.stdin)
+nodes = d.get('data',{}).get('workflowStates',{}).get('nodes',[])
+match = [n for n in nodes if n['name'] == target]
+print(match[0]['id'] if match else '')" "$TARGET_STATE")
+
+          if [[ -z "$STATE_UUID" ]]; then
+            echo "State '$TARGET_STATE' not found — check available states listed above"
+            exit 1
+          fi
+
+          UPDATE=$(jq -n --arg id "$ISSUE_UUID" --arg stateId "$STATE_UUID" \
+            '{"query": "mutation { issueUpdate(id: \($id), input: { stateId: \($stateId) }) { success issue { identifier state { name } } } }"}')
+          UPDATE_RESP=$(curl -sf -X POST https://api.linear.app/graphql \
+            -H "Authorization: $LINEAR_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$UPDATE")
+
+          SUCCESS=$(echo "$UPDATE_RESP" | python3 -c "
+import sys, json; d = json.load(sys.stdin)
+print('true' if d.get('data',{}).get('issueUpdate',{}).get('success') else 'false')")
+
+          if [[ "$SUCCESS" == "true" ]]; then
+            NEW=$(echo "$UPDATE_RESP" | python3 -c "
+import sys, json; d = json.load(sys.stdin)
+print(d.get('data',{}).get('issueUpdate',{}).get('issue',{}).get('state',{}).get('name',''))")
+            echo "✓ $TICKET_ID → '$NEW'"
+          else
+            echo "✗ Update failed: $UPDATE_RESP"
+            exit 1
+          fi
