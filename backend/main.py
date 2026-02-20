@@ -139,6 +139,7 @@ def _include_routers(app: FastAPI) -> None:
         follow_along_router,
         sync_router,
         bulk_import_router,
+        ai_build_router,
     )
 
     # Health router (no prefix - /health at root)
@@ -172,6 +173,8 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(sync_router)
     # Bulk import workflow (AMA-591)
     app.include_router(bulk_import_router)
+    # AI Builder (AMA-446)
+    app.include_router(ai_build_router)
 
 
 def _log_feature_flags(settings: Settings) -> None:
