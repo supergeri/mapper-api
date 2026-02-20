@@ -6,7 +6,7 @@ on:
 
 jobs:
   code-review:
-    if: "!github.event.pull_request.draft"
+    if: "!github.event.pull_request.draft && !(github.event.action == 'synchronize' && github.actor == 'github-actions[bot]')"
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -24,14 +24,14 @@ jobs:
             const reviews = await github.rest.pulls.listReviews({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              pull_number: context.issue.number
+              pull_number: context.payload.pull_request.number
             });
             for (const review of reviews.data) {
               if (review.user.login === 'github-actions[bot]' && review.state === 'CHANGES_REQUESTED') {
                 await github.rest.pulls.dismissReview({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  pull_number: context.issue.number,
+                  pull_number: context.payload.pull_request.number,
                   review_id: review.id,
                   message: 'Dismissed: new review in progress.'
                 });
@@ -114,9 +114,9 @@ jobs:
 
             Use this command to submit the formal review:
             ```
-            gh api repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews \
+            PR_NUM=$(gh pr view --json number --jq .number)
+            gh api repos/$GITHUB_REPOSITORY/pulls/$PR_NUM/reviews \
               -f event="REQUEST_CHANGES" \
               -f body="Review verdict: **Request changes** — see action items in review comment."
             ```
             Replace the event and body as appropriate for COMMENT or APPROVE verdicts.
-            Get the PR number from `gh pr view --json number --jq .number`.

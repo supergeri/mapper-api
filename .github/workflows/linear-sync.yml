@@ -46,7 +46,7 @@ jobs:
           echo "Ticket: $TICKET_ID | Action: $ACTION | Target: $TARGET_STATE"
 
           ISSUE_QUERY=$(jq -n --argjson num "$TICKET_NUMBER" \
-            '{"query": "{ issues(filter: { number: { eq: \($num) } }) { nodes { id team { id } state { name } } } }"}')
+            '{"query": "{ issues(filter: { number: { eq: \($num) }, team: { name: { eq: \"MyAmaka\" } } }) { nodes { id team { id } state { name } } } }"}')
           ISSUE_RESP=$(curl -sf -X POST https://api.linear.app/graphql \
             -H "Authorization: $LINEAR_API_KEY" \
             -H "Content-Type: application/json" \
