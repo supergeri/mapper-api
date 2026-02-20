@@ -168,6 +168,14 @@ class Settings(BaseSettings):
     )
 
     # -------------------------------------------------------------------------
+    # External Services - Anthropic Claude (AMA-439: Chat Streaming)
+    # -------------------------------------------------------------------------
+    anthropic_api_key: Optional[str] = Field(
+        default=None,
+        description="Anthropic API key for Claude AI (chat streaming)",
+    )
+
+    # -------------------------------------------------------------------------
     # Helicone - AI Observability Platform (AMA-422)
     # -------------------------------------------------------------------------
     helicone_enabled: bool = Field(

@@ -36,6 +36,7 @@ from api.routers.settings import router as settings_router
 from api.routers.follow_along import router as follow_along_router
 from api.routers.sync import router as sync_router
 from api.routers.bulk_import import router as bulk_import_router
+from api.routers.chat import router as chat_router
 
 __all__ = [
     "account_router",
@@ -53,4 +54,5 @@ __all__ = [
     "follow_along_router",
     "sync_router",
     "bulk_import_router",
+    "chat_router",
 ]
