@@ -1,0 +1,60 @@
+name: 'Detect Docs Changes'
+description: 'Detects if a PR only contains documentation changes'
+outputs:
+  docs_only:
+    description: 'Whether the PR only contains documentation changes'
+    value: ${{ steps.check.outputs.docs_only }}
+runs:
+  using: composite
+  steps:
+    - name: Get changed files
+      id: changed-files
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Detect docs-only changes
+      id: check
+      shell: bash
+      run: |
+        # Get list of changed files (compare against main branch for PRs)
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # For PRs, compare against the base branch
+          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
+          CHANGED_FILES=$(git diff --name-only origin/$BASE_BRANCH...HEAD)
+        else
+          # For push to main, compare against the previous commit
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+        fi
+        
+        echo "Changed files:"
+        echo "$CHANGED_FILES"
+        
+        # If no files changed, not docs-only
+        if [ -z "$CHANGED_FILES" ]; then
+          echo "docs_only=false" >> $GITHUB_OUTPUT
+          echo "No files changed"
+          exit 0
+        fi
+        
+        # Define docs patterns
+        # **/*.md, docs/**, *.txt, LICENSE (and other common license files)
+        DOCS_PATTERN_REGEX='(^|/)(.*\.md|docs/.*|.*\.txt|LICENSE|COPYING|CHANGELOG|CHANGELOG\.md|README|CODE_OF_CONDUCT\.md|CONTRIBUTING\.md)$'
+        
+        DOCS_ONLY=true
+        
+        while IFS= read -r file; do
+          # Skip empty lines
+          [ -z "$file" ] && continue
+          
+          # Check if file matches docs pattern (case-insensitive)
+          if ! echo "$file" | grep -EiE "$DOCS_PATTERN_REGEX" > /dev/null; then
+            echo "Non-docs file found: $file"
+            DOCS_ONLY=false
+            break
+          fi
+        done <<< "$CHANGED_FILES"
+        
+        echo "docs_only=$DOCS_ONLY" >> $GITHUB_OUTPUT
+        echo "Result: docs_only=$DOCS_ONLY"
