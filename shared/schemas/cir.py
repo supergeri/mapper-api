@@ -44,6 +44,10 @@ class Exercise(BaseModel):
 
     rest_seconds: Optional[int] = None
 
+    distance: Optional[float] = None
+
+    distance_unit: Optional[Literal["miles", "km", "m", "yards", "feet"]] = None
+
     notes: Optional[str] = None
 
 
@@ -53,6 +57,8 @@ class Block(BaseModel):
     type: BlockType = "straight"
 
     rounds: int = 1
+
+    time_cap_sec: Optional[int] = None
 
     items: List[Exercise]
 

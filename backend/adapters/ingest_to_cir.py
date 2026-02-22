@@ -17,17 +17,123 @@ STRUCTURE_TO_BLOCK_TYPE = {
 }
 
 
-def _exercise_from_dict(e: dict) -> Exercise:
+def _extract_reps_from_name(name: str) -> Optional[int]:
+    """Extract reps from exercise name prefix (e.g., '100 wall balls' -> 100)."""
+    match = re.match(r'^(\d+)\s+(.+)$', name)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def _extract_distance_from_name(name: str) -> Optional[Tuple[float, str]]:
+    """Extract distance from exercise name (e.g., '1000m Ski' -> (1000, 'm'))."""
+    match = re.match(r'^(\d+(?:\.\d+)?)\s*(m|km|miles?|yards?)\s+(.+)$', name, re.IGNORECASE)
+    if match:
+        value = float(match.group(1))
+        unit = match.group(2).lower()
+        # Normalize unit
+        if unit.startswith('m') and len(unit) == 1:
+            unit = 'm'  # meters
+        elif unit == 'mi':
+            unit = 'miles'
+        return (value, unit)
+    return None
+
+
+def _clean_name_of_numeric_prefix(name: str) -> str:
+    """Remove numeric prefix from exercise name (e.g., '100 wall balls' -> 'wall balls')."""
+    match = re.match(r'^\d+\s+(.+)$', name)
+    if match:
+        return match.group(1)
+    return name
+
+
+def _detect_timed_station_format(block_dict: dict) -> Optional[int]:
+    """Detect if block is a timed-station format (e.g., Hyrox).
+    
+    Returns the time cap in seconds if detected, None otherwise.
+    
+    Timed-station format indicators:
+    - structure contains "timed station" or "station" or "hyrox"
+    - time_cap_sec or time_work_sec is present
+    - exercises have time-based notes like "5 minute cap"
+    - structure contains time windows like "0-5:", "5-10:"
+    """
+    structure = block_dict.get("structure", "") or ""
+    structure_lower = structure.lower()
+    
+    # Check for explicit time cap
+    time_cap = block_dict.get("time_cap_sec") or block_dict.get("time_work_sec")
+    if time_cap:
+        return time_cap
+    
+    # Check for timed-station keywords in structure
+    if "timed station" in structure_lower or "station" in structure_lower:
+        # Try to extract time from structure like "5 minute station" or "5 min cap"
+        time_match = re.search(r'(\d+)\s*(minute|min|second|sec)', structure, re.IGNORECASE)
+        if time_match:
+            value = int(time_match.group(1))
+            unit = time_match.group(2).lower()
+            if unit.startswith('min'):
+                return value * 60
+            return value
+    
+    # Check for time window pattern in notes or structure (e.g., "0-5:", "5-10:")
+    notes = block_dict.get("notes", "") or ""
+    full_text = f"{structure} {notes}"
+    if re.search(r'\d+-\d+:', full_text):
+        # Time window pattern detected - extract time interval
+        # Pattern "0-5:" means 5 minute windows
+        time_match = re.search(r'(\d+)-(\d+):', full_text)
+        if time_match:
+            start = int(time_match.group(1))
+            end = int(time_match.group(2))
+            return (end - start) * 60
+    
+    return None
+
+
+def _exercise_from_dict(e: dict, time_cap_note: Optional[str] = None) -> Exercise:
     """Convert an exercise dict to a CIR Exercise."""
+    name = e.get("name", "")
+    
+    # Extract reps from name prefix if not provided in dict
+    reps = e.get("reps")
+    if reps is None and name:
+        reps = _extract_reps_from_name(name)
+    
+    # Use provided distance if available, otherwise try to extract from name
+    distance = e.get("distance")
+    distance_unit = e.get("distance_unit")
+    if distance is None and name:
+        dist_result = _extract_distance_from_name(name)
+        if dist_result:
+            distance, distance_unit = dist_result
+    
+    # Clean name of numeric prefix (only if we extracted reps from it)
+    clean_name = name
+    if reps is not None and _extract_reps_from_name(name):
+        clean_name = _clean_name_of_numeric_prefix(name)
+    
+    # Get notes - add time cap note if provided
+    notes = e.get("notes")
+    if time_cap_note and not notes:
+        notes = time_cap_note
+    elif time_cap_note and notes:
+        notes = f"{time_cap_note}. {notes}"
+    
     return Exercise(
-        name=e["name"],
+        name=clean_name or e.get("name", "Exercise"),
         sets=e.get("sets"),
-        reps=e.get("reps"),
+        reps=reps,
         duration_seconds=e.get("duration_seconds"),
         rest_seconds=e.get("rest") or e.get("rest_sec"),
         equipment=e.get("equipment", []),
         modifiers=e.get("modifiers", []),
         tempo=e.get("tempo"),
+        distance=distance,
+        distance_unit=distance_unit,
+        notes=notes,
     )
 
 
@@ -258,14 +364,37 @@ def _blocks_from_structured_input(ingest_json: dict) -> List[Block]:
     """Convert structured blocks[] input to CIR Blocks."""
     blocks = []
     for block_dict in ingest_json.get("blocks", []):
+        # Detect timed-station format and get time cap
+        time_cap_sec = _detect_timed_station_format(block_dict)
+        
+        # For timed-station format, rounds should always be 1
+        # (you're doing one pass through all stations, each with a time cap)
+        structure = block_dict.get("structure", "") or ""
+        structure_lower = structure.lower()
+        is_timed_station = time_cap_sec is not None or "timed station" in structure_lower or "station" in structure_lower
+        
+        # Build time cap note for exercises if we have a time cap
+        time_cap_note = None
+        if time_cap_sec:
+            minutes = time_cap_sec // 60
+            if minutes >= 1:
+                time_cap_note = f"{minutes} minute cap"
+            else:
+                time_cap_note = f"{time_cap_sec} second cap"
+        
+        # Convert exercises with time cap info
         exercises = block_dict.get("exercises", [])
-        items = [_exercise_from_dict(e) for e in exercises]
+        items = [_exercise_from_dict(e, time_cap_note) for e in exercises]
 
-        structure = block_dict.get("structure", "")
         block_type = STRUCTURE_TO_BLOCK_TYPE.get(structure, "straight")
-        rounds = _resolve_rounds(block_dict)
+        
+        # For timed-station format, force rounds to 1
+        if is_timed_station:
+            rounds = 1
+        else:
+            rounds = _resolve_rounds(block_dict)
 
-        blocks.append(Block(type=block_type, rounds=rounds, items=items))
+        blocks.append(Block(type=block_type, rounds=rounds, time_cap_sec=time_cap_sec, items=items))
     return blocks
 
 
