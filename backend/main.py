@@ -123,6 +123,7 @@ def _include_routers(app: FastAPI) -> None:
     Updated in AMA-597: Move debug/testing endpoints to health router
     Updated in AMA-362: Add follow-along router
     Updated in AMA-439: Add chat router for SSE streaming
+    Updated in AMA-688: Add detection router for workout auto-detection
     """
     from api.routers import (
         account_router,
@@ -141,6 +142,7 @@ def _include_routers(app: FastAPI) -> None:
         sync_router,
         bulk_import_router,
         chat_router,
+        detection_router,
     )
 
     # Health router (no prefix - /health at root)
@@ -176,6 +178,8 @@ def _include_routers(app: FastAPI) -> None:
     app.include_router(bulk_import_router)
     # Chat SSE streaming endpoint (AMA-439)
     app.include_router(chat_router)
+    # Workout detection endpoint (AMA-688)
+    app.include_router(detection_router)
 
 
 def _log_feature_flags(settings: Settings) -> None:

@@ -7,6 +7,7 @@ Updated in AMA-594: Add tags router for user tag management
 Updated in AMA-591: Add bulk import router
 Updated in AMA-596: Add account router
 Updated in AMA-597: Move debug/testing endpoints to health router
+Updated in AMA-688: Add detection router for workout auto-detection
 
 This package contains all API routers organized by domain:
 - health: Health check and debug/testing endpoints (AMA-597)
@@ -19,6 +20,7 @@ This package contains all API routers organized by domain:
 - tags: User tag management (AMA-594)
 - bulk_import: Bulk import workflow (AMA-591)
 - account: Account management (AMA-596)
+- detection: Workout auto-detection from wearable devices (AMA-688)
 """
 
 from api.routers.account import router as account_router
@@ -37,6 +39,7 @@ from api.routers.follow_along import router as follow_along_router
 from api.routers.sync import router as sync_router
 from api.routers.bulk_import import router as bulk_import_router
 from api.routers.chat import router as chat_router
+from api.routers.detection import router as detection_router
 
 __all__ = [
     "account_router",
@@ -55,4 +58,5 @@ __all__ = [
     "sync_router",
     "bulk_import_router",
     "chat_router",
+    "detection_router",
 ]
