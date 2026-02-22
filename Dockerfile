@@ -3,6 +3,9 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Copy requirements if it exists, otherwise we'll install common dependencies
+# git required by pip packages (e.g. fit-tool from VCS)
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt* ./
 RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; else pip install --no-cache-dir fastapi uvicorn pydantic pyyaml rapidfuzz; fi
 
