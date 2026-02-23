@@ -5,8 +5,8 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     repo: https://github.com/supergeri/mapper-api
-    branch: main
-    autoDeploy: false
+    branch: develop
+    autoDeploy: true
     healthCheckPath: /health
     envVars:
       - key: PORT
