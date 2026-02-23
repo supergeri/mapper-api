@@ -308,6 +308,7 @@ def blocks_to_workout(blocks_json: Dict[str, Any]) -> Workout:
         sources=sources,
         source_url=metadata_dict.get("source_url"),
         platform=metadata_dict.get("platform"),
+        workout_type=blocks_json.get("workout_type"),
     )
 
     return Workout(
