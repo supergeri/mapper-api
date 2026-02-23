@@ -290,8 +290,12 @@ def _workout_to_blocks_format(workout: Workout) -> Dict[str, Any]:
     if workout.tags:
         result["tags"] = workout.tags
 
+    # Include workout_type at top level for backward compatibility
+    if workout.metadata.workout_type:
+        result["workout_type"] = workout.metadata.workout_type
+
     # Include metadata
-    if workout.metadata.sources or workout.metadata.platform:
+    if workout.metadata.sources or workout.metadata.platform or workout.metadata.workout_type:
         result["metadata"] = {}
         if workout.metadata.sources:
             result["metadata"]["sources"] = [s.value for s in workout.metadata.sources]
@@ -299,5 +303,7 @@ def _workout_to_blocks_format(workout: Workout) -> Dict[str, Any]:
             result["metadata"]["platform"] = workout.metadata.platform
         if workout.metadata.source_url:
             result["metadata"]["source_url"] = workout.metadata.source_url
+        if workout.metadata.workout_type:
+            result["metadata"]["workout_type"] = workout.metadata.workout_type
 
     return result

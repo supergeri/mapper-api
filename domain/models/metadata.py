@@ -91,6 +91,11 @@ class WorkoutMetadata(BaseModel):
         default=None, description="When the workout was synced to iOS Companion app"
     )
 
+    # Workout type for categorization (strength, cardio, hiit, circuit, etc.)
+    workout_type: Optional[str] = Field(
+        default=None, description="Workout type for categorization (e.g., 'strength', 'cardio', 'hiit')"
+    )
+
     @property
     def is_ai_generated(self) -> bool:
         """Check if this workout was AI-generated."""
